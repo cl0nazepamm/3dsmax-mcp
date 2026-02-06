@@ -1,6 +1,6 @@
 # 3dsmax-mcp
 
-<p align="center">
+<p align="left">
   <img src="logo.png" alt="3dsmax-mcp logo" width="200">
 </p>
 
@@ -10,14 +10,27 @@ MCP server bridging Claude to Autodesk 3ds Max via TCP socket.
 
 - [Python 3.10+](https://www.python.org/)
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
-- Autodesk 3ds Max 2026
+- Autodesk 3ds Max 2025+ (only 2026 tested!)
+
+## Ideas you can try.
+
+- Write MaxScript/Python directly, Claude will read and debug code fix issues keep agent running on a loop until success.
+- Write OSL shaders
+- Read and manipulate scene data.
+- Organize objects.
+- Set up project folders and organize them.
+- Get feedback on your renders. (Claude can see outside 3dsmax window)
+- Will learn from mistakes and save it in SKILL.md
+- Basic 3dsmax skill file is included. Contributions welcome.
+- You can also rename objects using AI.(Only works on Claude Code). Ask Claude to rename objects using haiku. Claude will run haiku subagent and analyze every object in the scene. Be aware that this burns tokens CRAZILY. Only do this if you're rich.
+- Try using plugins like Forest Pack and tyFlow.
 
 ## Setup
 
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/YourUsername/3dsmax-mcp.git
+git clone https://github.com/cl0nazepamm/3dsmax-mcp.git
 cd 3dsmax-mcp
 ```
 
@@ -89,9 +102,10 @@ Replace `/absolute/path/to/3dsmax-mcp` with the actual path where you cloned the
 
 ## How it works
 
-1. The MCP server (Python) sends MAXScript commands as JSON to a temp directory
-2. The MAXScript listener (running inside 3ds Max) polls for requests, executes them, and writes responses
-3. Claude sends commands through the MCP server and gets results back
+1. The MAXScript listener runs inside 3ds Max on TCP port 8765
+2. The MCP server (Python) sends MAXScript commands via TCP socket
+3. 3ds Max executes commands and returns JSON responses
+4. Claude sends commands through the MCP server and gets results back
 
 ## Available tools
 
