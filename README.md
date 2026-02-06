@@ -1,6 +1,10 @@
 # 3dsmax-mcp
 
-MCP server bridging Claude to Autodesk 3ds Max via file-based JSON polling.
+<p align="center">
+  <img src="logo.png" alt="3dsmax-mcp logo" width="200">
+</p>
+
+MCP server bridging Claude to Autodesk 3ds Max via TCP socket.
 
 ## Prerequisites
 
