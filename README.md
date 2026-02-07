@@ -24,6 +24,7 @@ MCP server bridging Claude to Autodesk 3ds Max via TCP socket.
 - Basic 3dsmax skill file is included. Contributions welcome.
 - You can also rename objects using AI.(Only works on Claude Code). Ask Claude to rename objects using haiku. Claude will run haiku subagent and analyze every object in the scene. Be aware that this burns tokens CRAZILY. Only do this if you're rich.
 - Try using plugins like Forest Pack and tyFlow.
+- Convert scenes between renderers
 
 ## Setup
 
