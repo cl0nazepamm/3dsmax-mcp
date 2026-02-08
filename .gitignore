@@ -8,4 +8,5 @@ build/
 *.egg
 .DS_Store
 .claude/settings.local.json
+.claude/skills/
 nul

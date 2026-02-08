@@ -79,6 +79,19 @@ Add to your `.claude/settings.json` or project settings:
 }
 ```
 
+#### Gemini CLI
+
+Run these commands (replacing the path with your absolute local path):
+
+1. **Add MCP Server:**
+   ```bash
+   gemini mcp add --scope user 3dsmax-mcp uv run --directory "C:\path\to\3dsmax-mcp" 3dsmax-mcp
+   ```
+2. **Install Dev Skill:**
+   ```bash
+   gemini skills install "C:\path\to\3dsmax-mcp\skills\3dsmax-mcp-dev"
+   ```
+
 #### Claude Desktop App
 
 Edit `%APPDATA%\Claude\claude_desktop_config.json` (Windows) or `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):

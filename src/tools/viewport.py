@@ -19,6 +19,7 @@ def capture_viewport() -> Image:
     capture_path = os.path.join(COMMS_DIR, "viewport_capture.png").replace("\\", "/")
 
     maxscript = f"""(
+        makeDir "{os.path.dirname(capture_path).replace(os.sep, '/')}" all:true
         completeredraw()
         local vp = gw.getViewportDib()
         vp.filename = "{capture_path}"
@@ -55,6 +56,7 @@ def capture_screen(
     capture_path = os.path.join(COMMS_DIR, "screen_capture.png").replace("\\", "/")
 
     maxscript = f"""(
+        makeDir "{os.path.dirname(capture_path).replace(os.sep, '/')}" all:true
         captureW = {width}
         captureH = {height}
         if captureW == 0 or captureH == 0 do (

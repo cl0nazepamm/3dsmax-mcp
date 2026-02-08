@@ -13,7 +13,7 @@ from .tools import execute, scene, objects, materials, render, viewport, identif
 
 # Expose skill/knowledge files as MCP resources for Claude Desktop users
 _SKILL_PATH = os.path.join(
-    os.path.dirname(__file__), os.pardir, ".claude", "skills", "3dsmax-mcp-dev", "SKILL.md"
+    os.path.dirname(__file__), os.pardir, "skills", "3dsmax-mcp-dev", "SKILL.md"
 )
 _SKILL_PATH = os.path.normpath(_SKILL_PATH)
 
