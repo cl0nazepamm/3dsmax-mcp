@@ -125,6 +125,13 @@ Call these inspection commands BEFORE writing any manipulation code. This avoids
 - **Prism parameters** — `side1Length`, `side2Length`, `side3Length` (NOT `side1`, `side2`, `side3`). The prism is oriented with the base on XY and height along Z.
 - **Gable roof pattern** — two Box panels meeting at ridge. Set pivot on the ridge edge (`in coordsys local obj.pivot = [0, -panelW/2, 0]`), rotate around X axis (`eulerAngles pitch 0 0`), position both at ridge height. Ridge runs along X when rotating around X.
 
+## Arnold / OSL Material Inspection
+- `getClassInstances Bitmaptexture target:mat` does NOT find Arnold or OSL maps — they use `OSLMap` class wrapped in `MultiOutputChannelTexmapToTexmap`
+- To reach underlying OSL bitmap: `mat.base_color_shader.sourceMap` (goes through MultiOutputChannelTexmapToTexmap → OSLMap)
+- OSL Uber Bitmap UDIM: set `.filename = "path/MapName.<UDIM>.ext"` and `.udim = 1`
+- `Filename_UDIMList` can be left empty — OIIO auto-detects tiles from filesystem
+- Arnold `ai_normal_map` chains through `RNMNormalBlend` OSL nodes — drill through `.input_shader`, `.NormalA_map`, `.NormalB_map` to find leaf bitmaps
+
 ## Testing
 - `execute_maxscript` is the escape hatch — use it to test raw MAXScript without writing a full tool
 - Check comms dir exists to verify MAXScript listener is running

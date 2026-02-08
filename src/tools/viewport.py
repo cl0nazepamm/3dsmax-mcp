@@ -38,8 +38,8 @@ def capture_viewport() -> Image:
 def capture_screen(
     x: int = 0,
     y: int = 0,
-    width: int = 1920,
-    height: int = 1080,
+    width: int = 0,
+    height: int = 0,
 ) -> Image:
     """Capture a region of the screen (for UI panels, render results, dialogs).
 
@@ -49,14 +49,21 @@ def capture_screen(
     Args:
         x: Left edge of capture region in pixels (default 0)
         y: Top edge of capture region in pixels (default 0)
-        width: Width of capture region in pixels (default 1920)
-        height: Height of capture region in pixels (default 1080)
+        width: Width of capture region in pixels (0 = auto-detect full screen)
+        height: Height of capture region in pixels (0 = auto-detect full screen)
     """
     capture_path = os.path.join(COMMS_DIR, "screen_capture.png").replace("\\", "/")
 
     maxscript = f"""(
-        sz = dotNetObject "System.Drawing.Size" {width} {height}
-        screenBmp = dotNetObject "System.Drawing.Bitmap" {width} {height}
+        captureW = {width}
+        captureH = {height}
+        if captureW == 0 or captureH == 0 do (
+            bounds = (dotNetClass "System.Windows.Forms.Screen").PrimaryScreen.Bounds
+            if captureW == 0 do captureW = bounds.Width
+            if captureH == 0 do captureH = bounds.Height
+        )
+        sz = dotNetObject "System.Drawing.Size" captureW captureH
+        screenBmp = dotNetObject "System.Drawing.Bitmap" captureW captureH
         gfx = (dotNetClass "System.Drawing.Graphics").FromImage screenBmp
         gfx.CopyFromScreen {x} {y} 0 0 sz
         screenBmp.Save "{capture_path}"
