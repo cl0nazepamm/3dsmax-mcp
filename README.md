@@ -41,7 +41,15 @@ cd 3dsmax-mcp
 uv sync
 ```
 
-### 3. Set up 3ds Max (MAXScript listener)
+### 3. Build skill file
+
+```bash
+python scripts/build_skill.py
+```
+
+This copies the development skill to `.claude/skills/` so Claude Code auto-discovers it in-project.
+
+### 4. Set up 3ds Max (MAXScript listener)
 
 Copy the MAXScript files into your 3ds Max installation:
 
@@ -57,7 +65,7 @@ Copy the MAXScript files into your 3ds Max installation:
 
 3. Restart 3ds Max. You should see `MCP: Auto-start complete` in the MAXScript Listener.
 
-### 4. Connect to Claude
+### 5. Connect to Claude
 
 #### Claude Code (CLI)
 
