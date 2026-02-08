@@ -13,11 +13,17 @@ def get_scene_info() -> str:
             local posStr = "[" + (obj.pos.x as string) + "," + \
                            (obj.pos.y as string) + "," + \
                            (obj.pos.z as string) + "]"
+            local parentName = if obj.parent != undefined then obj.parent.name else ""
+            local parentField = if parentName == "" then "null" else ("\"" + parentName + "\"")
             local entry = "{" + \
                 "\"name\":\"" + obj.name + "\"," + \
                 "\"class\":\"" + ((classOf obj) as string) + "\"," + \
                 "\"position\":" + posStr + "," + \
-                "\"isHidden\":" + (if obj.isHidden then "true" else "false") + \
+                "\"parent\":" + parentField + "," + \
+                "\"numChildren\":" + (obj.children.count as string) + "," + \
+                "\"isHidden\":" + (if obj.isHidden then "true" else "false") + "," + \
+                "\"isFrozen\":" + (if obj.isFrozen then "true" else "false") + "," + \
+                "\"layer\":\"" + obj.layer.name + "\"" + \
             "}"
             append arr entry
         )

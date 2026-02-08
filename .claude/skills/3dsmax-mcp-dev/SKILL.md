@@ -49,6 +49,7 @@ Call these inspection commands BEFORE writing any manipulation code. This avoids
   result += "]"
   ```
 - **Reserved variable names** — `output`, `result`, `bmp`, `foliage`, and `floor` are reserved/read-only in MAXScript global scope. Use alternatives like `outStr`, `msg`, `screenBmp`, `treeTop`, `hFloor`.
+- **`by` is a reserved keyword** — cannot be used as a function parameter or variable name (it's a keyword in `for i = 1 to N by step` loops). Use `bY` won't help (case-insensitive). Use `posY`, `boxY`, etc.
 - **Noise modifier class** — `Noise` in MAXScript resolves to the Noise texture map, NOT the modifier. The modifier class is `Noisemodifier`. Use `addModifier obj (Noisemodifier scale:20 strength:[1,1,1])`.
 - **`(getDir #temp)` is NOT system temp** — it returns Max's app-specific temp dir. Use `(dotNetClass "System.IO.Path").GetTempPath()` to match Python's `tempfile.gettempdir()`
 - **String escaping** — use `_safe_name()` from `objects.py` before embedding user strings in MAXScript. Handles backslashes and quotes.

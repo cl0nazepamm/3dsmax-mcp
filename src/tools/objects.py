@@ -36,6 +36,28 @@ def get_object_properties(name: str) -> str:
                 modStr += modArr[i]
             )
             modStr += "]"
+            local parentName = if obj.parent != undefined then obj.parent.name else ""
+            local parentField = if parentName == "" then "null" else ("\\\"" + parentName + "\\\"")
+            local childArr = for c in obj.children collect ("\\\"" + c.name + "\\\"")
+            local childStr = "["
+            for i = 1 to childArr.count do (
+                if i > 1 do childStr += ","
+                childStr += childArr[i]
+            )
+            childStr += "]"
+            local numVStr = "null"
+            local numFStr = "null"
+            try (
+                local snapMesh = snapshotAsMesh obj
+                numVStr = snapMesh.numVerts as string
+                numFStr = snapMesh.numFaces as string
+                delete snapMesh
+            ) catch ()
+            local wcStr = "[" + (obj.wirecolor.r as string) + "," + (obj.wirecolor.g as string) + "," + (obj.wirecolor.b as string) + "]"
+            local bbMin = obj.min
+            local bbMax = obj.max
+            local dims = bbMax - bbMin
+            local dimsStr = "[" + (dims.x as string) + "," + (dims.y as string) + "," + (dims.z as string) + "]"
             "{{" + \
                 "\\\"name\\\":\\\"" + obj.name + "\\\"," + \
                 "\\\"class\\\":\\\"" + ((classOf obj) as string) + "\\\"," + \
@@ -43,6 +65,13 @@ def get_object_properties(name: str) -> str:
                 "\\\"position\\\":" + posStr + "," + \
                 "\\\"rotation\\\":" + rotStr + "," + \
                 "\\\"scale\\\":" + scaleStr + "," + \
+                "\\\"parent\\\":" + parentField + "," + \
+                "\\\"children\\\":" + childStr + "," + \
+                "\\\"numVerts\\\":" + numVStr + "," + \
+                "\\\"numFaces\\\":" + numFStr + "," + \
+                "\\\"wirecolor\\\":" + wcStr + "," + \
+                "\\\"layer\\\":\\\"" + obj.layer.name + "\\\"," + \
+                "\\\"dimensions\\\":" + dimsStr + "," + \
                 "\\\"material\\\":\\\"" + matName + "\\\"," + \
                 "\\\"modifiers\\\":" + modStr + \
             "}}"
