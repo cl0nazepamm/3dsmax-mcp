@@ -6,6 +6,12 @@ user-invocable: true
 
 # 3dsmax-mcp Development Guide
 
+## Workflow Rules
+- **No rendering unless asked** — never render/capture viewport unless user explicitly requests it
+- **Screenshot while building** — always capture viewport after completing major build steps so user can see progress. Take a final screenshot when a scene build is done to verify the result visually. Skip screenshots for non-visual work (writing MAXScript functions, code tasks). Take screenshots when debugging or when the user is stuck.
+- **No spline viewport render unless asked** — never set `render_displayRenderMesh` or "Enable in Viewport" on splines unless user explicitly requests it. Hide splines used as paths.
+- **Screen resolution is 4K (3840x2160)** — always use `width:3840 height:2160` for `capture_screen`. The 1920x1080 default only captures a quarter of the screen.
+
 ## Core Rule: Inspect Before Acting
 **NEVER guess property names, class names, operator types, or parameter values.** Always query first:
 - `showProperties obj` — list all properties of an object/modifier/material
@@ -89,7 +95,8 @@ Call these inspection commands BEFORE writing any manipulation code. This avoids
 
 ## Object Organization
 - **Prefer Dummy hierarchy** — parent related objects under a `Dummy` node to keep the outliner clean. Groups are a secondary option. Attach is for when objects truly need to be a single mesh.
-- **Dummy setup rule**: create Dummy → size `boxsize` to children's combined bounding box → center pos on bbox center → parent children → set `pivot` to `[center.x, center.y, bbMin.z]` (snap pivot to min Z)
+- **Don't Dummy on first build** — when creating a single object (e.g. one house), just build the parts loose. Only organize under Dummies when grouping/reusing multiples (e.g. a neighbourhood scene).
+- **Dummy setup order**: (1) finish creating objects, (2) compute combined bounding box, (3) create Dummy, (4) set Dummy boxsize to bbox, (5) position Dummy at bbox center XY, (6) set pivot to minimum Z, (7) THEN parent objects into Dummy. Never parent first then reposition — that moves children.
 - When attaching objects with different materials, assign different Material IDs before attaching so a Multi/Sub-Object material can distinguish them
 - Convert to editable poly first (`convertToPoly obj`) before attaching
 
@@ -97,6 +104,7 @@ Call these inspection commands BEFORE writing any manipulation code. This avoids
 - `instance` function doesn't work on group heads — use `maxOps.cloneNodes` with `cloneType:#instance` instead
 - `maxOps.cloneNodes sourceArr cloneType:#instance newNodes:&cloneArr` — pass `&cloneArr` as reference to get the cloned nodes back
 - After cloning, offset positions with a loop: `for c in clones do c.pos += [0, offset, 0]`
+- **Instancing hierarchies** — `maxOps.cloneNodes` on a single Dummy does NOT bring children. To instance a hierarchy: attach objects into one mesh, use Groups (clone as unit), or pass the full hierarchy (dummy + all descendants) to cloneNodes.
 
 ## Splines
 - Renderable spline properties: `render_displayRenderMesh`, `render_displayRenderSettings`, `render_thickness`
@@ -132,6 +140,9 @@ Call these inspection commands BEFORE writing any manipulation code. This avoids
 - OSL Uber Bitmap UDIM: set `.filename = "path/MapName.<UDIM>.ext"` and `.udim = 1`
 - `Filename_UDIMList` can be left empty — OIIO auto-detects tiles from filesystem
 - Arnold `ai_normal_map` chains through `RNMNormalBlend` OSL nodes — drill through `.input_shader`, `.NormalA_map`, `.NormalB_map` to find leaf bitmaps
+
+## Shell Gotchas
+- **PowerShell `$` vars from bash** — `$var` in PowerShell gets eaten by bash. Write a `.ps1` file and run with `powershell -ExecutionPolicy Bypass -File script.ps1` instead.
 
 ## Testing
 - `execute_maxscript` is the escape hatch — use it to test raw MAXScript without writing a full tool
