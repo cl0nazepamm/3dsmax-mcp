@@ -48,7 +48,7 @@ Call these inspection commands BEFORE writing any manipulation code. This avoids
   )
   result += "]"
   ```
-- **Reserved variable names** — `output`, `result`, `bmp`, `foliage`, and `floor` are reserved/read-only in MAXScript global scope. Use alternatives like `outStr`, `msg`, `screenBmp`, `treeTop`, `hFloor`.
+- **Reserved variable names** — `output`, `result`, `bmp`, `foliage`, `floor`, `osl`, and `OSLMap` are reserved/read-only in MAXScript global scope. Use alternatives like `outStr`, `msg`, `screenBmp`, `treeTop`, `hFloor`, `myOsl`.
 - **`by` is a reserved keyword** — cannot be used as a function parameter or variable name (it's a keyword in `for i = 1 to N by step` loops). Use `bY` won't help (case-insensitive). Use `posY`, `boxY`, etc.
 - **Noise modifier class** — `Noise` in MAXScript resolves to the Noise texture map, NOT the modifier. The modifier class is `Noisemodifier`. Use `addModifier obj (Noisemodifier scale:20 strength:[1,1,1])`.
 - **`(getDir #temp)` is NOT system temp** — it returns Max's app-specific temp dir. Use `(dotNetClass "System.IO.Path").GetTempPath()` to match Python's `tempfile.gettempdir()`
@@ -64,7 +64,7 @@ Call these inspection commands BEFORE writing any manipulation code. This avoids
 - After editing Python files, restart MCP server process to pick up changes
 
 ## Viewport Capture
-- **OSL viewport preview** — OSL maps render in viewport when using **Standard** or **High Quality** mode (not Default Shading). Switch via `actionMan.executeAction -844228238 "13"` for Standard mode. No need to render for basic OSL preview.
+- **OSL viewport preview** — OSL maps ONLY render in viewport in **High Quality** mode (not Standard, not Default Shading). Switch via `actionMan.executeAction -844228238 "40"` for High Quality. Never use Standard mode for OSL — it will show black.
 - `gw.getViewportDib()` captures viewport as bitmap — much faster than render
 - Save to comms dir: `(dotNetClass "System.IO.Path").GetTempPath() + "3dsmax-mcp\\viewport.png"`
 - Call `completeredraw()` before capture to ensure display is current
