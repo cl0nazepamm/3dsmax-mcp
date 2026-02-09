@@ -22,7 +22,7 @@ MCP server bridging Claude to Autodesk 3ds Max via TCP socket.
 - Get feedback on your renders. (Claude can see outside 3dsmax window)
 - Will learn from mistakes and save it in SKILL.md
 - Basic 3dsmax skill file is included. Contributions welcome.
-- You can also rename objects using AI.(Only works on Claude Code). Ask Claude to rename objects using haiku. Claude will run haiku subagent and analyze every object in the scene. Be aware that this burns tokens CRAZILY. Only do this if you're rich.
+- You can also rename objects using AI.(Only works on Claude Code). Ask Claude to rename objects using haiku. Claude will run haiku subagent and analyze selected objects in the scene. Be aware that this burns tokens CRAZILY. Only do this if you're rich.
 - Try using plugins like Forest Pack and tyFlow.
 - Convert scenes between renderers
 
@@ -69,22 +69,9 @@ Copy the MAXScript files into your 3ds Max installation:
 
 #### Claude Code (CLI)
 
-Add to your `.claude/settings.json` or project settings:
-
-```json
-{
-  "mcpServers": {
-    "3dsmax-mcp": {
-      "command": "uv",
-      "args": [
-        "run",
-        "--directory",
-        "/absolute/path/to/3dsmax-mcp",
-        "3dsmax-mcp"
-      ]
-    }
-  }
-}
+Run this command 
+``` bash
+claude mcp add --scope user 3dsmax-mcp -- uv run --directory "C://Users//ogulc//3dsmax-mcp" 3dsmax-mcp
 ```
 
 #### Gemini CLI
@@ -104,7 +91,7 @@ Run these commands (replacing the path with your absolute local path):
 
 Edit `%APPDATA%\Claude\claude_desktop_config.json` (Windows) or `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 
-```json
+```bash
 {
   "mcpServers": {
     "3dsmax-mcp": {
@@ -112,15 +99,14 @@ Edit `%APPDATA%\Claude\claude_desktop_config.json` (Windows) or `~/Library/Appli
       "args": [
         "run",
         "--directory",
-        "/absolute/path/to/3dsmax-mcp",
+        "C:\\path\\to\\3dsmax-mcp",
         "3dsmax-mcp"
       ]
     }
-  }
-}
+  },
 ```
 
-Replace `/absolute/path/to/3dsmax-mcp` with the actual path where you cloned the repo. Restart the Claude Desktop app after editing.
+Replace `C:\\path\\to\\3dsmax-mcp` with the actual path where you cloned the repo. Restart the Claude Desktop app after editing.
 
 ## How it works
 
