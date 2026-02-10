@@ -1,6 +1,6 @@
 # 3dsmax-mcp
 
-MCP server bridging Claude to Autodesk 3ds Max via TCP socket (port 8765).
+This is for teaching Claude how to use 3dsmax.
 
 ## Flags
 - [x] **learn-from-mistakes** — When enabled, Claude MUST update `skills/3dsmax-mcp-dev/SKILL.md` whenever it encounters a bug, unexpected behavior, or discovers a MAXScript/3ds Max pitfall during a session. This keeps the skill file growing with real-world lessons so future sessions (and anyone who clones this repo) benefit immediately.
