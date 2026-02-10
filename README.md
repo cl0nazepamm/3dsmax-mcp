@@ -12,9 +12,9 @@ MCP server bridging Claude to Autodesk 3ds Max via TCP socket.
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
 - Autodesk 3ds Max 2025+ (only 2026 tested!)
 
-## Ideas you can try.
+## Ideas you can try
 
-- Write MaxScript/Python directly, Claude will read and debug code fix issues keep agent running on a loop until success.
+- Write MaxScript/Python directly. Claude will read and debug code, fix issues, and keep the agent running on a loop until success.
 - Write OSL shaders
 - Read and manipulate scene data.
 - Organize objects.
@@ -49,6 +49,20 @@ python scripts/build_skill.py
 
 This copies the development skill to `.claude/skills/` so Claude Code auto-discovers it in-project.
 
+#### Global skill (optional)
+
+To make the skill available in all your Claude Code projects, create a symlink to your user-level skills directory:
+
+```bash
+mklink /D "%USERPROFILE%\.claude\skills\3dsmax-mcp-dev" "C:\path\to\3dsmax-mcp\skills\3dsmax-mcp-dev"
+```
+
+Replace `C:\path\to\3dsmax-mcp` with the actual path where you cloned the repo. This lets Claude Code load the 3ds Max skill even when you're working outside this project.
+
+To activate the skill in a conversation, tell Claude:
+
+> activate skill 3dsmax-mcp-dev
+
 ### 4. Set up 3ds Max (MAXScript listener)
 
 Copy the MAXScript files into your 3ds Max installation:
@@ -70,8 +84,8 @@ Copy the MAXScript files into your 3ds Max installation:
 #### Claude Code (CLI)
 
 Run this command 
-``` bash
-claude mcp add --scope user 3dsmax-mcp -- uv run --directory "C://Users//ogulc//3dsmax-mcp" 3dsmax-mcp
+```bash
+claude mcp add --scope user 3dsmax-mcp -- uv run --directory "C:\path\to\3dsmax-mcp" 3dsmax-mcp
 ```
 
 #### Gemini CLI
@@ -103,7 +117,8 @@ Edit `%APPDATA%\Claude\claude_desktop_config.json` (Windows) or `~/Library/Appli
         "3dsmax-mcp"
       ]
     }
-  },
+  }
+}
 ```
 
 Replace `C:\\path\\to\\3dsmax-mcp` with the actual path where you cloned the repo. Restart the Claude Desktop app after editing.
