@@ -62,6 +62,7 @@ Call these inspection commands BEFORE writing any manipulation code. This avoids
 - **JSON building** — no JSON library in MAXScript. Build manually with string concatenation. Always escape with `escapeJsonString()` from `mcp_server.ms`.
 - **f-strings with braces** — when using Python f-strings containing MAXScript curly braces, double them `{{` `}}` or use raw strings `r"""..."""`
 - **.NET string to MAXScript** — when reading .NET strings (e.g. from StreamReader.ReadLine()), convert to MAXScript string with `str as string` before using `.count` or other MAXScript string methods. `.Length` on .NET strings can fail.
+- **`numKeys` on SubAnims** — `numKeys` is NOT a function you can call on a SubAnim (e.g. `obj.pos.controller[3]`). Access keys through the actual controller: `obj.pos.controller.Z_Position.controller.keys.count` and iterate with `ctrl.keys[k]` to set tangent types.
 
 ## Communication Pitfalls
 - Timeout default is 120s. Long operations (render) need explicit timeout: `client.send_command(maxscript, timeout=300)`

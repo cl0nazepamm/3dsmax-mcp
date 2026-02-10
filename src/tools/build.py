@@ -251,16 +251,325 @@ def _jitter_pos(
 # Builders
 # ---------------------------------------------------------------------------
 
+def _build_wall_section(
+    prefix: str,
+    wall_cx: float, wall_cy: float, base_z: float,
+    wall_w: float, wall_h: float, wall_t: float,
+    num_windows: int,
+    win_w: float, win_h: float, win_sill: float,
+    wall_color: tuple[int, int, int],
+    frame_color: tuple[int, int, int],
+    glass_color: tuple[int, int, int],
+    shutter_color: tuple[int, int, int],
+    has_shutters: bool,
+    axis: str,
+    rng: random.Random | None = None,
+    variation: float = 0.0,
+) -> list[str]:
+    """Build a wall face with N evenly-spaced window openings.
+
+    *axis* = ``"x"`` means the wall spans the X direction (front/back walls)
+    and its thickness is in Y.  ``"y"`` means spans Y (side walls), thickness in X.
+
+    Returns list of created object names.
+    """
+    created: list[str] = []
+    frame_t = 2.0  # frame member thickness
+    shutter_w = 6.0
+    shutter_gap = 1.5
+
+    if num_windows <= 0:
+        # Solid wall — no openings
+        cz = base_z + wall_h / 2.0
+        if axis == "x":
+            n = _create_box(f"{prefix}_Solid", wall_cx, wall_cy, cz,
+                            wall_w, wall_t, wall_h, wall_color)
+        else:
+            n = _create_box(f"{prefix}_Solid", wall_cx, wall_cy, cz,
+                            wall_t, wall_w, wall_h, wall_color)
+        created.append(n)
+        return created
+
+    # Compute window positions along the wall span
+    spacing = wall_w / (num_windows + 1)
+    wall_left = -wall_w / 2.0
+    win_positions: list[float] = []
+    for i in range(num_windows):
+        offset = wall_left + spacing * (i + 1)
+        win_positions.append(offset)
+
+    # Build wall segments around windows
+    # Collect openings as (left_edge, right_edge) relative to wall centre
+    openings: list[tuple[float, float]] = []
+    for pos in win_positions:
+        openings.append((pos - win_w / 2.0, pos + win_w / 2.0))
+
+    # Sort by left edge
+    openings.sort(key=lambda o: o[0])
+
+    wall_cz = base_z + wall_h / 2.0
+    cursor = -wall_w / 2.0  # relative to wall centre
+    seg_idx = 0
+
+    for ol, or_ in openings:
+        seg_w = ol - cursor
+        if seg_w > 0.5:
+            seg_centre = cursor + seg_w / 2.0
+            if axis == "x":
+                n = _create_box(f"{prefix}_Seg{seg_idx}",
+                                wall_cx + seg_centre, wall_cy, wall_cz,
+                                seg_w, wall_t, wall_h, wall_color)
+            else:
+                n = _create_box(f"{prefix}_Seg{seg_idx}",
+                                wall_cx, wall_cy + seg_centre, wall_cz,
+                                wall_t, seg_w, wall_h, wall_color)
+            created.append(n)
+            seg_idx += 1
+
+        # Below window
+        if win_sill > 0.5:
+            below_cz = base_z + win_sill / 2.0
+            ow = or_ - ol
+            if axis == "x":
+                n = _create_box(f"{prefix}_Below{seg_idx}",
+                                wall_cx + (ol + or_) / 2.0, wall_cy, below_cz,
+                                ow, wall_t, win_sill, wall_color)
+            else:
+                n = _create_box(f"{prefix}_Below{seg_idx}",
+                                wall_cx, wall_cy + (ol + or_) / 2.0, below_cz,
+                                wall_t, ow, win_sill, wall_color)
+            created.append(n)
+
+        # Above window
+        above_h = wall_h - win_sill - win_h
+        if above_h > 0.5:
+            above_cz = base_z + win_sill + win_h + above_h / 2.0
+            ow = or_ - ol
+            if axis == "x":
+                n = _create_box(f"{prefix}_Above{seg_idx}",
+                                wall_cx + (ol + or_) / 2.0, wall_cy, above_cz,
+                                ow, wall_t, above_h, wall_color)
+            else:
+                n = _create_box(f"{prefix}_Above{seg_idx}",
+                                wall_cx, wall_cy + (ol + or_) / 2.0, above_cz,
+                                wall_t, ow, above_h, wall_color)
+            created.append(n)
+
+        cursor = or_
+
+    # Rightmost segment
+    seg_w = wall_w / 2.0 - cursor
+    if seg_w > 0.5:
+        seg_centre = cursor + seg_w / 2.0
+        if axis == "x":
+            n = _create_box(f"{prefix}_Seg{seg_idx}",
+                            wall_cx + seg_centre, wall_cy, wall_cz,
+                            seg_w, wall_t, wall_h, wall_color)
+        else:
+            n = _create_box(f"{prefix}_Seg{seg_idx}",
+                            wall_cx, wall_cy + seg_centre, wall_cz,
+                            wall_t, seg_w, wall_h, wall_color)
+        created.append(n)
+
+    # Window details: frame + glass + shutters
+    for wi, pos in enumerate(win_positions):
+        win_cz = base_z + win_sill + win_h / 2.0
+        fc = _jitter_color(frame_color, rng, variation) if rng else frame_color
+        gc = _jitter_color(glass_color, rng, variation) if rng else glass_color
+
+        if axis == "x":
+            wx, wy = wall_cx + pos, wall_cy
+            # Glass pane
+            n = _create_box(f"{prefix}_Glass{wi}", wx, wy, win_cz,
+                            win_w - frame_t * 2, 1.0, win_h - frame_t * 2, gc)
+            created.append(n)
+            # Frame — 4 members (top, bottom, left, right)
+            n = _create_box(f"{prefix}_FrT{wi}", wx, wy, win_cz + win_h / 2.0 - frame_t / 2.0,
+                            win_w, frame_t + 1, frame_t, fc)
+            created.append(n)
+            n = _create_box(f"{prefix}_FrB{wi}", wx, wy, win_cz - win_h / 2.0 + frame_t / 2.0,
+                            win_w, frame_t + 1, frame_t, fc)
+            created.append(n)
+            n = _create_box(f"{prefix}_FrL{wi}", wx - win_w / 2.0 + frame_t / 2.0, wy, win_cz,
+                            frame_t, frame_t + 1, win_h, fc)
+            created.append(n)
+            n = _create_box(f"{prefix}_FrR{wi}", wx + win_w / 2.0 - frame_t / 2.0, wy, win_cz,
+                            frame_t, frame_t + 1, win_h, fc)
+            created.append(n)
+            # Header trim (above window)
+            n = _create_box(f"{prefix}_Hdr{wi}", wx, wy, base_z + win_sill + win_h + 1.5,
+                            win_w + 6, frame_t + 2, 3.0, fc)
+            created.append(n)
+            # Sill trim (below window)
+            n = _create_box(f"{prefix}_Sill{wi}", wx, wy, base_z + win_sill - 1.5,
+                            win_w + 4, frame_t + 2, 3.0, fc)
+            created.append(n)
+            # Shutters
+            if has_shutters:
+                sc = _jitter_color(shutter_color, rng, variation) if rng else shutter_color
+                n = _create_box(f"{prefix}_ShL{wi}",
+                                wx - win_w / 2.0 - shutter_w / 2.0 - shutter_gap, wy, win_cz,
+                                shutter_w, 2.0, win_h, sc)
+                created.append(n)
+                n = _create_box(f"{prefix}_ShR{wi}",
+                                wx + win_w / 2.0 + shutter_w / 2.0 + shutter_gap, wy, win_cz,
+                                shutter_w, 2.0, win_h, sc)
+                created.append(n)
+        else:
+            wx, wy = wall_cx, wall_cy + pos
+            # Glass pane
+            n = _create_box(f"{prefix}_Glass{wi}", wx, wy, win_cz,
+                            1.0, win_w - frame_t * 2, win_h - frame_t * 2, gc)
+            created.append(n)
+            # Frame
+            n = _create_box(f"{prefix}_FrT{wi}", wx, wy, win_cz + win_h / 2.0 - frame_t / 2.0,
+                            frame_t + 1, win_w, frame_t, fc)
+            created.append(n)
+            n = _create_box(f"{prefix}_FrB{wi}", wx, wy, win_cz - win_h / 2.0 + frame_t / 2.0,
+                            frame_t + 1, win_w, frame_t, fc)
+            created.append(n)
+            n = _create_box(f"{prefix}_FrL{wi}", wx, wy - win_w / 2.0 + frame_t / 2.0, win_cz,
+                            frame_t + 1, frame_t, win_h, fc)
+            created.append(n)
+            n = _create_box(f"{prefix}_FrR{wi}", wx, wy + win_w / 2.0 - frame_t / 2.0, win_cz,
+                            frame_t + 1, frame_t, win_h, fc)
+            created.append(n)
+            # Header + sill trim
+            n = _create_box(f"{prefix}_Hdr{wi}", wx, wy, base_z + win_sill + win_h + 1.5,
+                            frame_t + 2, win_w + 6, 3.0, fc)
+            created.append(n)
+            n = _create_box(f"{prefix}_Sill{wi}", wx, wy, base_z + win_sill - 1.5,
+                            frame_t + 2, win_w + 4, 3.0, fc)
+            created.append(n)
+            if has_shutters:
+                sc = _jitter_color(shutter_color, rng, variation) if rng else shutter_color
+                n = _create_box(f"{prefix}_ShL{wi}",
+                                wx, wy - win_w / 2.0 - shutter_w / 2.0 - shutter_gap, win_cz,
+                                2.0, shutter_w, win_h, sc)
+                created.append(n)
+                n = _create_box(f"{prefix}_ShR{wi}",
+                                wx, wy + win_w / 2.0 + shutter_w / 2.0 + shutter_gap, win_cz,
+                                2.0, shutter_w, win_h, sc)
+                created.append(n)
+
+    return created
+
+
+def _build_front_wall_with_door(
+    prefix: str,
+    wall_cx: float, wall_cy: float, base_z: float,
+    wall_w: float, wall_h: float, wall_t: float,
+    door_w: float, door_h: float, door_offset_x: float,
+    num_side_windows: int,
+    win_w: float, win_h: float, win_sill: float,
+    wall_color: tuple[int, int, int],
+    frame_color: tuple[int, int, int],
+    glass_color: tuple[int, int, int],
+    door_color: tuple[int, int, int],
+    shutter_color: tuple[int, int, int],
+    has_shutters: bool,
+    rng: random.Random | None = None,
+    variation: float = 0.0,
+) -> list[str]:
+    """Build a front wall (X-spanning) with a door opening and optional side windows.
+
+    The door is centred at wall_cx + door_offset_x.  Windows are evenly distributed
+    in the remaining wall sections on each side of the door.
+    """
+    created: list[str] = []
+    frame_t = 2.0
+    wall_cz = base_z + wall_h / 2.0
+
+    # Door position
+    door_cx = wall_cx + door_offset_x
+    door_left = door_cx - door_w / 2.0
+    door_right = door_cx + door_w / 2.0
+    wall_left = wall_cx - wall_w / 2.0
+    wall_right = wall_cx + wall_w / 2.0
+
+    # Left section of wall (from wall_left to door_left)
+    left_section_w = door_left - wall_left
+    # Right section of wall (from door_right to wall_right)
+    right_section_w = wall_right - door_right
+
+    # Build left section with windows
+    if left_section_w > 1.0:
+        left_wins = max(0, num_side_windows // 2) if left_section_w > win_w * 2 else 0
+        left_cx = wall_left + left_section_w / 2.0
+        created.extend(_build_wall_section(
+            f"{prefix}_FrL", left_cx, wall_cy, base_z,
+            left_section_w, wall_h, wall_t, left_wins,
+            win_w, win_h, win_sill, wall_color, frame_color, glass_color,
+            shutter_color, has_shutters, "x", rng, variation,
+        ))
+
+    # Build right section with windows
+    if right_section_w > 1.0:
+        right_wins = max(0, num_side_windows - num_side_windows // 2) if right_section_w > win_w * 2 else 0
+        right_cx = door_right + right_section_w / 2.0
+        created.extend(_build_wall_section(
+            f"{prefix}_FrR", right_cx, wall_cy, base_z,
+            right_section_w, wall_h, wall_t, right_wins,
+            win_w, win_h, win_sill, wall_color, frame_color, glass_color,
+            shutter_color, has_shutters, "x", rng, variation,
+        ))
+
+    # Above-door section
+    above_h = wall_h - door_h
+    if above_h > 0.5:
+        above_cz = base_z + door_h + above_h / 2.0
+        n = _create_box(f"{prefix}_FrDoorAbove", door_cx, wall_cy, above_cz,
+                        door_w, wall_t, above_h, wall_color)
+        created.append(n)
+
+    # Door panel (inset)
+    dc = _jitter_color(door_color, rng, variation) if rng else door_color
+    door_panel_cz = base_z + door_h / 2.0
+    n = _create_box(f"{prefix}_DoorPanel", door_cx, wall_cy, door_panel_cz,
+                    door_w - 4, 2.0, door_h - 2, dc)
+    created.append(n)
+
+    # Door frame (3 members: left, right, top)
+    fc = _jitter_color(frame_color, rng, variation) if rng else frame_color
+    n = _create_box(f"{prefix}_DoorFrL", door_left + 1.5, wall_cy, door_panel_cz,
+                    3.0, wall_t + 2, door_h, fc)
+    created.append(n)
+    n = _create_box(f"{prefix}_DoorFrR", door_right - 1.5, wall_cy, door_panel_cz,
+                    3.0, wall_t + 2, door_h, fc)
+    created.append(n)
+    n = _create_box(f"{prefix}_DoorFrTop", door_cx, wall_cy, base_z + door_h + 1.5,
+                    door_w + 4, wall_t + 2, 3.0, fc)
+    created.append(n)
+
+    return created
+
+
 def _build_house(
     cx: float, cy: float, cz: float,
     width: float, depth: float, height: float,
     options: dict[str, Any],
 ) -> dict[str, Any]:
-    """Build a simple house from axis-aligned boxes.
+    """Build a detailed suburban house with configurable floors and features.
+
+    Options:
+        num_floors (int, 1-3, default 1)
+        wall_thickness, floor_thickness, door_width, door_height
+        roof_style ("gable"|"flat", default "gable")
+        roof_overhang, roof_thickness
+        has_porch (bool, default True)
+        has_chimney (bool, default True)
+        has_garage (bool, default True for 1-floor, False for 2+)
+        has_shutters (bool, default True)
+        windows_per_floor (int, default 3) — front-facing windows per floor
+        name_prefix (str, default "House")
+        variation / seed — jitter support
 
     Returns dict with ``objects`` list and ``dummy`` name.
     """
-    # Unpack options with defaults
+    rng, variation = _init_variation(options)
+
+    # ---- Options ----
+    num_floors = max(1, min(3, int(options.get("num_floors", 1))))
     wt = options.get("wall_thickness", WALL_THICKNESS)
     ft = options.get("floor_thickness", FLOOR_THICKNESS)
     dw = options.get("door_width", DOOR_WIDTH)
@@ -268,7 +577,12 @@ def _build_house(
     rt = options.get("roof_thickness", ROOF_THICKNESS)
     ov = options.get("roof_overhang", ROOF_OVERHANG)
     prefix = options.get("name_prefix", "House")
-    roof_style = options.get("roof_style", "flat")  # "flat" or "gable"
+    roof_style = options.get("roof_style", "gable")
+    has_porch = options.get("has_porch", True)
+    has_chimney = options.get("has_chimney", True)
+    has_garage = options.get("has_garage", True if num_floors == 1 else False)
+    has_shutters = options.get("has_shutters", True)
+    windows_per_floor = max(1, int(options.get("windows_per_floor", 3)))
 
     fnd_extra = options.get("foundation_extra", FOUNDATION_EXTRA)
     fnd_t = options.get("foundation_thickness", FOUNDATION_THICKNESS)
@@ -276,157 +590,391 @@ def _build_house(
     win_h = options.get("window_height", WINDOW_HEIGHT)
     win_sill = options.get("window_sill_height", WINDOW_SILL_HEIGHT)
 
-    wall_color = (180, 170, 150)
-    floor_color = (120, 100, 80)
-    roof_color = (140, 60, 50)
-    foundation_color = (100, 90, 75)
+    # ---- Color scheme ----
+    col_wall = (210, 200, 180)
+    col_trim = (240, 235, 230)
+    col_roof = (80, 75, 70)
+    col_door = (90, 60, 40)
+    col_glass = (160, 190, 220)
+    col_shutter = (70, 90, 120)
+    col_fnd = (130, 125, 115)
+    col_chimney = (160, 90, 70)
+    col_garage_door = (170, 165, 155)
+    col_driveway = (150, 145, 140)
+    col_floor = (120, 100, 80)
 
     created: list[str] = []
+    total_wall_h = height * num_floors
 
-    # ---- Foundation (wider base slab) ----
+    # ---- Foundation ----
     fnd_cz = cz - fnd_t / 2.0
-    n = _create_box(
-        f"{prefix}_Foundation", cx, cy, fnd_cz,
-        width + fnd_extra * 2, depth + fnd_extra * 2, fnd_t, foundation_color,
-    )
+    n = _create_box(f"{prefix}_Foundation", cx, cy, fnd_cz,
+                    width + fnd_extra * 2, depth + fnd_extra * 2, fnd_t,
+                    _jitter_color(col_fnd, rng, variation))
     created.append(n)
 
-    # ---- Floor ----
-    floor_cz = cz + ft / 2.0
-    n = _create_box(f"{prefix}_Floor", cx, cy, floor_cz, width, depth, ft, floor_color)
+    # Water table — thin horizontal trim at foundation-to-wall transition
+    wt_trim_h = 3.0
+    n = _create_box(f"{prefix}_WaterTable", cx, cy, cz + wt_trim_h / 2.0,
+                    width + 2, depth + 2, wt_trim_h,
+                    _jitter_color(col_trim, rng, variation))
     created.append(n)
 
-    # Base Z for walls (top of floor)
-    base_z = cz + ft
+    # ---- Per-floor structure ----
+    for floor_i in range(num_floors):
+        fp = f"{prefix}_F{floor_i}"
+        floor_base_z = cz + floor_i * (height + ft)
 
-    # ---- Back wall with window opening (3-section split) ----
-    wall_cz = base_z + height / 2.0
-    back_y = cy + depth / 2.0
-    # Left section
-    back_left_w = (width - win_w) / 2.0
-    n = _create_box(
-        f"{prefix}_Wall_Back_L", cx - win_w / 2.0 - back_left_w / 2.0, back_y, wall_cz,
-        back_left_w, wt, height, wall_color,
-    )
-    created.append(n)
-    # Right section
-    n = _create_box(
-        f"{prefix}_Wall_Back_R", cx + win_w / 2.0 + back_left_w / 2.0, back_y, wall_cz,
-        back_left_w, wt, height, wall_color,
-    )
-    created.append(n)
-    # Below window
-    if win_sill > 0.1:
-        below_cz = base_z + win_sill / 2.0
-        n = _create_box(
-            f"{prefix}_Wall_Back_Below", cx, back_y, below_cz,
-            win_w, wt, win_sill, wall_color,
-        )
-        created.append(n)
-    # Above window
-    above_win_h = height - win_sill - win_h
-    if above_win_h > 0.1:
-        above_win_cz = base_z + win_sill + win_h + above_win_h / 2.0
-        n = _create_box(
-            f"{prefix}_Wall_Back_Above", cx, back_y, above_win_cz,
-            win_w, wt, above_win_h, wall_color,
-        )
+        # Floor slab
+        n = _create_box(f"{fp}_Slab", cx, cy, floor_base_z + ft / 2.0,
+                        width, depth, ft,
+                        _jitter_color(col_floor, rng, variation))
         created.append(n)
 
-    # ---- Left wall ----
-    n = _create_box(f"{prefix}_Wall_Left", cx - width / 2.0, cy, wall_cz, wt, depth, height, wall_color)
-    created.append(n)
+        wall_base = floor_base_z + ft
+        is_ground = (floor_i == 0)
 
-    # ---- Right wall ----
-    n = _create_box(f"{prefix}_Wall_Right", cx + width / 2.0, cy, wall_cz, wt, depth, height, wall_color)
-    created.append(n)
+        # Front wall (Y-)
+        front_y = cy - depth / 2.0
+        if is_ground:
+            # Ground floor: door + side windows
+            door_offset = -width * 0.15 if has_garage else 0.0
+            front_wins = max(0, windows_per_floor - 1)
+            created.extend(_build_front_wall_with_door(
+                fp, cx, front_y, wall_base, width, height, wt,
+                dw, dh, door_offset, front_wins,
+                win_w, win_h, win_sill,
+                _jitter_color(col_wall, rng, variation), col_trim, col_glass,
+                col_door, col_shutter, has_shutters, rng, variation,
+            ))
+        else:
+            # Upper floors: all windows, no door
+            created.extend(_build_wall_section(
+                f"{fp}_Front", cx, front_y, wall_base,
+                width, height, wt, windows_per_floor,
+                win_w, win_h, win_sill,
+                _jitter_color(col_wall, rng, variation), col_trim, col_glass,
+                col_shutter, has_shutters, "x", rng, variation,
+            ))
 
-    # ---- Front wall with door opening ----
-    front_y = cy - depth / 2.0
+        # Back wall (Y+)
+        back_y = cy + depth / 2.0
+        back_wins = max(2, windows_per_floor - 1)
+        created.extend(_build_wall_section(
+            f"{fp}_Back", cx, back_y, wall_base,
+            width, height, wt, back_wins,
+            win_w, win_h, win_sill,
+            _jitter_color(col_wall, rng, variation), col_trim, col_glass,
+            col_shutter, has_shutters, "x", rng, variation,
+        ))
 
-    # Left section of front wall
-    left_w = (width - dw) / 2.0
-    left_cx = cx - dw / 2.0 - left_w / 2.0
-    n = _create_box(f"{prefix}_Wall_Front_L", left_cx, front_y, wall_cz, left_w, wt, height, wall_color)
-    created.append(n)
+        # Left wall (X-)
+        left_x = cx - width / 2.0
+        created.extend(_build_wall_section(
+            f"{fp}_Left", left_x, cy, wall_base,
+            depth, height, wt, min(2, windows_per_floor),
+            win_w, win_h, win_sill,
+            _jitter_color(col_wall, rng, variation), col_trim, col_glass,
+            col_shutter, has_shutters, "y", rng, variation,
+        ))
 
-    # Right section of front wall
-    right_cx = cx + dw / 2.0 + left_w / 2.0
-    n = _create_box(f"{prefix}_Wall_Front_R", right_cx, front_y, wall_cz, left_w, wt, height, wall_color)
-    created.append(n)
+        # Right wall (X+)
+        right_x = cx + width / 2.0
+        created.extend(_build_wall_section(
+            f"{fp}_Right", right_x, cy, wall_base,
+            depth, height, wt, min(2, windows_per_floor),
+            win_w, win_h, win_sill,
+            _jitter_color(col_wall, rng, variation), col_trim, col_glass,
+            col_shutter, has_shutters, "y", rng, variation,
+        ))
 
-    # Above-door section
-    above_h = height - dh
-    if above_h > 0:
-        above_cz = base_z + dh + above_h / 2.0
-        n = _create_box(f"{prefix}_Wall_Front_Top", cx, front_y, above_cz, dw, wt, above_h, wall_color)
-        created.append(n)
+    # ---- Corner boards — thin vertical trim at building corners ----
+    corner_w = 3.0
+    for xi, yi in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
+        ccx = cx + xi * (width / 2.0)
+        ccy = cy + yi * (depth / 2.0)
+        for floor_i in range(num_floors):
+            fb = cz + floor_i * (height + ft) + ft
+            n = _create_box(f"{prefix}_Corner_{xi}_{yi}_F{floor_i}",
+                            ccx, ccy, fb + height / 2.0,
+                            corner_w, corner_w, height,
+                            _jitter_color(col_trim, rng, variation))
+            created.append(n)
 
     # ---- Roof ----
-    roof_base_z = base_z + height
+    roof_base_z = cz + num_floors * (height + ft)
+    gable_peak = options.get("gable_peak", height * 0.4)
 
     if roof_style == "gable":
-        # Gable roof: two tilted slabs built from a triangular spline + extrude
-        # For reliability, use two boxes angled via Python-computed positions
-        # Actually — use an extruded triangle spline for the gable ends,
-        # and a flat ridge box for the roof surface.
-        #
-        # Simpler approach: prism shapes for gable ends + a flat roof slab
-        # that extends to the peak.
-        #
-        # Simplest reliable approach: just raise the roof slab centre and
-        # add triangular gable infill walls on left/right.
-        #
-        # Best: two roof planes as boxes, tilted — but plan says no rotations.
-        # So: build stepped approximation or use a single flat slab with
-        # gable end walls (triangular prisms).
+        # Gable end walls (prisms on left and right sides)
+        prism_side = width / 2.0
+        prism_h = depth - wt * 2
+        # Left gable end
+        n = _create_prism(f"{prefix}_GableL",
+                          cx - width / 2.0, cy, roof_base_z,
+                          prism_side, prism_side, prism_side, wt,
+                          _jitter_color(col_wall, rng, variation))
+        created.append(n)
+        # Right gable end
+        n = _create_prism(f"{prefix}_GableR",
+                          cx + width / 2.0, cy, roof_base_z,
+                          prism_side, prism_side, prism_side, wt,
+                          _jitter_color(col_wall, rng, variation))
+        created.append(n)
 
-        gable_peak = options.get("gable_peak", height * 0.4)
+        # Roof slopes — two boxes, each covering half the width,
+        # stepped to approximate a pitched roof
+        slope_steps = 5
+        step_w = (width + ov * 2) / 2.0 / slope_steps
+        for side in [-1, 1]:
+            for si in range(slope_steps):
+                sx = cx + side * (step_w * si + step_w / 2.0)
+                step_z_base = roof_base_z + gable_peak * (1.0 - si / slope_steps)
+                step_h = gable_peak / slope_steps + rt
+                n = _create_box(f"{prefix}_Roof_{('L' if side < 0 else 'R')}{si}",
+                                sx, cy, step_z_base + step_h / 2.0,
+                                step_w + 0.5, depth + ov * 2, step_h,
+                                _jitter_color(col_roof, rng, variation))
+                created.append(n)
 
-        # Flat roof slab at peak (ridge board)
+        # Ridge beam
         ridge_z = roof_base_z + gable_peak + rt / 2.0
-        n = _create_box(
-            f"{prefix}_Roof_Ridge", cx, cy, ridge_z,
-            width + ov * 2, rt, rt, roof_color,
-        )
+        n = _create_box(f"{prefix}_Ridge", cx, cy, ridge_z,
+                        6.0, depth + ov * 2, rt + 2,
+                        _jitter_color(col_roof, rng, variation))
         created.append(n)
 
-        # Front and back roof slopes — approximate with a box per side
-        # covering from eave to ridge. Height = hypotenuse, but since
-        # we can't rotate, we use a wedge / prism for each side.
-        # Actually the best no-rotation approach: two flat slabs — the
-        # left-slope and right-slope — each spanning half the depth.
-        # They are axis-aligned boxes sitting at different Z levels.
+        # Fascia — front and back eave trim
+        for yi, tag in [(-1, "Fr"), (1, "Bk")]:
+            fascia_y = cy + yi * (depth / 2.0 + ov)
+            n = _create_box(f"{prefix}_Fascia{tag}",
+                            cx, fascia_y, roof_base_z + rt / 2.0,
+                            width + ov * 2, 3.0, rt + 4,
+                            _jitter_color(col_trim, rng, variation))
+            created.append(n)
 
-        # Left slope (negative-X half of roof)
-        slope_w = (width + ov * 2) / 2.0
-        slope_d = depth + ov * 2
-        slope_cz = roof_base_z + gable_peak / 2.0 + rt / 2.0
-        n = _create_box(
-            f"{prefix}_Roof_Slope_L",
-            cx - slope_w / 2.0, cy, slope_cz,
-            slope_w, slope_d, gable_peak + rt, roof_color,
-        )
-        created.append(n)
-
-        n = _create_box(
-            f"{prefix}_Roof_Slope_R",
-            cx + slope_w / 2.0, cy, slope_cz,
-            slope_w, slope_d, gable_peak + rt, roof_color,
-        )
-        created.append(n)
+        # Soffit — thin horizontal under overhang (front and back)
+        for yi, tag in [(-1, "Fr"), (1, "Bk")]:
+            soffit_y = cy + yi * (depth / 2.0 + ov / 2.0)
+            n = _create_box(f"{prefix}_Soffit{tag}",
+                            cx, soffit_y, roof_base_z - 1.0,
+                            width + ov * 2, ov, 2.0,
+                            _jitter_color(col_trim, rng, variation))
+            created.append(n)
 
     else:
-        # Flat roof slab
+        # Flat roof with parapet
         roof_cz = roof_base_z + rt / 2.0
-        n = _create_box(
-            f"{prefix}_Roof", cx, cy, roof_cz,
-            width + ov * 2, depth + ov * 2, rt, roof_color,
-        )
+        n = _create_box(f"{prefix}_Roof", cx, cy, roof_cz,
+                        width + ov * 2, depth + ov * 2, rt,
+                        _jitter_color(col_roof, rng, variation))
+        created.append(n)
+
+        parapet_h = 12.0
+        parapet_t = 4.0
+        parapet_z = roof_base_z + rt + parapet_h / 2.0
+        for tag, px, py, pw, pd in [
+            ("Fr", cx, cy - depth / 2.0 - ov, width + ov * 2, parapet_t),
+            ("Bk", cx, cy + depth / 2.0 + ov, width + ov * 2, parapet_t),
+            ("L", cx - width / 2.0 - ov, cy, parapet_t, depth + ov * 2),
+            ("R", cx + width / 2.0 + ov, cy, parapet_t, depth + ov * 2),
+        ]:
+            n = _create_box(f"{prefix}_Parapet{tag}", px, py, parapet_z,
+                            pw, pd, parapet_h,
+                            _jitter_color(col_trim, rng, variation))
+            created.append(n)
+
+    # ---- Front porch (optional) ----
+    if has_porch:
+        porch_depth = depth * 0.25
+        porch_w = width * 0.5
+        porch_h = 6.0  # porch floor thickness
+        porch_col_h = height * 0.85  # column height
+        porch_y = cy - depth / 2.0 - porch_depth / 2.0
+        porch_base = cz
+
+        # Porch floor slab
+        n = _create_box(f"{prefix}_PorchFloor", cx, porch_y, porch_base + porch_h / 2.0,
+                        porch_w, porch_depth, porch_h,
+                        _jitter_color(col_fnd, rng, variation))
+        created.append(n)
+
+        # Porch columns (4 cylinders at corners)
+        col_r = 4.0
+        col_z = porch_base + porch_h + porch_col_h / 2.0
+        for xi in [-1, 1]:
+            col_x = cx + xi * (porch_w / 2.0 - col_r * 2)
+            col_y = cy - depth / 2.0 - porch_depth + col_r * 2
+            n = _create_cylinder(f"{prefix}_PorchCol{xi}",
+                                 col_x, col_y, col_z,
+                                 col_r, porch_col_h,
+                                 _jitter_color(col_trim, rng, variation))
+            created.append(n)
+
+        # Porch roof slab
+        porch_roof_z = porch_base + porch_h + porch_col_h + 2.0
+        n = _create_box(f"{prefix}_PorchRoof", cx, porch_y, porch_roof_z,
+                        porch_w + 10, porch_depth + 10, 4.0,
+                        _jitter_color(col_roof, rng, variation))
+        created.append(n)
+
+        # Steps (3 descending from porch to ground)
+        num_steps = 3
+        step_h = porch_h / num_steps
+        step_d = porch_depth * 0.3
+        for si in range(num_steps):
+            s_z = porch_base + (num_steps - si) * step_h / 2.0
+            s_y = cy - depth / 2.0 - porch_depth - step_d * si - step_d / 2.0
+            n = _create_box(f"{prefix}_Step{si}", cx, s_y, s_z,
+                            dw + 20, step_d, step_h * (num_steps - si),
+                            _jitter_color(col_fnd, rng, variation))
+            created.append(n)
+
+        # Porch railings (left and right)
+        rail_h = 35.0
+        rail_t = 3.0
+        rail_z = porch_base + porch_h + rail_h / 2.0
+        for xi, tag in [(-1, "L"), (1, "R")]:
+            rx = cx + xi * (porch_w / 2.0 - rail_t / 2.0)
+            # Horizontal rail
+            n = _create_box(f"{prefix}_Rail{tag}", rx, porch_y, rail_z + rail_h * 0.3,
+                            rail_t, porch_depth - 4, rail_t,
+                            _jitter_color(col_trim, rng, variation))
+            created.append(n)
+            # Vertical posts
+            for pi in range(3):
+                py = porch_y - porch_depth / 2.0 + porch_depth * (pi + 0.5) / 3.0
+                n = _create_box(f"{prefix}_Post{tag}{pi}", rx, py, rail_z,
+                                rail_t, rail_t, rail_h,
+                                _jitter_color(col_trim, rng, variation))
+                created.append(n)
+
+    # ---- Chimney (optional) ----
+    if has_chimney:
+        chimney_w = 18.0
+        chimney_d = 14.0
+        chimney_h_above_roof = gable_peak * 0.6 if roof_style == "gable" else 30.0
+        chimney_total_h = total_wall_h + chimney_h_above_roof + ft * num_floors
+        chimney_x = cx + width * 0.3
+        chimney_y = cy + depth * 0.3
+        chimney_cz = cz + chimney_total_h / 2.0
+        n = _create_box(f"{prefix}_Chimney", chimney_x, chimney_y, chimney_cz,
+                        chimney_w, chimney_d, chimney_total_h,
+                        _jitter_color(col_chimney, rng, variation))
+        created.append(n)
+
+        # Chimney cap (wider)
+        cap_h = 4.0
+        cap_z = cz + chimney_total_h + cap_h / 2.0
+        n = _create_box(f"{prefix}_ChimneyCap", chimney_x, chimney_y, cap_z,
+                        chimney_w + 6, chimney_d + 6, cap_h,
+                        _jitter_color(col_chimney, rng, variation))
+        created.append(n)
+
+    # ---- Garage (optional) ----
+    if has_garage:
+        garage_w = width * 0.45
+        garage_d = depth * 0.7
+        garage_h = height * 0.75
+        garage_x = cx + width / 2.0 + garage_w / 2.0 + wt
+        garage_y = cy
+        garage_base = cz
+
+        # Garage floor
+        n = _create_box(f"{prefix}_GarFloor", garage_x, garage_y,
+                        garage_base + ft / 2.0,
+                        garage_w, garage_d, ft,
+                        _jitter_color(col_fnd, rng, variation))
+        created.append(n)
+
+        g_wall_base = garage_base + ft
+
+        # Garage walls — back, left, right (front has door opening)
+        # Back wall
+        n = _create_box(f"{prefix}_GarWallBack",
+                        garage_x, garage_y + garage_d / 2.0,
+                        g_wall_base + garage_h / 2.0,
+                        garage_w, wt, garage_h,
+                        _jitter_color(col_wall, rng, variation))
+        created.append(n)
+
+        # Right wall
+        created.extend(_build_wall_section(
+            f"{prefix}_GarRight", garage_x + garage_w / 2.0, garage_y,
+            g_wall_base, garage_d, garage_h, wt, 1,
+            win_w, win_h, win_sill,
+            _jitter_color(col_wall, rng, variation), col_trim, col_glass,
+            col_shutter, False, "y", rng, variation,
+        ))
+
+        # Left wall (shared with house — partial)
+        n = _create_box(f"{prefix}_GarWallLeft",
+                        garage_x - garage_w / 2.0, garage_y,
+                        g_wall_base + garage_h / 2.0,
+                        wt, garage_d, garage_h,
+                        _jitter_color(col_wall, rng, variation))
+        created.append(n)
+
+        # Front wall with garage door opening
+        garage_door_w = garage_w * 0.75
+        garage_door_h = garage_h * 0.8
+        front_gy = garage_y - garage_d / 2.0
+
+        # Left section
+        left_gw = (garage_w - garage_door_w) / 2.0
+        if left_gw > 1.0:
+            n = _create_box(f"{prefix}_GarFrL",
+                            garage_x - garage_door_w / 2.0 - left_gw / 2.0,
+                            front_gy, g_wall_base + garage_h / 2.0,
+                            left_gw, wt, garage_h,
+                            _jitter_color(col_wall, rng, variation))
+            created.append(n)
+        # Right section
+        if left_gw > 1.0:
+            n = _create_box(f"{prefix}_GarFrR",
+                            garage_x + garage_door_w / 2.0 + left_gw / 2.0,
+                            front_gy, g_wall_base + garage_h / 2.0,
+                            left_gw, wt, garage_h,
+                            _jitter_color(col_wall, rng, variation))
+            created.append(n)
+        # Above garage door
+        above_gd_h = garage_h - garage_door_h
+        if above_gd_h > 0.5:
+            n = _create_box(f"{prefix}_GarFrAbove",
+                            garage_x, front_gy,
+                            g_wall_base + garage_door_h + above_gd_h / 2.0,
+                            garage_door_w, wt, above_gd_h,
+                            _jitter_color(col_wall, rng, variation))
+            created.append(n)
+
+        # Garage door panel
+        n = _create_box(f"{prefix}_GarageDoor",
+                        garage_x, front_gy,
+                        g_wall_base + garage_door_h / 2.0,
+                        garage_door_w - 4, 2.0, garage_door_h - 2,
+                        _jitter_color(col_garage_door, rng, variation))
+        created.append(n)
+
+        # Garage roof (flat)
+        n = _create_box(f"{prefix}_GarRoof",
+                        garage_x, garage_y,
+                        g_wall_base + garage_h + rt / 2.0,
+                        garage_w + ov, garage_d + ov, rt,
+                        _jitter_color(col_roof, rng, variation))
+        created.append(n)
+
+        # Driveway
+        driveway_l = garage_d * 0.8
+        n = _create_box(f"{prefix}_Driveway",
+                        garage_x, front_gy - driveway_l / 2.0,
+                        cz - fnd_t / 2.0 + 1.0,
+                        garage_door_w + 20, driveway_l, 2.0,
+                        _jitter_color(col_driveway, rng, variation))
         created.append(n)
 
     # ---- Organize under Dummy ----
-    total_h = ft + height + (rt if roof_style == "flat" else options.get("gable_peak", height * 0.4) + rt)
+    roof_peak = gable_peak if roof_style == "gable" else rt
+    total_h = num_floors * (height + ft) + roof_peak + rt
     dummy_cz = cz + total_h / 2.0
     dummy_name = _create_dummy(
         prefix,
@@ -2688,6 +3236,17 @@ def build_structure(
     Every component is positioned with exact Python-side math from the centre
     point.  No rotations for rectangular geometry.
 
+    IMPORTANT — LLM randomisation guidance:
+    When the user asks to "build a house" (or any structure) without specifying
+    exact parameters, you SHOULD randomise the options to produce a unique result
+    every time.  For example, for "house": randomly pick num_floors (1-2),
+    has_porch (true/false), has_chimney (true/false), has_garage (true/false),
+    has_shutters (true/false), windows_per_floor (2-4), roof_style
+    ("gable"/"flat"), width (250-400), depth (180-280), height (120-160),
+    and always set variation to 0.2-0.5 for color jitter.  This ensures every
+    house looks different.  Apply the same randomisation principle to all
+    structure types.
+
     Args:
         type: Structure type — "house", "tower", "stairs", "fence",
               "wall_with_openings", "skyscraper", "parking_garage", "bridge",
@@ -2705,6 +3264,9 @@ def build_structure(
             variation (float 0-1, default 0 = deterministic; >0 adds
               randomised color/size/position jitter to decorative elements),
             seed (int, optional — makes randomisation reproducible).
+          For "house": num_floors (int, 1-3), has_porch (bool),
+            has_chimney (bool), has_garage (bool), has_shutters (bool),
+            windows_per_floor (int), gable_peak (float).
           For "stairs": num_steps (int), step_height, step_depth.
           For "fence": post_spacing, post_thickness, rail_thickness.
           For "wall_with_openings": thickness (float),
