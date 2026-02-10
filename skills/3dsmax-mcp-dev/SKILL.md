@@ -41,6 +41,7 @@ user-invocable: true
 - **Find all material types scene-wide** → `find_class_instances` with superclass="material"
 
 ### "I need to work with texture maps"
+- **Auto-create PBR material from a texture folder** → `create_material_from_textures` (scans folder, matches channels by suffix, wires Arnold/Physical/Redshift material in one call)
 - **Create any texture map** (OSLMap, Bitmaptexture, ai_bump2d, Noise, etc.) → `create_texture_map` (stores as global variable)
 - **Set properties on a texture map** (after creation) → `set_texture_map_properties`
 - **Write OSL code + create OSLMap** in one step → `write_osl_shader` (writes file, creates map, sets params)
@@ -202,6 +203,9 @@ Call these inspection commands BEFORE writing any manipulation code. This avoids
 ## Primitives & Parameters
 - **Prism parameters** — `side1Length`, `side2Length`, `side3Length` (NOT `side1`, `side2`, `side3`). The prism is oriented with the base on XY and height along Z.
 - **Gable roof pattern** — two Box panels meeting at ridge. Set pivot on the ridge edge (`in coordsys local obj.pivot = [0, -panelW/2, 0]`), rotate around X axis (`eulerAngles pitch 0 0`), position both at ridge height. Ridge runs along X when rotating around X.
+
+## Arnold Layer RGBA
+- **`ai_layer_rgba` properties are per-layer numbered** — use `input1_shader`, `input2_shader`, `operation2`, `enable2`, NOT `operation` or `input_shader`. Layer 1 is enabled by default; layer 2+ need `enable2 = true`. Multiply operation = 5.
 
 ## Arnold / OSL Material Inspection
 - `getClassInstances Bitmaptexture target:mat` does NOT find Arnold or OSL maps — they use `OSLMap` class wrapped in `MultiOutputChannelTexmapToTexmap`
