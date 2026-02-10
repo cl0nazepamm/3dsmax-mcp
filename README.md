@@ -1,7 +1,7 @@
 # 3dsmax-mcp
 
 <p align="left">
-  <img src="logo.png" alt="3dsmax-mcp logo" width="200">
+  <img src="images/logo.png" alt="3dsmax-mcp logo" width="200">
 </p>
 
 MCP server bridging Claude to Autodesk 3ds Max via TCP socket.
