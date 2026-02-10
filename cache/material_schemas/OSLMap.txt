@@ -1,0 +1,24 @@
+# OSLMap — Property Reference
+# Open Shading Language map. Properties are DYNAMIC — they change
+# based on which OSL shader is loaded. Below are the default/base props.
+#
+# NOTE: After loading an OSL shader, use inspect_properties to discover
+# the actual parameters — they vary per shader file.
+
+## Core
+OSLPath : filename                      # path to .osl shader file
+OSLCode : string                        # inline OSL code
+OSLAutoUpdate : boolean                 # auto-reload on file change
+OSLShaderName : string                  # display name of loaded shader
+OSLPresetName : string                  # preset name
+
+## Default Inputs (Mix shader — changes with loaded OSL)
+Input_A : color                         # first input color
+Input_B : color                         # second input color
+Mixer : float                           # blend factor 0.0-1.0
+Input_A_map : texturemap                # texture slot for input A
+Input_B_map : texturemap                # texture slot for input B
+Mixer_map : texturemap                  # texture slot for mixer
+
+## Multi-Output
+numIMultipleOutputChannels : integer    # number of output channels

@@ -1,0 +1,78 @@
+# ai_standard_surface (Arnold) — Property Reference
+# Use with set_material_property / set_material_properties
+# Map slots use _shader suffix. Clear with: value="undefined"
+
+## Base
+base : float                          # base weight 0.0-1.0
+base_color : color                    # (color R G B)
+base_color_shader : texturemap        # texture map slot
+diffuse_roughness : float
+metalness : float                     # 0.0-1.0
+
+## Specular
+specular : float                      # specular weight 0.0-1.0 (note: capital S in MAXScript)
+specular_color : color
+specular_color_shader : texturemap
+specular_roughness : float            # 0.0 = mirror
+specular_roughness_shader : texturemap
+specular_IOR : float
+specular_shader : texturemap          # specular weight map
+specular_anisotropy : float
+specular_rotation : float
+
+## Transmission (glass/liquid)
+transmission : float                  # 0.0 = opaque, 1.0 = glass
+transmission_color : color
+transmission_depth : float
+transmission_scatter : color
+transmission_scatter_anisotropy : float
+transmission_dispersion : float
+transmission_extra_roughness : float
+thin_walled : boolean
+
+## Subsurface
+subsurface : float                    # 0.0-1.0 (replaces diffuse with SSS)
+subsurface_color : color
+subsurface_color_shader : texturemap
+subsurface_radius : color             # per-channel scatter radius (R-heavy = skin)
+subsurface_scale : float
+subsurface_anisotropy : float
+subsurface_type : integer             # 0=diffusion, 1=Christensen-Burley, 2=randomwalk
+
+## Sheen
+sheen : float
+sheen_color : color
+sheen_roughness : float
+
+## Coat
+coat : float                          # 0.0-1.0
+coat_color : color
+coat_roughness : float
+coat_IOR : float
+coat_anisotropy : float
+coat_rotation : float
+coat_normal_shader : texturemap       # separate normal map for coat
+coat_affect_color : float
+coat_affect_roughness : float
+
+## Thin Film
+thin_film_thickness : float           # 0 = off, ~300-700 for iridescence
+thin_film_IOR : float
+
+## Emission
+emission : float
+emission_color : color
+emission_color_shader : texturemap
+
+## Opacity
+opacity : color                       # white = opaque
+
+## Normal / Bump
+normal_shader : texturemap            # ai_normal_map goes here
+tangent_shader : texturemap
+
+## Advanced
+caustics : boolean
+internal_reflections : boolean
+indirect_diffuse : float
+indirect_specular : float

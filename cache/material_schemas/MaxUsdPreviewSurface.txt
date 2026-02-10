@@ -1,0 +1,49 @@
+# MaxUsdPreviewSurface — Property Reference
+# USD Preview Surface material for interchange workflows.
+# Use with set_material_property / set_material_properties
+
+## Base
+diffuseColor : color                    # (color R G B) — base color
+diffuseColor_map : texturemap           # texture slot
+metallic : float                        # 0.0-1.0
+metallic_map : texturemap
+roughness : float                       # 0.0 = mirror
+roughness_map : texturemap
+useSpecularWorkflow : boolean           # true = specular color mode
+
+## Specular (when useSpecularWorkflow = true)
+specularcolor : color
+specularColor_map : texturemap
+
+## Opacity
+opacity : float                         # 0.0 = transparent, 1.0 = opaque
+opacity_map : texturemap
+opacityThreshold : float                # alpha cutoff
+
+## Emission
+emissiveColor : color
+emissiveColor_map : texturemap
+
+## Clearcoat
+clearcoat : float                       # 0.0-1.0
+clearcoat_map : texturemap
+clearcoatRoughness : float
+clearcoatRoughness_map : texturemap
+
+## Normal / Bump / Displacement
+normal_map : texturemap                 # normal map slot
+bump_map_amt : float                    # normal/bump strength
+normal_flip_red : boolean               # flip R channel
+normal_flip_green : boolean             # flip G channel
+displacement : float
+displacement_map : texturemap
+
+## Occlusion
+occlusion : float
+occlusion_map : texturemap
+ao_affects_diffuse : boolean
+ao_affects_reflection : boolean
+
+## IOR
+ior : float                             # index of refraction
+ior_map : texturemap

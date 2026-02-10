@@ -1,0 +1,37 @@
+# Bitmaptexture — Property Reference
+# Standard bitmap texture map. Use with execute_maxscript or as map slot value.
+# Create: bm = Bitmaptexture fileName:"C:/path/to/file.png"
+
+## Core
+fileName : filename                     # full path to image file
+bitmap : bitmap                         # the loaded bitmap object
+
+## Crop / Tile
+clipu : float                           # U offset (0.0-1.0)
+clipv : float                           # V offset (0.0-1.0)
+clipw : float                           # U width (0.0-1.0)
+cliph : float                           # V width (0.0-1.0)
+cropPlace : integer                     # 0=crop, 1=place
+apply : boolean                         # enable cropping
+
+## Filtering
+filtering : integer                     # 0=Pyramidal, 1=Summed Area, 2=None
+
+## Output
+monoOutput : integer                    # 0=RGB Intensity, 1=Alpha
+rgbOutput : integer                     # 0=Full RGB, 1=Red, 2=Green, 3=Blue
+alphaSource : integer                   # 0=Image Alpha, 1=RGB Intensity, 2=None
+preMultAlpha : boolean                  # premultiplied alpha
+
+## Animation
+startTime : time                        # start frame
+playBackRate : float                    # playback speed multiplier
+endCondition : integer                  # 0=Loop, 1=Ping Pong, 2=Hold
+
+## Jitter
+jitter : float                          # jitter amount
+useJitter : boolean
+
+## Sub-objects (access via .coords, .output)
+coords : maxObject                      # UVW coordinates controller
+output : maxObject                      # output rollout (invert, clamp, etc.)

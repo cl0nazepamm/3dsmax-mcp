@@ -28,3 +28,4 @@ This is for teaching Claude how to use 3dsmax.
 - All tools send MAXScript strings to 3ds Max via `client.send_command()`
 - MAXScript results are returned as JSON strings built with manual concatenation
 - Viewport capture: `gw.getViewportDib()` → save to temp → `Read` tool to view
+- Do not start RENDER unless user specifically asks for it

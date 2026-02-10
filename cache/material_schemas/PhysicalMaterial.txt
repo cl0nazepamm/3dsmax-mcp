@@ -1,0 +1,80 @@
+# PhysicalMaterial — Property Reference
+# Use with set_material_property / set_material_properties
+# Map slots use _map suffix. Toggle maps with _map_on (boolean).
+
+## Base
+base_weight : float                     # overall base weight
+base_color : color                      # (color R G B)
+base_color_map : texturemap             # texture slot
+reflectivity : float                    # reflection amount 0.0-1.0
+roughness : float                       # 0.0 = mirror
+roughness_inv : boolean                 # true = glossiness mode
+metalness : float                       # 0.0-1.0
+diff_roughness : float                  # diffuse roughness (Oren-Nayar)
+refl_color : color                      # reflection tint
+
+## Anisotropy
+anisotropy : float
+anisoangle : float                      # anisotropy rotation
+aniso_mode : integer                    # 0=default
+aniso_channel : integer
+
+## Transparency (glass/liquid)
+transparency : float                    # 0.0 = opaque, 1.0 = glass
+trans_color : color
+trans_depth : float
+trans_roughness : float
+trans_roughness_lock : boolean          # lock to base roughness
+trans_ior : float                       # index of refraction
+thin_walled : boolean
+dispersion : float                      # chromatic dispersion
+
+## Subsurface
+scattering : float                      # SSS weight 0.0-1.0
+sss_color : color
+sss_depth : float
+sss_scale : float
+sss_scatter_color : color
+
+## Emission
+emission : float                        # emission weight 0.0-1.0
+emit_color : color
+emit_luminance : float                  # cd/m²
+emit_kelvin : float                     # color temperature
+
+## Coating
+coating : float                         # coat weight 0.0-1.0
+coat_color : color
+coat_roughness : float
+coat_roughness_inv : boolean
+coat_ior : float
+coat_affect_color : float
+coat_affect_roughness : float
+coat_anisotropy : float
+coat_anisoangle : float
+
+## Sheen
+sheen : float                           # sheen weight 0.0-1.0
+sheen_color : color
+sheen_roughness : float
+
+## Thin Film
+thin_film : float                       # weight 0.0-1.0
+thin_film_thickness : float             # nm, ~300-700 for iridescence
+thin_film_ior : float
+
+## Maps (texturemap slots)
+base_weight_map, base_color_map, reflectivity_map, refl_color_map,
+roughness_map, metalness_map, diff_rough_map, anisotropy_map,
+aniso_angle_map, transparency_map, trans_color_map, trans_rough_map,
+trans_ior_map, scattering_map, sss_color_map, sss_scale_map,
+emission_map, emit_color_map, coat_map, coat_color_map,
+coat_rough_map, coat_aniso_map, coat_aniso_angle_map,
+sheen_map, sheen_color_map, sheen_rough_map,
+thin_film_map, thin_film_ior_map,
+bump_map, coat_bump_map, displacement_map, cutout_map
+
+## Bump Amounts
+bump_map_amt : float                    # bump strength
+clearcoat_bump_map_amt : float          # coat bump strength
+displacement_map_amt : float            # displacement strength

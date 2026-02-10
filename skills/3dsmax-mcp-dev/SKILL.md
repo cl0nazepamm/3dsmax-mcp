@@ -7,14 +7,81 @@ user-invocable: true
 # 3dsmax-mcp Development Guide
 
 ## Workflow Rules
+- **NEVER use raw `execute_maxscript` for material work** — always use `assign_material`, `set_material_property`, and `set_material_properties` for material creation, assignment, and property setting. Only use `execute_maxscript` for things with no dedicated tool: file I/O, texture map object creation (OSLMap, Bitmaptexture, ai_bump2d), and sub-material slot assignment within Multimaterials.
 - **No rendering unless asked** — never render/capture viewport unless user explicitly requests it
 - **Screenshot while building** — always capture viewport after completing major build steps so user can see progress. Take a final screenshot when a scene build is done to verify the result visually. Skip screenshots for non-visual work (writing MAXScript functions, code tasks). Take screenshots when debugging or when the user is stuck.
 - **No spline viewport render unless asked** — never set `render_displayRenderMesh` or "Enable in Viewport" on splines unless user explicitly requests it. Hide splines used as paths.
 - **Screen resolution is 4K (3840x2160)** — always use `width:3840 height:2160` for `capture_screen`. The 1920x1080 default only captures a quarter of the screen.
 
+## Tool Selection Guide — Pick the Right Tool
+**ALWAYS prefer dedicated tools over `execute_maxscript`.** Only use `execute_maxscript` when no tool covers your need.
+
+### "I need to understand an object"
+- **Quick overview** (class, transform, modifiers, material, mesh stats) → `inspect_object`
+- **All properties with types** (before setting a value) → `inspect_properties` with target="baseobject" / "material" / "modifier"
+- **Modifier params specifically** → `inspect_modifier_properties`
+- **Object's detailed props** (transform, material, modifiers) → `get_object_properties`
+
+### "I need to find things in the scene"
+- **List all objects** (with filtering by class/pattern/layer) → `get_scene_info`
+- **What materials are assigned to objects?** → `get_materials`
+- **What material/modifier/texture types exist scene-wide?** → `find_class_instances` (with superclass for enumeration)
+- **Is this object instanced? How many copies?** → `get_instances`
+- **Which objects have shadows off / are non-renderable?** → `find_objects_by_property`
+- **What does this object depend on?** → `get_dependencies`
+- **What fog/volume/lens effects exist?** → `get_effects`
+
+### "I need to work with materials"
+- **Create & assign a new material** → `assign_material` (Arnold, Physical, Standard, Multi/Sub)
+- **Set one material property** (color, float, map, clear map) → `set_material_property`
+- **Set many material properties at once** (chrome preset, glass preset) → `set_material_properties`
+- **Populate Multi/Sub-Object slots** → `set_sub_material` (create new or share from another slot via source_index)
+- **Inspect material params before changing** → `inspect_properties` with target="material"
+- **List all assigned materials** → `get_materials`
+- **Find all material types scene-wide** → `find_class_instances` with superclass="material"
+
+### "I need to work with texture maps"
+- **Create any texture map** (OSLMap, Bitmaptexture, ai_bump2d, Noise, etc.) → `create_texture_map` (stores as global variable)
+- **Set properties on a texture map** (after creation) → `set_texture_map_properties`
+- **Write OSL code + create OSLMap** in one step → `write_osl_shader` (writes file, creates map, sets params)
+- **Wire a map into a material slot** → `set_material_property` with value="{global_var_name}"
+
+### "I need to modify things"
+- **Set a single object property** → `set_object_property`
+- **Add/remove a modifier** → `add_modifier` / `remove_modifier`
+- **Toggle modifier on/off** (viewport vs render) → `set_modifier_state`
+- **Change a modifier param across the whole scene** → `batch_modify`
+- **Collapse modifiers to mesh** → `collapse_modifier_stack`
+- **De-instance a shared modifier** → `make_modifier_unique`
+- **Move/rotate/scale** → `transform_object`
+- **Enable/disable scene effects** → `toggle_effect` / `delete_effect`
+
+### "I need to organize the scene"
+- **Parent/unparent objects** → `set_parent`
+- **Show/hide/freeze** → `set_visibility`
+- **Select objects** → `select_objects`
+- **Clone/instance** → `clone_objects`
+- **Rename in batch** → `batch_rename_objects`
+
+### "I need to build geometry"
+- **Primitives** → `create_object`
+- **Structures** (house, tower, bridge, etc.) → `build_structure`
+- **Grid/array placement** → `place_grid_array` / `place_on_grid`
+- **Circular placement** → `place_circle`
+- **Floor plans** → `build_floor_plan`
+
+### "I need to see the scene"
+- **Viewport screenshot** → `capture_viewport`
+- **Full screen / UI panels** → `capture_screen`
+- **Render** → `render_scene`
+- **Identify objects visually** → `isolate_and_capture_selected`
+
+### When to use `execute_maxscript`
+Only when NO dedicated tool covers your need — e.g. animation keyframing, custom scripted operations, render settings, environment setup, or anything not listed above.
+
 ## Core Rule: Inspect Before Acting
-**NEVER guess property names, class names, operator types, or parameter values.** Always query first:
-- `showProperties obj` — list all properties of an object/modifier/material
+**NEVER guess property names, class names, operator types, or parameter values.** Use `inspect_properties` or `inspect_modifier_properties` instead of raw MAXScript inspection. Only fall back to raw commands for interfaces/methods:
+- **Object/modifier/material properties** → `inspect_properties` (preferred)
 - `showInterfaces obj` — list all interfaces and their methods
 - `showMethods obj` — list methods on an interface
 - `getPropNames obj` — get property names as array
@@ -42,6 +109,7 @@ Call these inspection commands BEFORE writing any manipulation code. This avoids
 5. Return `response.get("result", "")` or appropriate default
 
 ## MAXScript Pitfalls
+- **Material/texturemap constructors** — NO parentheses after class name. Use `ai_standard_surface name:"Mat1" metalness:1.0` NOT `ai_standard_surface() name:"Mat1"`. The `()` causes a syntax error when followed by keyword params.
 - **Case-insensitive variables** — MAXScript is case-insensitive. `R` and `r` are the SAME variable. Always use distinct descriptive names (e.g. `ringRadius` / `tubeRadius`). This applies to ALL identifiers: variables, function names, properties.
 - **No `local` at top level** — `execute()` runs at global scope; using `local` outside a function/block causes a compile error. Use bare variable names instead.
 - **`viewport.setType` values** — use `#view_persp_user` (not `#view_persp`). Valid values include `#view_left`, `#view_front`, `#view_top`, `#view_iso_user`, `#view_persp_user`, etc.
@@ -144,6 +212,57 @@ Call these inspection commands BEFORE writing any manipulation code. This avoids
 
 ## Shell Pitfalls
 - **PowerShell `$` vars from bash** — `$var` in PowerShell gets eaten by bash. Write a `.ps1` file and run with `powershell -ExecutionPolicy Bypass -File script.ps1` instead.
+
+## Advanced Reflection & Introspection
+- **`getPropNames obj`** + **`getProperty obj propName`** + **`setProperty obj propName val`** — universal reflection API for reading/writing properties on any MAXScript-compatible object (modifiers, materials, controllers, base objects)
+- **`showProperties obj to:stringstream`** — redirect property listing to a StringStream, then parse line-by-line to get **declared types** (e.g. `"worldUnits"`, `"texturemap"`, `"material"`, `"float array"`). `classof (getproperty ...)` only gives the runtime type of the current value — `showProperties` gives the declared/expected type, which is far more useful for empty slots
+- **Property blacklist** — skip these properties to avoid crashes: `#adTextureLock` (duplicate, skip second occurrence), `#notused`, `#thelist`, `#geometryOrientationLookAtNode`, `#target_distance`
+- **`exprForMAXObject obj`** — returns a MAXScript expression string that evaluates to the same object (e.g. `"$Box001.modifiers[#Bend]"`). Guard against invalid results: `matchpattern result pattern:"*(null)*"` or `matchpattern result pattern:"<<*"`
+- **CATParent / Unwrap_UVW guard** — always skip these when recursively traversing subanims, they cause crashes or infinite loops
+
+## Scene-Wide Queries
+- **`getclassinstances ClassName`** — finds ALL instances of any class across the entire scene (modifiers, materials, controllers, textures, etc.). The single most powerful scene query function
+- **`refs.dependentnodes target`** — from a reference target (modifier, material, controller) to the scene nodes that use it. "Which objects use this material?"
+- **`refs.dependents obj`** — from a scene node to all the reference targets it depends on. "What materials/controllers/modifiers does this object use?"
+- **Pattern: intersection of `getclassinstances` + `refs.dependentnodes`** — the gold standard for "find which objects use which instances of class X"
+- **`SuperClass.classes`** — `material.classes`, `modifier.classes`, `Shadow.classes`, `Atmospheric.classes` etc. Enumerate all registered concrete classes under a superclass
+
+## Instance Management
+- **`InstanceMgr.GetInstances obj &instArr`** — get all instances (by-reference output with `&`)
+- **`InstanceMgr.CanMakeObjectsUnique obj`** — check if object participates in instancing
+- **`InstanceMgr.MakeObjectsUnique objArr #individual`** — de-instance objects
+- **`InstanceMgr.makemodifiersunique obj mod #individual`** — de-instance a specific modifier
+- **`InstanceMgr.MakeControllersUnique objArr ctrlArr #individual`** — de-instance controllers
+- **`instancereplace obj sourceObj`** — replace obj geometry with instance of sourceObj
+- **`obj.baseobject = sourceObj`** — share base object (reference). `obj.baseobject = copy obj.baseobject` to break reference
+
+## Modifier Stack Advanced
+- **Three enable flags**: `mod.enabled` (master), `mod.enabledInViews` (viewport only), `mod.enabledInRenders` (render only) — independent booleans
+- **`maxOps.CollapseNodeTo obj modIndex off`** — collapse stack to a specific modifier. `off` = don't prompt
+- **`maxOps.CollapseNode obj off`** — collapse entire stack
+- **`addModifier obj theMod before:(index-1)`** — insert modifier at specific stack position (zero-based `before:`)
+- **`addModifier obj theMod`** = instance (shared reference), **`addModifier obj (copy theMod)`** = independent copy
+
+## Atmospherics & Render Effects
+- **`numAtmospherics`** / **`getAtmospheric i`** — scene-level atmospheric effects (Fog, Volume Light, Fire, etc.)
+- **`numEffects`** / **`getEffect i`** — scene-level render effects (Lens Effects, Blur, etc.)
+- **`setActive atm true/false`** — enable/disable an atmospheric or effect
+- **`isActive atm`** — read active state. NOT `getActive` — `getActive` is undefined; the read function is `isActive`
+- **Delete in reverse order**: `for i = arr.count to 1 by -1 do deleteAtmospheric arr[i]` — prevents index shifting
+
+## Batch Operation Safety
+- **`disableSceneRedraw()` / `enableSceneRedraw()` / `redrawViews()`** — always wrap batch operations to prevent viewport thrashing
+- **`undo "Description" on ( ... )`** — wrap destructive operations in named undo blocks for atomicity
+- **`keyboard.escPressed`** — check inside long loops to allow user abort
+- **Preserve selection**: `local tmpsel = selection as array` before operations, `select tmpsel` after
+
+## Property Type Handling
+- **Compound types** must be handled component-by-component:
+  - `Point3`: `.x`, `.y`, `.z`
+  - `color`: `.r`, `.g`, `.b` (0-255 integer range)
+  - `Quat`: `.w`, `.x`, `.y`, `.z` — use `quattoeuler` to read Euler angles, `eulerAngles` constructor to set
+  - `SubAnim`: `.Pos.x`, `.Rotation.x`, `.Scale.x` for 9-channel decomposition
+- **Light intensity fallback chain** — different lights use different property names: try `.multiplier`, `.intensity`, `.skymult`, `.globals.multiplier`, `.intensity_multiplier`, `.power` with cascading try/catch
 
 ## Testing
 - `execute_maxscript` is the escape hatch — use it to test raw MAXScript without writing a full tool

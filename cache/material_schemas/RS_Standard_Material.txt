@@ -1,0 +1,78 @@
+# RS_Standard_Material — Property Reference
+# Use with set_material_property / set_material_properties
+
+## Base
+base_color : color                    # (color 127 127 127)
+base_color_map : texturemap           # texture slot
+base_color_weight : float             # 0.0-1.0
+diffuse_model : integer               # 0=Lambert, 1=Oren-Nayar
+diffuse_roughness : float             # Oren-Nayar roughness
+metalness : float                     # 0.0-1.0
+
+## Reflection
+refl_color : color                    # reflection tint
+refl_color_map : texturemap
+refl_weight : float                   # 0.0-1.0
+refl_roughness : float                # 0.0 = mirror, 1.0 = diffuse
+refl_roughness_map : texturemap
+refl_ior : float                      # index of refraction
+refl_aniso : float                    # anisotropy amount
+refl_aniso_rotation : float           # anisotropy rotation
+refl_samples : integer
+refl_isGlossiness : boolean           # true = glossiness mode (inverted roughness)
+
+## Refraction
+refr_color : color
+refr_weight : float                   # 0.0 = opaque, 1.0 = fully transparent
+refr_roughness : float
+refr_samples : integer
+refr_thin_walled : boolean
+refr_abbe : float                     # chromatic dispersion
+
+## Subsurface Scattering
+ss_depth : float                      # scatter depth (0 = off)
+ss_scatter_color : color
+ss_phase : float                      # -1.0 to 1.0
+
+## Multi-Scatter (SSS mode 2)
+ms_color : color
+ms_amount : float
+ms_radius : color                     # per-channel scatter radius
+ms_radius_scale : float
+ms_phase : float
+ms_mode : integer                     # 0=Christensen-Burley, 2=Random Walk
+ms_samples : integer
+
+## Sheen
+sheen_color : color
+sheen_weight : float                  # 0.0-1.0
+sheen_roughness : float
+
+## Thin Film
+thinfilm_ior : float
+thinfilm_thickness : float            # 0 = off, ~300-700 for rainbow
+
+## Coat
+coat_color : color
+coat_weight : float                   # 0.0-1.0
+coat_roughness : float
+coat_IOR : float
+coat_aniso : float
+coat_aniso_rotation : float
+coat_bump_input : texturemap          # separate bump for coat
+
+## Emission
+emission_color : color
+emission_color_map : texturemap
+emission_weight : float               # 0.0 = off
+
+## Opacity
+opacity_color : color                 # white = opaque, black = transparent
+opacity_color_map : texturemap
+
+## Bump / Displacement
+bump_input : texturemap
+displacement_input : texturemap
+
+## Overall
+overall_color : color                 # multiplied on top of everything

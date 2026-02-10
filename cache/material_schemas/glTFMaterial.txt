@@ -1,0 +1,71 @@
+# glTFMaterial — Property Reference
+# glTF PBR material for web/game export workflows.
+# Use with set_material_property / set_material_properties
+
+## Base
+baseColor : color                       # (color R G B) — base color
+baseColorMap : texturemap               # texture slot
+metalness : float                       # 0.0-1.0
+metalnessMap : texturemap
+roughness : float                       # 0.0 = mirror
+roughnessMap : texturemap
+
+## Alpha / Opacity
+alphaMode : integer                     # 0=Opaque, 1=Blend, 2=Mask
+AlphaMap : texturemap
+alphaCutoff : float                     # mask threshold
+
+## Normal
+normal : float                          # normal strength
+normalMap : texturemap
+
+## Occlusion
+ambientOcclusion : float
+ambientOcclusionMap : texturemap
+
+## Emission
+emissionColor : color
+emissionMap : texturemap
+
+## Clearcoat (KHR_materials_clearcoat)
+enableClearCoat : boolean               # must enable first
+clearcoat : float
+clearcoatMap : texturemap
+clearcoatRoughness : float
+clearcoatRoughnessMap : texturemap
+clearcoatNormal : float
+clearcoatNormalMap : texturemap
+
+## Sheen (KHR_materials_sheen)
+enableSheen : boolean                   # must enable first
+sheenColor : color
+sheenColorMap : texturemap
+sheenRoughness : float
+sheenRoughnessMap : texturemap
+
+## Specular (KHR_materials_specular)
+enableSpecular : boolean                # must enable first
+Specular : float
+specularMap : texturemap
+specularcolor : color
+specularColorMap : texturemap
+
+## Transmission (KHR_materials_transmission)
+enableTransmission : boolean            # must enable first
+transmission : float
+transmissionMap : texturemap
+
+## Volume (KHR_materials_volume)
+enableVolume : boolean                  # must enable first
+volumeThickness : float
+volumeThicknessMap : texturemap
+volumeDistance : float
+volumeColor : color
+
+## IOR (KHR_materials_ior)
+enableIndexOfRefraction : boolean       # must enable first
+indexOfRefraction : float
+
+## Options
+DoubleSided : boolean
+unlit : boolean                         # KHR_materials_unlit
