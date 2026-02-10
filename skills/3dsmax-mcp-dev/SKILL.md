@@ -1,6 +1,6 @@
 ---
 name: 3dsmax-mcp-dev
-description: Conventions and gotchas for developing 3dsmax-mcp tools. Use when adding new MCP tools, writing MAXScript for the bridge, or debugging communication issues.
+description: Conventions and pitfalls for developing 3dsmax-mcp tools. Use when adding new MCP tools, writing MAXScript for the bridge, or debugging communication issues.
 user-invocable: true
 ---
 
@@ -41,7 +41,7 @@ Call these inspection commands BEFORE writing any manipulation code. This avoids
 4. Build MAXScript string, send via `client.send_command(maxscript)`
 5. Return `response.get("result", "")` or appropriate default
 
-## MAXScript Gotchas
+## MAXScript Pitfalls
 - **Case-insensitive variables** — MAXScript is case-insensitive. `R` and `r` are the SAME variable. Always use distinct descriptive names (e.g. `ringRadius` / `tubeRadius`). This applies to ALL identifiers: variables, function names, properties.
 - **No `local` at top level** — `execute()` runs at global scope; using `local` outside a function/block causes a compile error. Use bare variable names instead.
 - **`viewport.setType` values** — use `#view_persp_user` (not `#view_persp`). Valid values include `#view_left`, `#view_front`, `#view_top`, `#view_iso_user`, `#view_persp_user`, etc.
@@ -141,7 +141,7 @@ Call these inspection commands BEFORE writing any manipulation code. This avoids
 - `Filename_UDIMList` can be left empty — OIIO auto-detects tiles from filesystem
 - Arnold `ai_normal_map` chains through `RNMNormalBlend` OSL nodes — drill through `.input_shader`, `.NormalA_map`, `.NormalB_map` to find leaf bitmaps
 
-## Shell Gotchas
+## Shell Pitfalls
 - **PowerShell `$` vars from bash** — `$var` in PowerShell gets eaten by bash. Write a `.ps1` file and run with `powershell -ExecutionPolicy Bypass -File script.ps1` instead.
 
 ## Testing

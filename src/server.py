@@ -20,7 +20,7 @@ _SKILL_PATH = os.path.normpath(_SKILL_PATH)
 
 @mcp.resource("resource://3dsmax-mcp/skill")
 def get_skill() -> str:
-    """3ds Max MCP development guide — MAXScript gotchas, conventions, and best practices."""
+    """3ds Max MCP development guide — MAXScript pitfalls, conventions, and best practices."""
     if os.path.exists(_SKILL_PATH):
         with open(_SKILL_PATH, "r", encoding="utf-8") as f:
             return f.read()
@@ -29,7 +29,7 @@ def get_skill() -> str:
 
 @mcp.prompt()
 def max_assistant() -> str:
-    """Load 3ds Max assistant context with all conventions and gotchas."""
+    """Load 3ds Max assistant context with all conventions and pitfalls."""
     skill_content = get_skill()
     return (
         "You are a 3ds Max assistant connected via MCP. Follow these rules:\n\n"
