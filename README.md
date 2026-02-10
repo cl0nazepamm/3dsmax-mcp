@@ -57,7 +57,7 @@ To make the skill available in all your Claude Code projects, create a symlink t
 mklink /D "%USERPROFILE%\.claude\skills\3dsmax-mcp-dev" "C:\path\to\3dsmax-mcp\skills\3dsmax-mcp-dev"
 ```
 
-Replace `C:\path\to\3dsmax-mcp` with the actual path where you cloned the repo. This lets Claude Code load the 3ds Max skill even when you're working outside this project.
+Replace `C:\path\to\3dsmax-mcp` with the actual path where you cloned the repo. This lets Claude Code load the 3ds Max skill even when you're working outside this project. Requires admin permissions.
 
 To activate the skill in a conversation, tell Claude:
 
@@ -103,7 +103,7 @@ Run these commands (replacing the path with your absolute local path):
 
 #### Claude Desktop App
 
-Edit `%APPDATA%\Claude\claude_desktop_config.json` (Windows) or `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
+Edit `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```bash
 {
