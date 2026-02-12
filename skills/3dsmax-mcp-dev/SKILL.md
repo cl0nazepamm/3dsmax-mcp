@@ -30,6 +30,7 @@ user-invocable: true
 - **Which objects have shadows off / are non-renderable?** → `find_objects_by_property`
 - **What does this object depend on?** → `get_dependencies`
 - **What fog/volume/lens effects exist?** → `get_effects`
+- **What State Sets / camera sequences exist?** → `get_state_sets` / `get_camera_sequence`
 
 ### "I need to work with materials"
 - **Create & assign a new material** → `assign_material` (Arnold, Physical, Standard, Multi/Sub)
@@ -70,6 +71,12 @@ user-invocable: true
 - **Grid/array placement** → `place_grid_array` / `place_on_grid`
 - **Circular placement** → `place_circle`
 - **Floor plans** → `build_floor_plan`
+
+### "I need to work with State Sets / Camera Sequencing"
+- **Get all State Sets** (cameras, frame ranges, animation ranges, lock flags) → `get_state_sets`
+- **Get camera switch timeline** (only camera-assigned state sets, sorted by start frame) → `get_camera_sequence`
+- Use `get_camera_sequence` when building USD camera switch exports or Unreal Sequencer Camera Cut Tracks
+- Use `get_state_sets` for a full overview of all state sets regardless of camera assignment
 
 ### "I need to see the scene"
 - **Viewport screenshot** → `capture_viewport`
