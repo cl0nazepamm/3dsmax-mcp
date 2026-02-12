@@ -187,7 +187,7 @@ python scripts/build_skill.py
 - `get_selection` - Returns current selection info.
 - `select_objects` - Selects objects by names/pattern/class/all.
 - `get_state_sets` - Reads State Sets with camera/range metadata.
-- `get_camera_sequence` - Camera-assigned State Sets sorted by frame start.
+- `get_camera_sequence` - Access to camera sequencer.
 - `transform_object` - Moves/rotates/scales an object.
 - `capture_viewport` - Fast active-viewport screenshot (safe default).
 - `capture_screen` - Fullscreen capture, disabled by default; requires `enabled=true`.

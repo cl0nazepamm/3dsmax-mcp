@@ -10,7 +10,7 @@ mcp = FastMCP("3dsmax-mcp")
 client = MaxClient()
 
 # Import tool modules to trigger @mcp.tool() registration
-from .tools import execute, scene, objects, materials, render, viewport, identify, transform, hierarchy, modifiers, selection, clone, scene_manage, visibility, inspect, build, grid, floor_plan, scene_query, effects, material_ops, state_sets, data_channel  # noqa: E402, F401
+from .tools import execute, scene, objects, materials, render, viewport, identify, transform, hierarchy, modifiers, selection, clone, scene_manage, visibility, inspect, build, grid, floor_plan, scene_query, effects, material_ops, state_sets, data_channel, wire_params, controllers  # noqa: E402, F401
 
 
 SKILL_RESOURCE_URI = "resource://3dsmax-mcp/skill"

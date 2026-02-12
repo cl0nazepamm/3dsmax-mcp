@@ -122,6 +122,14 @@ Fallback inspection commands (MAXScript) when needed:
 
 ---
 
+### Animation controllers
+- Assign controller → `assign_controller`
+- Inspect controller → `inspect_controller`
+- Add target/variable → `add_controller_target`
+- Update script/props → `set_controller_props`
+
+---
+
 ## 4) When `execute_maxscript` Is Allowed
 
 Use it only when no dedicated tool exists, such as:
@@ -314,7 +322,63 @@ Common DC pitfalls:
 
 ---
 
-## 16) Debug / Test Loop
+## 16) Wire Parameters
+
+Use tools:
+- Discover params → `list_wireable_params`
+- Create wire → `wire_params`
+- Inspect wires → `get_wired_params`
+- Remove wire → `unwire_params`
+
+Wire tips:
+- You do NOT need to `unwire_params` before re-wiring — `paramWire.connect` overwrites existing wire controllers automatically
+- **Rotation wire expressions use RADIANS**, not degrees — use `distance / radius` not `distance * 360 / (2*pi*r)`
+- Sub-anim paths from `list_wireable_params` start with `[#` — no dot separator needed before brackets
+- MAXScript `pi` constant is available in wire expressions
+
+---
+
+## 17) Animation Controllers
+
+Use tools:
+- Assign controller → `assign_controller`
+- Inspect controller → `inspect_controller`
+- Add target/variable → `add_controller_target`
+- Update script/props → `set_controller_props`
+
+Supported controller types:
+- **Script**: `float_script`, `position_script`, `rotation_script`, `scale_script`, `point3_script`
+- **Constraints**: `position_constraint`, `orientation_constraint`, `lookat_constraint`, `path_constraint`, `surface_constraint`, `link_constraint`, `attachment_constraint`
+- **Noise**: `noise_float`, `noise_position`, `noise_rotation`, `noise_scale`
+- **List**: `float_list`, `position_list`, `rotation_list`, `scale_list`
+- **Expression**: `float_expression`, `position_expression`
+- **Other**: `spring`
+
+Controller tips:
+- `dependsOn` in script controllers = self-reference to the owning node (critical for dependency tracking)
+- Script controller `addNode` creates name-independent references (survive object renames)
+- Expression controllers require `ctrl.update()` after `setExpression` — `assign_controller` and `set_controller_props` handle this automatically
+- Link constraint uses `addTarget node frame` (not `appendTarget`)
+- Attachment constraint uses `appendTarget node face`
+- Use `list_wireable_params` to find the correct sub-anim path before assigning controllers
+- Sub-anim paths starting with `[` need no dot separator (same pattern as wire_params)
+- **Use `layer=True`** to add a controller on top of existing (wraps in list controller, preserves current value)
+
+List controller pitfalls:
+- **Cannot assign sub-controllers via local variable** — `listCtrl[2].controller = X()` fails with "Cannot set controller"
+- **Must use `execute("$'name'.pos.controller.Available.controller = ...")`** — the `$` path is required for list sub-anim assignment
+- Position_List sub-anim structure: [1]=default Bezier, [2]=Available (dummy), [numsubs]=Weights — after adding, new ctrl is at numsubs-2
+- `assign_controller` with `layer=True` handles all of this automatically
+
+Noise controller property names:
+- `Noise_Position`: `noise_strength` (Point3, e.g. `[0.3, 0.3, 0.15]`) — NOT `X_Strength`/`Y_Strength`/`Z_Strength`
+- `Noise_Float`: `strength` (float)
+- `Noise_Rotation`: `noise_strength` (Point3, XYZ in degrees)
+- Common props: `seed`, `frequency`, `fractal`, `roughness`, `rampin`, `rampout`, `x_positive`/`y_positive`/`z_positive`
+
+---
+
+## 18) Debug / Test Loop
 
 - Use `execute_maxscript` as an “escape hatch” for quick experiments.
 - If you get `ConnectionRefusedError`, the MAXScript listener isn’t running.
