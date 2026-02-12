@@ -1,6 +1,5 @@
 from ..server import mcp, client
 
-
 @mcp.tool()
 def render_scene(
     width: int = 1920,

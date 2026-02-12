@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "3dsmax-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "MCP server bridging Claude to Autodesk 3ds Max"
 requires-python = ">=3.10"
 dependencies = [

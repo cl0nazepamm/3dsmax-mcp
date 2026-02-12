@@ -11,3 +11,4 @@ build/
 .claude/skills/
 *.skill
 nul
+cache/

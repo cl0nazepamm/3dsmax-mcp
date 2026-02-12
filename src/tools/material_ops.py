@@ -7,6 +7,7 @@ Works with all material/map types: Arnold (ai_standard_surface), Physical,
 Standard, OSLMap, Bitmaptexture, ai_bump2d, and any MAXScript-creatable class.
 """
 
+import json
 from pathlib import Path
 from typing import Optional
 from ..server import mcp, client
@@ -43,15 +44,10 @@ _DEFAULT_CHANNEL_PATTERNS: dict[str, list[str]] = {
 # Color-data maps (sRGB vs Raw / linear)
 _COLOR_CHANNELS = {"diffuse", "specular", "emission"}
 
-# Renderer wiring configs: material class, bitmap class, and slot mappings
+# Renderer wiring configs and slot mappings
 _RENDERER_CONFIGS: dict[str, dict] = {
     "arnold": {
         "material_class": "ai_standard_surface",
-        "bitmap_class": "ai_image",
-        "bitmap_path_prop": "filename",
-        "color_space_prop": "color_space",
-        "color_space_srgb": "sRGB",
-        "color_space_raw": "Raw",
         "slots": {
             "diffuse":       "base_color_shader",
             "roughness":     "specular_roughness_shader",
@@ -66,9 +62,6 @@ _RENDERER_CONFIGS: dict[str, dict] = {
     },
     "physical": {
         "material_class": "PhysicalMaterial",
-        "bitmap_class": "Bitmaptexture",
-        "bitmap_path_prop": "fileName",
-        "color_space_prop": None,  # Physical uses gamma on bitmap
         "slots": {
             "diffuse":       "base_color_map",
             "roughness":     "roughness_map",
@@ -82,9 +75,6 @@ _RENDERER_CONFIGS: dict[str, dict] = {
     },
     "redshift": {
         "material_class": "RS_Standard_Material",
-        "bitmap_class": "Bitmaptexture",
-        "bitmap_path_prop": "fileName",
-        "color_space_prop": None,
         "slots": {
             "diffuse":       "base_color_map",
             "roughness":     "refl_roughness_map",
@@ -140,6 +130,44 @@ def _match_textures_to_channels(
 def _ms_path(p: Path) -> str:
     """Convert a Path to a MAXScript-safe forward-slash string."""
     return str(p).replace("\\", "/")
+
+
+def _material_slot_hints(material_class: str) -> dict[str, str]:
+    """Return compact map-class hints by material class."""
+    cls = material_class.lower()
+    if cls == "ai_standard_surface":
+        return {
+            "preferredBitmapClass": "ai_image",
+            "normalHelperClass": "ai_normal_map",
+            "bumpHelperClass": "ai_bump2d",
+        }
+    if cls == "rs_standard_material":
+        return {
+            "preferredBitmapClass": "Bitmaptexture",
+            "normalHelperClass": "RS_BumpMap",
+            "bumpHelperClass": "RS_BumpMap",
+        }
+    if cls in {"physicalmaterial", "standardmaterial", "gltfmaterial", "maxusdpreviewsurface"}:
+        return {
+            "preferredBitmapClass": "Bitmaptexture",
+            "normalHelperClass": "Normal_Bump",
+            "bumpHelperClass": "Normal_Bump",
+        }
+    return {
+        "preferredBitmapClass": "Bitmaptexture",
+        "normalHelperClass": "",
+        "bumpHelperClass": "",
+    }
+
+
+def _truncate_slots(payload: dict, key: str, max_per_group: int, out: dict, trunc: dict) -> None:
+    items = payload.get(key, [])
+    if not isinstance(items, list):
+        out[key] = []
+        return
+    out[key] = items[:max_per_group]
+    if len(items) > max_per_group:
+        trunc[key] = len(items)
 
 
 def _build_arnold_maxscript(
@@ -618,6 +646,263 @@ def set_material_properties(
     )"""
     response = client.send_command(maxscript)
     return response.get("result", "")
+
+
+@mcp.tool()
+def get_material_slots(
+    name: str,
+    sub_material_index: int = 0,
+    include_values: bool = False,
+    max_slots: int = 60,
+    slot_scope: str = "map",
+    max_per_group: int = 20,
+) -> str:
+    """Get compact material slot/property info without schema caches.
+
+    This is a token-efficient runtime inspector that categorizes material
+    properties into map/color/numeric/bool slots directly from 3ds Max.
+    Use this when an agent needs practical slot names before writing values.
+
+    Args:
+        name: Object name whose material should be inspected.
+        sub_material_index: Multi/Sub slot index (1-based). 0 = top material.
+        include_values: Include truncated readback values for each slot.
+        max_slots: Hard cap on inspected properties to control response size.
+        slot_scope: "map" (default), "summary", or "all".
+        max_per_group: Max returned slots per category.
+
+    Returns:
+        Compact JSON with categorized slot names (and optional values).
+    """
+    safe = _safe_name(name)
+    max_slots = max(1, int(max_slots))
+    max_per_group = max(1, int(max_per_group))
+    slot_scope = (slot_scope or "map").strip().lower()
+    if slot_scope not in {"map", "summary", "all"}:
+        slot_scope = "map"
+    include_vals = "true" if include_values else "false"
+
+    if sub_material_index > 0:
+        mat_expr = f"obj.material[{sub_material_index}]"
+    else:
+        mat_expr = "obj.material"
+
+    maxscript = f"""(
+        fn jsonEscape s = (
+            local t = (s as string)
+            t = substituteString t "\\\\" "\\\\\\\\"
+            t = substituteString t "\\\"" "'"
+            t = substituteString t "\\n" " "
+            t = substituteString t "\\r" ""
+            t
+        )
+
+        fn toJsonNameArray arr = (
+            local out = "["
+            local q = (bit.intAsChar 34)
+            for i = 1 to arr.count do (
+                if i > 1 do out += ","
+                out += q + (jsonEscape arr[i]) + q
+            )
+            out += "]"
+            out
+        )
+
+        fn toJsonPairArray names vals = (
+            local out = "["
+            local q = (bit.intAsChar 34)
+            local lb = (bit.intAsChar 123)
+            local rb = (bit.intAsChar 125)
+            local lim = amin #(names.count, vals.count)
+            for i = 1 to lim do (
+                if i > 1 do out += ","
+                out += lb + q + "name" + q + ":" + q + (jsonEscape names[i]) + q + "," + q + "value" + q + ":" + q + (jsonEscape vals[i]) + q + rb
+            )
+            out += "]"
+            out
+        )
+
+        fn classifyDeclType decl = (
+            local d = toLower decl
+            if (findString d "texturemap") != undefined or (findString d "texmap") != undefined then "map"
+            else if (findString d "color") != undefined then "color"
+            else if (findString d "bool") != undefined then "bool"
+            else if (findString d "float") != undefined or (findString d "integer") != undefined or (findString d "double") != undefined or (findString d "worldunits") != undefined or (findString d "percent") != undefined then "numeric"
+            else "other"
+        )
+
+        local obj = getNodeByName "{safe}"
+        if obj == undefined then (
+            "{{\\\\"error\\\\":\\\\"Object not found: {safe}\\\\"}}"
+        ) else if obj.material == undefined then (
+            "{{\\\\"error\\\\":\\\\"No material assigned to {safe}\\\\"}}"
+        ) else (
+            local mat = {mat_expr}
+            if mat == undefined then (
+                "{{\\\\"error\\\\":\\\\"Sub-material index {sub_material_index} not found on {safe}\\\\"}}"
+            ) else (
+                local includeValues = {include_vals}
+                local maxSlots = {max_slots}
+                local subIdx = {sub_material_index}
+
+                local props = #()
+                try (props = makeUniqueArray (getPropNames mat)) catch ()
+
+                -- Build declared type map from showProperties output
+                local typeNames = #()
+                local typeVals = #()
+                try (
+                    local ss = stringstream ""
+                    showProperties mat to:ss
+                    seek ss 0
+                    while not (eof ss) do (
+                        local ln = readline ss
+                        local chunks = filterString ln ":"
+                        if chunks.count >= 2 do (
+                            local lhs = trimRight chunks[1]
+                            local rhs = trimLeft chunks[2]
+                            local lhsParts = filterString lhs ". "
+                            if lhsParts.count >= 1 do (
+                                local pnm = toLower lhsParts[lhsParts.count]
+                                append typeNames pnm
+                                append typeVals rhs
+                            )
+                        )
+                    )
+                ) catch ()
+
+                fn getDeclType pname tNames tVals = (
+                    local idx = findItem tNames (toLower pname)
+                    if idx != 0 then tVals[idx] else ""
+                )
+
+                local mapNames = #();     local mapVals = #()
+                local colorNames = #();   local colorVals = #()
+                local numNames = #();     local numVals = #()
+                local boolNames = #();    local boolVals = #()
+                local otherNames = #();   local otherVals = #()
+
+                local scanned = 0
+                for p in props while scanned < maxSlots do (
+                    local pname = p as string
+                    if pname == "materialList" or pname == "maps" then continue
+
+                    local val = undefined
+                    local ok = true
+                    try (val = getProperty mat p) catch (ok = false)
+                    if not ok then continue
+
+                    local decl = getDeclType pname typeNames typeVals
+                    local cls = classifyDeclType decl
+                    local rt = try ((classOf val) as string) catch "undefined"
+                    local valStr = try (val as string) catch ""
+
+                    if valStr.count > 120 do valStr = (substring valStr 1 120) + "..."
+
+                    -- Fallback map detection for undeclared cases
+                    local pnameL = toLower pname
+                    if cls == "other" and ((matchPattern pnameL pattern:"*_map*" ignoreCase:true) or (matchPattern pnameL pattern:"*_shader*" ignoreCase:true) or ((findString (toLower rt) "texture") != undefined)) do cls = "map"
+
+                    case cls of (
+                        "map": (
+                            append mapNames pname
+                            append mapVals valStr
+                        )
+                        "color": (
+                            append colorNames pname
+                            append colorVals valStr
+                        )
+                        "numeric": (
+                            append numNames pname
+                            append numVals valStr
+                        )
+                        "bool": (
+                            append boolNames pname
+                            append boolVals valStr
+                        )
+                        default: (
+                            append otherNames pname
+                            append otherVals valStr
+                        )
+                    )
+                    scanned += 1
+                )
+
+                local result = "{{"
+                result += "\\\\"name\\\\":\\\\"" + (jsonEscape mat.name) + "\\\\","
+                result += "\\\\"class\\\\":\\\\"" + (jsonEscape ((classOf mat) as string)) + "\\\\","
+                result += "\\\\"subMaterialIndex\\\\":" + (subIdx as string) + ","
+                result += "\\\\"inspectedCount\\\\":" + (scanned as string) + ","
+                result += "\\\\"counts\\\\":{{"
+                result += "\\\\"map\\\\":" + (mapNames.count as string) + ","
+                result += "\\\\"color\\\\":" + (colorNames.count as string) + ","
+                result += "\\\\"numeric\\\\":" + (numNames.count as string) + ","
+                result += "\\\\"bool\\\\":" + (boolNames.count as string) + ","
+                result += "\\\\"other\\\\":" + (otherNames.count as string)
+                result += "}},"
+
+                if includeValues then (
+                    result += "\\\\"mapSlots\\\\":" + (toJsonPairArray mapNames mapVals) + ","
+                    result += "\\\\"colorSlots\\\\":" + (toJsonPairArray colorNames colorVals) + ","
+                    result += "\\\\"numericSlots\\\\":" + (toJsonPairArray numNames numVals) + ","
+                    result += "\\\\"boolSlots\\\\":" + (toJsonPairArray boolNames boolVals) + ","
+                    result += "\\\\"otherSlots\\\\":" + (toJsonPairArray otherNames otherVals)
+                ) else (
+                    result += "\\\\"mapSlots\\\\":" + (toJsonNameArray mapNames) + ","
+                    result += "\\\\"colorSlots\\\\":" + (toJsonNameArray colorNames) + ","
+                    result += "\\\\"numericSlots\\\\":" + (toJsonNameArray numNames) + ","
+                    result += "\\\\"boolSlots\\\\":" + (toJsonNameArray boolNames) + ","
+                    result += "\\\\"otherSlots\\\\":" + (toJsonNameArray otherNames)
+                )
+
+                result += "}}"
+                result
+            )
+        )
+    )"""
+    response = client.send_command(maxscript, timeout=45.0)
+    raw = response.get("result", "")
+    if not raw:
+        return raw
+
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return raw
+
+    if not isinstance(payload, dict):
+        return raw
+
+    material_class = str(payload.get("class", ""))
+    compact: dict[str, object] = {
+        "name": payload.get("name", ""),
+        "class": material_class,
+        "subMaterialIndex": payload.get("subMaterialIndex", sub_material_index),
+        "inspectedCount": payload.get("inspectedCount", 0),
+        "counts": payload.get("counts", {}),
+        "hints": _material_slot_hints(material_class),
+    }
+
+    if "error" in payload:
+        compact = {
+            "error": payload.get("error"),
+            "hints": _material_slot_hints(material_class),
+        }
+        return json.dumps(compact, separators=(",", ":"))
+
+    trunc: dict[str, int] = {}
+    if slot_scope in {"map", "all"}:
+        _truncate_slots(payload, "mapSlots", max_per_group, compact, trunc)
+    if slot_scope == "all":
+        _truncate_slots(payload, "colorSlots", max_per_group, compact, trunc)
+        _truncate_slots(payload, "numericSlots", max_per_group, compact, trunc)
+        _truncate_slots(payload, "boolSlots", max_per_group, compact, trunc)
+        _truncate_slots(payload, "otherSlots", max_per_group, compact, trunc)
+
+    if trunc:
+        compact["truncatedFrom"] = trunc
+
+    return json.dumps(compact, separators=(",", ":"))
 
 
 @mcp.tool()

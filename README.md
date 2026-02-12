@@ -115,6 +115,16 @@ Replace `C:\\path\\to\\3dsmax-mcp` with the actual path where you cloned the rep
 Open Claude app go to settings> capabilities section and upload the .MD
 
 
+## How to update
+
+in powershell
+```
+git pull
+python scripts/build_skill.py
+
+```
+
+
 ## How it works
 
 1. The MAXScript listener runs inside 3ds Max on TCP port 8765
@@ -122,14 +132,63 @@ Open Claude app go to settings> capabilities section and upload the .MD
 3. 3ds Max executes commands and returns JSON responses
 4. Claude sends commands through the MCP server and gets results back
 
-## Available tools
+## Current list of tools
 
-- `execute_maxscript` - Run arbitrary MAXScript code
-- `get_scene_info` - List all objects in the scene
-- `get_selection` - Get info about selected objects
-- `get_object_properties` - Get detailed properties of an object
-- `set_object_property` - Set a property on an object
-- `create_object` - Create a new object
-- `delete_objects` - Delete objects by name
-- `get_materials` - List all materials in the scene
-- `render_scene` - Render the current viewport
+- `build_structure` - Procedurally builds larger structures (house, tower, castle, etc.)
+- `clone_objects` - Clones objects as copy/instance/reference with optional offset.
+- `add_data_channel` - Creates a Data Channel modifier graph.
+- `inspect_data_channel` - Reads the full operator graph of a Data Channel modifier.
+- `set_data_channel_operator` - Edits parameters of one Data Channel operator.
+- `add_dc_script_operator` - Adds a MAXScript-based Data Channel script operator.
+- `list_dc_presets` - Lists available Data Channel presets.
+- `load_dc_preset` - Applies a Data Channel preset to an object.
+- `get_effects` - Lists atmospheric/render effects in the scene.
+- `toggle_effect` - Enables/disables an effect by index.
+- `delete_effect` - Deletes an atmospheric/render effect by index.
+- `execute_maxscript` - Runs arbitrary MAXScript and returns the result.
+- `build_floor_plan` - Builds a floor plan from room/cell definitions.
+- `place_on_grid` - Places one object at a grid index.
+- `place_grid_array` - Fills a grid volume with repeated objects.
+- `place_circle` - Places objects evenly around a circle.
+- `set_parent` - Parents/unparents objects.
+- `get_hierarchy` - Returns recursive child hierarchy for an object.
+- `isolate_and_capture_selected` - Isolates selected objects and captures viewport images.
+- `batch_rename_objects` - Renames many objects in one operation.
+- `inspect_object` - High-level deep inspection of one object.
+- `inspect_properties` - Deep property dump for object/base/modifier/material.
+- `inspect_modifier_properties` - Deep property dump for one modifier.
+- `assign_material` - Creates and assigns a material to objects.
+- `set_material_property` - Sets one property on object material/sub-material.
+- `set_material_properties` - Sets multiple material properties at once.
+- `get_material_slots` - Runtime slot inspector with low-token scopes (`map`/`summary`/`all`) plus bitmap/normal helper class hints.
+- `create_texture_map` - Creates a texture map and stores it as a global variable.
+- `set_texture_map_properties` - Sets properties on a stored texture map.
+- `set_sub_material` - Creates/assigns sub-material slots in Multi/Sub material.
+- `write_osl_shader` - Writes OSL to disk and creates an OSLMap from it.
+- `create_material_from_textures` - Auto-builds PBR material from a texture folder.
+- `get_materials` - Lists assigned materials and their object usage.
+- `add_modifier` - Adds a modifier to an object.
+- `remove_modifier` - Removes a modifier from an object.
+- `set_modifier_state` - Toggles modifier enabled/view/render states.
+- `collapse_modifier_stack` - Collapses modifier stack to baked geometry.
+- `make_modifier_unique` - De-instances a shared modifier.
+- `batch_modify` - Scene-wide property edits for all modifiers of a class.
+- `get_object_properties` - Detailed object properties (transform/material/modifiers).
+- `set_object_property` - Sets one object property via MAXScript expression.
+- `create_object` - Creates a primitive/object in scene.
+- `delete_objects` - Deletes objects by name.
+- `render_scene` - Runs an actual render (optionally saves file).
+- `manage_scene` - Scene state actions (hold/fetch/reset/save/info).
+- `find_class_instances` - Finds class instances scene-wide (`getclassinstances` style).
+- `get_instances` - Gets all object instances sharing same base object.
+- `get_dependencies` - Traces dependency graph for an object.
+- `find_objects_by_property` - Finds objects by property/value match.
+- `get_scene_info` - Lists scene objects with filters.
+- `get_selection` - Returns current selection info.
+- `select_objects` - Selects objects by names/pattern/class/all.
+- `get_state_sets` - Reads State Sets with camera/range metadata.
+- `get_camera_sequence` - Camera-assigned State Sets sorted by frame start.
+- `transform_object` - Moves/rotates/scales an object.
+- `capture_viewport` - Fast active-viewport screenshot (safe default).
+- `capture_screen` - Fullscreen capture, disabled by default; requires `enabled=true`.
+- `set_visibility` - Hide/show/toggle/freeze/unfreeze objects.

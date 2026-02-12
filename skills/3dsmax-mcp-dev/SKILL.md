@@ -25,14 +25,11 @@ Only use `execute_maxscript` for material-adjacent tasks that have **no dedicate
 - assigning sub-materials inside a Multi/Sub when no tool covers it
 
 ### Rendering and viewport
-- **Do not render unless explicitly asked.**
-- **Take screenshots during scene builds**:
-  - after major build steps: `capture_viewport` (or `capture_screen` if doing material/lighting work)
-
-### 4K screen capture
-- If the screen is **3840×2160**, use:
-  - `capture_screen width:3840 height:2160`
-- Otherwise 1080p is fine.
+- **Do not render unless user explicitly asks for it.**
+- **Avoid screenshots by default.** Only capture when:
+  - The user explicitly asks to see the scene
+  - Visual verification is truly necessary (e.g. debugging a visual issue you can't diagnose otherwise)
+- When capturing: prefer `capture_viewport` or `capture_model`. Only use `capture_screen enabled:true` for full UI/fullscreen needs.
 
 ---
 
@@ -82,6 +79,7 @@ Fallback inspection commands (MAXScript) when needed:
 - Create + assign → `assign_material`
 - Set one property → `set_material_property`
 - Set many properties → `set_material_properties`
+- Fast slot discovery (low-token, default map-only + bitmap class hints) → `get_material_slots`
 - Multi/Sub slots → `set_sub_material`
 - Inspect material → `inspect_properties target="material"`
 
@@ -117,8 +115,8 @@ Fallback inspection commands (MAXScript) when needed:
 - Floor plans → `build_floor_plan`
 
 ### See the scene
-- Viewport only → `capture_viewport`
-- Full UI panels → `capture_screen`
+- Viewport only (safe default) → `capture_viewport` or `capture_model`
+- Full UI panels / fullscreen → `capture_screen enabled:true`
 - Render → `render_scene`
 - Identify visually → `isolate_and_capture_selected`
 
@@ -310,6 +308,9 @@ Common DC pitfalls:
 - Operators not in order do not execute
 - GeoQuantize before element-level ops to avoid tearing
 - Node references must be actual nodes, not strings
+- **Always include `vertex_output` (output=0, Position)** at the end of TransformElements/ColorElements pipelines — composite operators need it to write results to the mesh
+- **TransformElements.transformType actual values**: 0=Position, 1=Rotation, 2=Scale%, 3=ScaleUniform (sequential, NOT the gapped 0,2,3,4 from Autodesk docs)
+- Use `"blend"` key in operator dicts to set `operator_ops` blend mode: 0=Replace, 1=Add, 2=Subtract, 3=Multiply, 4=Divide, 5=Dot, 6=Cross
 
 ---
 
