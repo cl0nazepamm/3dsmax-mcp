@@ -4,7 +4,7 @@
   <img src="images/logo.png" alt="3dsmax-mcp logo" width="200">
 </p>
 
-MCP server bridging Claude to Autodesk 3ds Max via TCP socket.
+MCP server bridging Claude and other agents to Autodesk 3ds Max via TCP socket.
 
 ## Prerequisites
 
@@ -41,27 +41,27 @@ cd 3dsmax-mcp
 uv sync
 ```
 
-### 3. Build skill file
+### 3. Build and register skill file
 
 ```bash
 python scripts/build_skill.py
+python scripts/register.py
 ```
+This copies the development skill to `.claude/skills/` and registers the skill file to .claude json.
 
-This copies the development skill to `.claude/skills/` so Claude Code auto-discovers it in-project.
+#### Global skill for all agents (optional)
 
-#### Global skill (optional)
+I recommend creating a symbolic link for the skill file so both Claude, Codex and Gemini can all get it. Use command prompt not powershell for this. 
 
-To make the skill available in all your Claude Code projects, create a symlink to your user-level skills directory:
+First install agent-skills if you don't have it. Via powershell  `npm install -g @govcraft/agent-skills`
+
+then
 
 ```bash
-mklink /D "%USERPROFILE%\.claude\skills\3dsmax-mcp-dev" "C:\path\to\3dsmax-mcp\skills\3dsmax-mcp-dev"
+mklink /D "%USERPROFILE%\.agents\skills\3dsmax-mcp-dev" "C:\path\to\3dsmax-mcp\skills\3dsmax-mcp-dev"
 ```
 
-Replace `C:\path\to\3dsmax-mcp` with the actual path where you cloned the repo. This lets Claude Code load the 3ds Max skill even when you're working outside this project. Requires admin permissions.
-
-To activate the skill in a conversation, tell Claude:
-
-> activate skill 3dsmax-mcp-dev
+Replace `C:\path\to\3dsmax-mcp` with the actual path where you cloned the repo. This lets coding agents load the 3ds Max skill even when you're working outside this project. Requires admin permissions. If you don't have agent-skills you can just install it to `.codex/skills` or `.gemini/skills` etc. Claude might require you to create symlink in `.claude/skills`
 
 ### 4. Set up 3ds Max (MAXScript listener)
 
@@ -79,27 +79,16 @@ Copy the MAXScript files into your 3ds Max installation:
 
 3. Restart 3ds Max. You should see `MCP: Auto-start complete` in the MAXScript Listener.
 
-### 5. Connect to Claude
+### 5. Setting up MCP for agents.
 
-#### Claude Code (CLI)
+In powershell 
 
-Run this command 
 ```bash
 claude mcp add --scope user 3dsmax-mcp -- uv run --directory "C:\path\to\3dsmax-mcp" 3dsmax-mcp
+codex mcp add 3dsmax-mcp -- uv run --directory C:\path\to\3dsmax-mcp 3dsmax-mcp
+gemini mcp add --scope user 3dsmax-mcp -- uv run --directory "C:\path\to\3dsmax-mcp" 3dsmax-mcp
+
 ```
-
-#### Gemini CLI
-
-Run these commands (replacing the path with your absolute local path):
-
-1. **Add MCP Server:**
-   ```bash
-   gemini mcp add --scope user 3dsmax-mcp uv run --directory "C:\path\to\3dsmax-mcp" 3dsmax-mcp
-   ```
-2. **Install Dev Skill:**
-   ```bash
-   gemini skills install "C:\path\to\3dsmax-mcp\skills\3dsmax-mcp-dev"
-   ```
 
 #### Claude Desktop App
 
@@ -120,8 +109,11 @@ Edit `%APPDATA%\Claude\claude_desktop_config.json`
   }
 }
 ```
-
 Replace `C:\\path\\to\\3dsmax-mcp` with the actual path where you cloned the repo. Restart the Claude Desktop app after editing.
+
+#### Add skill to Claude app
+Open Claude app go to settings> capabilities section and upload the .MD
+
 
 ## How it works
 
