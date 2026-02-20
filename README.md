@@ -85,7 +85,7 @@ In powershell
 
 ```bash
 claude mcp add --scope user 3dsmax-mcp -- uv run --directory "C:\path\to\3dsmax-mcp" 3dsmax-mcp
-codex mcp add 3dsmax-mcp -- uv run --directory C:\path\to\3dsmax-mcp 3dsmax-mcp
+codex mcp add 3dsmax-mcp -- uv run --directory "C:\path\to\3dsmax-mcp 3dsmax-mcp" 3dsmax-mcp
 gemini mcp add --scope user 3dsmax-mcp -- uv run --directory "C:\path\to\3dsmax-mcp" 3dsmax-mcp
 
 ```
