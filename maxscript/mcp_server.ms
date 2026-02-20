@@ -20,6 +20,7 @@ struct MCPServerStruct
 	listener = undefined,
 	isRunning = false,
 	port = 8765,
+	safeMode = false,
 
 	-- Escape a string for safe JSON embedding
 	fn escapeJsonString str =
@@ -125,7 +126,10 @@ struct MCPServerStruct
 			(
 				if cmdType == "maxscript" then
 				(
-					result = execute command
+					if safeMode then
+						result = safeExecute command
+					else
+						result = execute command
 				)
 				else if cmdType == "python" then
 				(

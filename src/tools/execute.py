@@ -15,3 +15,24 @@ def execute_maxscript(code: str) -> str:
     """
     response = client.send_command(code, cmd_type="maxscript")
     return response.get("result", "")
+
+
+@mcp.tool()
+def toggle_safe_execute(enabled: bool) -> str:
+    """Toggle safe execution mode for MAXScript commands.
+
+    When enabled, the server uses safeExecute instead of execute,
+    which blocks potentially dangerous operations like DOSCommand,
+    ShellLaunch, deleteFile, and python.Execute.
+
+    Safe mode is OFF by default.
+
+    Args:
+        enabled: True to enable safe mode, False to disable.
+    """
+    value = "true" if enabled else "false"
+    response = client.send_command(
+        f"MCP_Server.safeMode = {value}", cmd_type="maxscript"
+    )
+    state = "enabled" if enabled else "disabled"
+    return f"Safe execution mode {state}. Result: {response.get('result', '')}"
