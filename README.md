@@ -59,6 +59,7 @@ then
 
 ```bash
 mklink /D "%USERPROFILE%\.agents\skills\3dsmax-mcp-dev" "C:\path\to\3dsmax-mcp\skills\3dsmax-mcp-dev"
+mklink /D "%USERPROFILE%\.claude\skills\3dsmax-mcp-dev" "C:\path\to\3dsmax-mcp\skills\3dsmax-mcp-dev"
 ```
 
 Replace `C:\path\to\3dsmax-mcp` with the actual path where you cloned the repo. This lets coding agents load the 3ds Max skill even when you're working outside this project. Requires admin permissions. If you don't have agent-skills you can just install it to `.codex/skills` or `.gemini/skills` etc. Claude might require you to create symlink in `.claude/skills`
