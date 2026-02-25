@@ -112,10 +112,6 @@ Edit `%APPDATA%\Claude\claude_desktop_config.json`
 ```
 Replace `C:\\path\\to\\3dsmax-mcp` with the actual path where you cloned the repo. Restart the Claude Desktop app after editing.
 
-#### Add skill to Claude app
-Open Claude app go to settings> capabilities section and upload the .MD
-
-
 ## How to update
 
 in powershell
@@ -216,4 +212,5 @@ If you want to disable safeExecute flip the `safeMode = true` to `false` in `mcp
 - `transform_object` - Moves/rotates/scales an object.
 - `capture_viewport` - Fast active-viewport screenshot (safe default).
 - `capture_screen` - Fullscreen capture, disabled by default; requires `enabled=true`.
+- `scatter_forest_pack` - Builds a Forest Pack scatter object from named surfaces and source objects.
 - `set_visibility` - Hide/show/toggle/freeze/unfreeze objects.
