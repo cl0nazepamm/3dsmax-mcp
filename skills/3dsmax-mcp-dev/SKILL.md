@@ -50,11 +50,13 @@ Use this order unless there is a clear reason not to:
    - `get_bridge_status`
    - `get_session_context`
    - `inspect_active_target`
+   - for plugin systems: `discover_plugin_surface`, `get_plugin_manifest`
 2. Inspect the target
    - `inspect_object`
    - `inspect_properties`
    - `inspect_modifier_properties`
    - `get_material_slots`
+   - plugin classes/instances: `inspect_plugin_class`, `inspect_plugin_instance`
 3. Mutate with a dedicated tool
 4. Verify with delta + readback
 
@@ -78,6 +80,23 @@ These wrappers are the right place for common action+verify flows. Do not create
 - Cheap scene summary: `get_scene_snapshot`
 - Cheap selection summary: `get_selection_snapshot`
 - Change tracking: `get_scene_delta`
+
+### Plugin discovery
+- Plugin family discovery: `discover_plugin_surface`
+- Runtime class scan: `list_plugin_classes`
+- Class-level reflection: `inspect_plugin_class`
+- Constructor guidance: `inspect_plugin_constructor`
+- Live plugin object inspection: `inspect_plugin_instance`
+- Structured plugin manifest: `get_plugin_manifest`, `refresh_plugin_manifest`
+- MCP resources:
+  - `resource://3dsmax-mcp/plugins/index`
+  - `resource://3dsmax-mcp/plugins/{plugin_name}/manifest`
+  - `resource://3dsmax-mcp/plugins/{plugin_name}/guide`
+  - `resource://3dsmax-mcp/plugins/{plugin_name}/recipes`
+  - `resource://3dsmax-mcp/plugins/{plugin_name}/gotchas`
+- Current recipe layer:
+  - `create_tyflow_basic_verified`
+  - `create_tyflow_scatter_from_objects_verified`
 
 ### Object inspection
 - Rich overview: `inspect_object`
@@ -120,7 +139,7 @@ These wrappers are the right place for common action+verify flows. Do not create
 ### Procedural / specialty systems
 - Data Channel: `add_data_channel`, `inspect_data_channel`, `set_data_channel_operator`, `add_dc_script_operator`
 - Wires: `list_wireable_params`, `wire_params`, `get_wired_params`, `unwire_params`
-- Controllers: `assign_controller`, `inspect_controller`, `add_controller_target`, `set_controller_props`
+- Controllers: `assign_controller`, `inspect_controller`, `inspect_track_view`, `add_controller_target`, `set_controller_props`
 - Scatter: prefer dedicated tools and verification; do not improvise large manual placement loops first
 
 ## When `execute_maxscript` Is Appropriate

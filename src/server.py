@@ -10,7 +10,7 @@ mcp = FastMCP("3dsmax-mcp")
 client = MaxClient()
 
 # Import tool modules to trigger @mcp.tool() registration
-from .tools import execute, scene, objects, materials, render, viewport, identify, transform, hierarchy, modifiers, selection, clone, scene_manage, visibility, inspect, build, grid, floor_plan, scene_query, effects, material_ops, state_sets, data_channel, wire_params, controllers, scattering, capabilities, snapshots, verification, session_context, bridge, workflows  # noqa: E402, F401
+from .tools import execute, scene, objects, materials, render, viewport, identify, transform, hierarchy, modifiers, selection, clone, scene_manage, visibility, inspect, build, grid, floor_plan, scene_query, effects, material_ops, state_sets, data_channel, wire_params, controllers, scattering, capabilities, snapshots, verification, session_context, bridge, workflows, plugins, plugin_workflows  # noqa: E402, F401
 
 
 SKILL_RESOURCE_URI = "resource://3dsmax-mcp/skill"
@@ -47,6 +47,12 @@ def max_assistant() -> str:
         "Start with get_session_context for fast live context when the scene state matters.\n"
         "Use inspect_active_target when you need the most relevant current target without manually deciding between selection and scene context.\n"
         "Use get_scene_snapshot / get_selection_snapshot when you need a smaller follow-up probe.\n"
+        "Use inspect_track_view to browse an object's animation/controller hierarchy before targeting a specific param_path.\n"
+        "When working with plugins or unfamiliar classes, start with discover_plugin_surface or get_plugin_manifest.\n"
+        "Use inspect_plugin_class before making assumptions about a plugin class surface.\n"
+        "Use inspect_plugin_instance for live plugin objects when generic object inspection is too shallow.\n"
+        "Plugin resources are available under resource://3dsmax-mcp/plugins/{plugin_name}/manifest, /guide, /recipes, and /gotchas.\n"
+        "For tyFlow creation-oriented recipes, prefer create_tyflow_basic_verified or create_tyflow_scatter_from_objects_verified before falling back to raw MAXScript.\n"
         "Prefer dedicated tools over raw MAXScript when available.\n"
         "Inspect objects/properties before edits.\n"
         "After any meaningful mutation, verify with a verification tool or get_scene_delta.\n"

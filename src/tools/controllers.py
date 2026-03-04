@@ -434,6 +434,138 @@ def inspect_controller(
 
 
 @mcp.tool()
+def inspect_track_view(
+    name: str,
+    depth: int = 4,
+    filter: Optional[str] = None,
+    include_values: bool = True,
+) -> str:
+    """Inspect an object's controller/track tree in a Track View-style hierarchy.
+
+    This is the browse-first companion to inspect_controller:
+    - walks sub-anims recursively
+    - reports track names, paths, controller classes, and child tracks
+    - optionally includes compact current values
+
+    Args:
+        name: Object name (e.g. "Box001")
+        depth: Max recursion depth (default 4, max 6)
+        filter: Optional case-insensitive substring filter on path/name/controller
+        include_values: Include compact current value strings when true
+
+    Returns:
+        JSON with object info and nested track tree.
+    """
+    safe_obj = safe_name(name)
+    safe_filter = safe_string((filter or "").lower())
+    max_depth = min(max(int(depth), 1), 6)
+    include_values_str = "true" if include_values else "false"
+
+    maxscript = f"""(
+    local esc = MCP_Server.escapeJsonString
+    local obj = getNodeByName "{safe_obj}"
+    if obj == undefined do return "{{\\"error\\":\\"Object not found: {safe_obj}\\"}}"
+
+    local filterStr = "{safe_filter}"
+    local includeValues = {include_values_str}
+
+    fn matchesFilter text filterText = (
+        if filterText == "" then return true
+        if text == undefined then return false
+        (findString (toLower text) filterText) != undefined
+    )
+
+    fn compactValue sub includeVals = (
+        if not includeVals then return ""
+        local valStr = try ((sub.value) as string) catch ""
+        valStr = esc valStr
+        if valStr.count > 120 do valStr = (substring valStr 1 120) + "..."
+        valStr
+    )
+
+    fn buildTrack sub path trackName depthLeft filterText includeVals = (
+        if depthLeft < 0 then return undefined
+
+        local ctrl = try (sub.controller) catch undefined
+        local ctrlClass = if ctrl != undefined then ((classof ctrl) as string) else ""
+        local ctrlSuper = if ctrl != undefined then ((superClassOf ctrl) as string) else ""
+        local rawName = if trackName != undefined then (trackName as string) else "?"
+        local pathStr = path
+        local valueStr = compactValue sub includeVals
+
+        local childrenJson = "["
+        local childCount = 0
+        local firstChild = true
+
+        if depthLeft > 0 do (
+            local numSubs = try (sub.numsubs) catch 0
+            for i = 1 to numSubs do (
+                local child = try (getSubAnim sub i) catch undefined
+                if child == undefined do continue
+                local childName = try ((getSubAnimName sub i) as string) catch undefined
+                if childName == undefined do continue
+                local childPath = pathStr + "[#" + childName + "]"
+                local childJson = buildTrack child childPath childName (depthLeft - 1) filterText includeVals
+                if childJson != undefined do (
+                    if not firstChild do childrenJson += ","
+                    firstChild = false
+                    childrenJson += childJson
+                    childCount += 1
+                )
+            )
+        )
+        childrenJson += "]"
+
+        local haystack = (toLower rawName) + " " + (toLower pathStr) + " " + (toLower ctrlClass)
+        local keep = matchesFilter haystack filterText or childCount > 0
+        if not keep then return undefined
+
+        local json = "{{"
+        json += "\\"name\\":\\"" + (esc rawName) + "\\""
+        json += ",\\"path\\":\\"" + (esc pathStr) + "\\""
+        if ctrlClass != "" then json += ",\\"controller\\":\\"" + (esc ctrlClass) + "\\""
+        if ctrlSuper != "" then json += ",\\"controllerSuperclass\\":\\"" + (esc ctrlSuper) + "\\""
+        if valueStr != "" then json += ",\\"value\\":\\"" + valueStr + "\\""
+        json += ",\\"childCount\\":" + (childCount as string)
+        json += ",\\"children\\":" + childrenJson
+        json += "}}"
+        json
+    )
+
+    local tracksJson = "["
+    local firstTrack = true
+    local rootCount = 0
+    local numSubs = try (obj.numsubs) catch 0
+    for i = 1 to numSubs do (
+        local child = try (getSubAnim obj i) catch undefined
+        if child == undefined do continue
+        local childName = try ((getSubAnimName obj i) as string) catch undefined
+        if childName == undefined do continue
+        local childPath = "[#" + childName + "]"
+        local childJson = buildTrack child childPath childName ({max_depth} - 1) filterStr includeValues
+        if childJson != undefined do (
+            if not firstTrack do tracksJson += ","
+            firstTrack = false
+            tracksJson += childJson
+            rootCount += 1
+        )
+    )
+    tracksJson += "]"
+
+    "{{" + \
+      "\\"object\\":\\"" + (esc obj.name) + "\\"," + \
+      "\\"class\\":\\"" + (esc ((classof obj) as string)) + "\\"," + \
+      "\\"depth\\":" + ({max_depth} as string) + "," + \
+      "\\"filter\\":\\"" + (esc filterStr) + "\\"," + \
+      "\\"rootTrackCount\\":" + (rootCount as string) + "," + \
+      "\\"tracks\\":" + tracksJson + \
+    "}}"
+)"""
+    response = client.send_command(maxscript, timeout=30.0)
+    return response.get("result", str(response))
+
+
+@mcp.tool()
 def add_controller_target(
     name: str,
     param_path: str,
