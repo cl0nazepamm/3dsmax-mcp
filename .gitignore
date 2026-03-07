@@ -12,3 +12,5 @@ build/
 *.skill
 nul
 cache/
+local/
+docs/
