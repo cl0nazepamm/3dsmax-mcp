@@ -219,6 +219,8 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::GetDependencies(command, gup);
         } else if (cmd_type == "native:get_material_slots") {
             result = NativeHandlers::GetMaterialSlots(command, gup);
+        } else if (cmd_type == "native:write_osl_shader") {
+            result = NativeHandlers::WriteOSLShader(command, gup);
         } else {
             throw std::runtime_error("Unknown command type: " + cmd_type);
         }

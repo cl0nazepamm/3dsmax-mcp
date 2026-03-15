@@ -1170,6 +1170,22 @@ def write_osl_shader(
         if global_var[0].isdigit():
             global_var = "m_" + global_var
 
+    if client.native_available:
+        payload = {
+            "shader_name": shader_name,
+            "osl_code": osl_code,
+            "global_var": global_var,
+        }
+        if properties:
+            payload["properties"] = properties
+        response = client.send_command(json.dumps(payload), cmd_type="native:write_osl_shader")
+        raw = response.get("result", "")
+        try:
+            data = json.loads(raw)
+            return data.get("message", raw)
+        except Exception:
+            return raw
+
     # Escape the OSL code for MAXScript string embedding
     safe_osl = osl_code.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
     safe_shader_name = safe_string(shader_name)
@@ -1198,8 +1214,9 @@ def write_osl_shader(
             close f
 
             global {global_var} = OSLMap name:"{safe_shader_name}"
-            {global_var}.OSLPath = oslPath
+            {global_var}.OSLCode = oslContent
             {global_var}.OSLAutoUpdate = true
+            {global_var}.OSLPath = oslPath
 
             okList = #()
             errList = #()

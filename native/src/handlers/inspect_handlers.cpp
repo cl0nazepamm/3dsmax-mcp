@@ -779,6 +779,97 @@ static std::string ReadMtlParamValue(IParamBlock2* pb, ParamID pid, ParamType2 p
     }
 }
 
+// ── native:write_osl_shader ─────────────────────────────────
+std::string NativeHandlers::WriteOSLShader(const std::string& params, MCPBridgeGUP* gup) {
+    json p = json::parse(params, nullptr, false);
+    std::string shaderName = p.value("shader_name", "");
+    std::string oslCode = p.value("osl_code", "");
+    std::string globalVar = p.value("global_var", "");
+    auto properties = p.value("properties", std::map<std::string, std::string>{});
+
+    if (shaderName.empty()) throw std::runtime_error("shader_name is required");
+    if (oslCode.empty()) throw std::runtime_error("osl_code is required");
+
+    if (globalVar.empty()) {
+        globalVar = shaderName;
+        for (auto& c : globalVar) {
+            if (!isalnum(c) && c != '_') c = '_';
+        }
+        if (!globalVar.empty() && isdigit(globalVar[0])) globalVar = "m_" + globalVar;
+    }
+
+    return gup->GetExecutor().ExecuteSync([&]() -> std::string {
+        // Step 1: Write .osl file — pure C++ file I/O
+        wchar_t tempBuf[MAX_PATH];
+        GetTempPathW(MAX_PATH, tempBuf);
+        std::wstring oslDir = std::wstring(tempBuf) + L"osl_shaders\\";
+        CreateDirectoryW(oslDir.c_str(), NULL);
+
+        std::wstring oslPath = oslDir + Utf8ToWide(shaderName) + L".osl";
+        {
+            FILE* f = _wfopen(oslPath.c_str(), L"wb");
+            if (!f) throw std::runtime_error("Failed to create OSL file");
+            fwrite(oslCode.c_str(), 1, oslCode.size(), f);
+            fclose(f);
+        }
+        std::string oslPathUtf8 = WideToUtf8(oslPath.c_str());
+
+        // Step 2: Create OSLMap with inline code via RunMAXScript
+        // OSLMap only compiles from inline string literals — file-read doesn't trigger compilation
+        // Escape for MAXScript string: \ -> \\, " -> \", newlines -> \n
+        std::string msEscaped;
+        msEscaped.reserve(oslCode.size() + 64);
+        for (char c : oslCode) {
+            switch (c) {
+                case '\\': msEscaped += "\\\\"; break;
+                case '"':  msEscaped += "\\\""; break;
+                case '\n': msEscaped += "\\n"; break;
+                case '\r': break; // skip CR
+                default:   msEscaped += c; break;
+            }
+        }
+        std::string escapedPath = JsonEscape(oslPathUtf8);
+        std::string createScript =
+            "(\r\n"
+            "global " + globalVar + " = OSLMap name:\"" + JsonEscape(shaderName) + "\"\r\n" +
+            globalVar + ".OSLCode = \"" + msEscaped + "\"\r\n" +
+            globalVar + ".OSLAutoUpdate = true\r\n" +
+            globalVar + ".OSLPath = @\"" + escapedPath + "\"\r\n"
+            "\"ok\"\r\n"
+            ")";
+        RunMAXScript(createScript);
+
+        // Step 3: Set custom properties (OSLMap lowercases param names)
+        json okList = json::array();
+        json errList = json::array();
+        for (auto& [propName, propVal] : properties) {
+            std::string lower = propName;
+            std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+            // Try lowercase first (OSLMap convention), then original
+            std::string propScript =
+                "try (" + globalVar + "." + lower + " = " + propVal + "; \"ok\") catch ("
+                "try (" + globalVar + "." + propName + " = " + propVal + "; \"ok\") catch ("
+                "\"fail\"))";
+            std::string result = RunMAXScript(propScript);
+            if (result == "ok") {
+                okList.push_back(propName);
+            } else {
+                errList.push_back(propName + ": param not found after recompilation");
+            }
+        }
+
+        // Build result
+        json result;
+        result["file"] = oslPathUtf8;
+        result["globalVar"] = globalVar;
+        result["shaderName"] = shaderName;
+        if (!okList.empty()) result["set"] = okList;
+        if (!errList.empty()) result["errors"] = errList;
+        result["message"] = "OSL shader written to " + oslPathUtf8 + " | Global: " + globalVar;
+        return result.dump();
+    });
+}
+
 // ── native:get_material_slots ───────────────────────────────
 std::string NativeHandlers::GetMaterialSlots(const std::string& params, MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([&params]() -> std::string {

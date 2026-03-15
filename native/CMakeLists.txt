@@ -71,7 +71,7 @@ target_link_libraries(mcp_bridge PRIVATE
 
 # ── MSVC ─────────────────────────────────────────────────────────
 if(MSVC)
-    target_compile_options(mcp_bridge PRIVATE /W3 /MP /EHsc)
+    target_compile_options(mcp_bridge PRIVATE /W3 /MP /EHa)
     set_property(TARGET mcp_bridge PROPERTY MSVC_RUNTIME_LIBRARY
         "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()

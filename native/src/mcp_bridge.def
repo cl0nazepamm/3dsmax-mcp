@@ -1,4 +1,3 @@
-LIBRARY mcp_bridge
 EXPORTS
     LibDescription      @1
     LibNumberClasses    @2

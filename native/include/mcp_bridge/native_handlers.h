@@ -38,4 +38,5 @@ namespace NativeHandlers {
     std::string GetInstances(const std::string& params, MCPBridgeGUP* gup);
     std::string GetDependencies(const std::string& params, MCPBridgeGUP* gup);
     std::string GetMaterialSlots(const std::string& params, MCPBridgeGUP* gup);
+    std::string WriteOSLShader(const std::string& params, MCPBridgeGUP* gup);
 }
