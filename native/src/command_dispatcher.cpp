@@ -242,6 +242,13 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::CaptureViewport(command, gup);
         } else if (cmd_type == "native:capture_screen") {
             result = NativeHandlers::CaptureScreen(command, gup);
+        // Phase 6: Material writes
+        } else if (cmd_type == "native:assign_material") {
+            result = NativeHandlers::AssignMaterial(command, gup);
+        } else if (cmd_type == "native:set_material_property") {
+            result = NativeHandlers::SetMaterialProperty(command, gup);
+        } else if (cmd_type == "native:set_material_properties") {
+            result = NativeHandlers::SetMaterialProperties(command, gup);
         } else {
             throw std::runtime_error("Unknown command type: " + cmd_type);
         }

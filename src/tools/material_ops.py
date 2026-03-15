@@ -457,6 +457,16 @@ def assign_material(
     Returns:
         Confirmation with material name and assigned object count.
     """
+    if client.native_available:
+        payload = {
+            "names": names,
+            "material_class": material_class,
+            "material_name": material_name,
+            "params": params,
+        }
+        response = client.send_command(json.dumps(payload), cmd_type="native:assign_material")
+        return response.get("result", "")
+
     safe_mat_name = safe_string(material_name)
     name_param = f' name:"{safe_mat_name}"' if material_name else ""
     name_arr = "#(" + ", ".join(f'"{safe_string(n)}"' for n in names) + ")"
@@ -524,6 +534,16 @@ def set_material_property(
     Returns:
         Confirmation with the property name and new value, or error message.
     """
+    if client.native_available:
+        payload = {
+            "name": name,
+            "property": property,
+            "value": value,
+            "sub_material_index": sub_material_index,
+        }
+        response = client.send_command(json.dumps(payload), cmd_type="native:set_material_property")
+        return response.get("result", "")
+
     safe = safe_string(name)
     safe_prop = safe_string(property)
 
@@ -591,6 +611,15 @@ def set_material_properties(
     Returns:
         Summary of all properties set and any errors encountered.
     """
+    if client.native_available:
+        payload = {
+            "name": name,
+            "properties": properties,
+            "sub_material_index": sub_material_index,
+        }
+        response = client.send_command(json.dumps(payload), cmd_type="native:set_material_properties")
+        return response.get("result", "")
+
     safe = safe_string(name)
 
     if sub_material_index > 0:

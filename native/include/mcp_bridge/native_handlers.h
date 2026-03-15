@@ -54,4 +54,9 @@ namespace NativeHandlers {
     std::string CaptureMultiView(const std::string& params, MCPBridgeGUP* gup);
     std::string CaptureViewport(const std::string& params, MCPBridgeGUP* gup);
     std::string CaptureScreen(const std::string& params, MCPBridgeGUP* gup);
+
+    // Phase 6: Material writes
+    std::string AssignMaterial(const std::string& params, MCPBridgeGUP* gup);
+    std::string SetMaterialProperty(const std::string& params, MCPBridgeGUP* gup);
+    std::string SetMaterialProperties(const std::string& params, MCPBridgeGUP* gup);
 }

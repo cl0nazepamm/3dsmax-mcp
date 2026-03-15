@@ -28,6 +28,7 @@ set(SOURCES
     src/handlers/scene_manage_handlers.cpp
     src/handlers/file_handlers.cpp
     src/handlers/viewport_handlers.cpp
+    src/handlers/material_handlers.cpp
 )
 
 add_library(mcp_bridge SHARED ${SOURCES})

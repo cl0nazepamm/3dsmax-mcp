@@ -258,15 +258,48 @@ inline bool SetPB2ParamFromString(IParamBlock2* pb, ParamID pid, ParamType2 ptyp
     }
     case TYPE_POINT3:
     case TYPE_RGBA: {
-        // Parse "[x,y,z]" or "x,y,z"
+        // Parse multiple formats:
+        // "[x,y,z]" or "x,y,z" — direct Point3
+        // "(color r g b)" or "color r g b" — MAXScript color (0-255 range for RGBA)
         std::string s = valStr;
-        // Remove brackets
+        float x = 0, y = 0, z = 0;
+
+        // Try "(color r g b)" format
+        if (sscanf(s.c_str(), "(color %f %f %f)", &x, &y, &z) == 3 ||
+            sscanf(s.c_str(), "color %f %f %f", &x, &y, &z) == 3) {
+            // For RGBA type, values are 0-255 in MAXScript but stored as 0-1 internally
+            if (baseType == TYPE_RGBA) {
+                // Actually Max PB2 RGBA stores as 0-255 Point3 for some materials
+                // and 0-1 for others. Pass through as-is — the PB2 handles scaling.
+            }
+            Point3 pt(x, y, z);
+            return pb->SetValue(pid, t, pt) != 0;
+        }
+
+        // Try "[x,y,z]" or "x,y,z"
         s.erase(std::remove(s.begin(), s.end(), '['), s.end());
         s.erase(std::remove(s.begin(), s.end(), ']'), s.end());
-        float x = 0, y = 0, z = 0;
         if (sscanf(s.c_str(), "%f,%f,%f", &x, &y, &z) == 3) {
             Point3 pt(x, y, z);
             return pb->SetValue(pid, t, pt) != 0;
+        }
+        return false;
+    }
+    case TYPE_TEXMAP: {
+        // "undefined" or "null" → clear the texture map slot
+        std::string lower = valStr;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        if (lower == "undefined" || lower == "null" || lower == "none") {
+            return pb->SetValue(pid, t, (Texmap*)nullptr) != 0;
+        }
+        // For actual texmap assignment by reference, caller must use a different mechanism
+        return false;
+    }
+    case TYPE_MTL: {
+        std::string lower = valStr;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        if (lower == "undefined" || lower == "null" || lower == "none") {
+            return pb->SetValue(pid, t, (Mtl*)nullptr) != 0;
         }
         return false;
     }
