@@ -253,3 +253,116 @@ std::string NativeHandlers::CaptureMultiView(const std::string& params, MCPBridg
         return result.dump();
     });
 }
+
+// ── Helper: save GDI+ Bitmap to temp PNG and return path ────
+static std::string SaveBitmapToTemp(Gdiplus::Bitmap* bmp, const wchar_t* filename) {
+    wchar_t tempPath[MAX_PATH];
+    GetTempPathW(MAX_PATH, tempPath);
+    std::wstring outPath = std::wstring(tempPath) + filename;
+
+    CLSID pngClsid;
+    GetEncoderClsid(L"image/png", &pngClsid);
+    bmp->Save(outPath.c_str(), &pngClsid, nullptr);
+    return WideToUtf8(outPath.c_str());
+}
+
+// ── native:capture_viewport ─────────────────────────────────
+std::string NativeHandlers::CaptureViewport(const std::string& params, MCPBridgeGUP* gup) {
+    return gup->GetExecutor().ExecuteSync([&params]() -> std::string {
+        Interface* ip = GetCOREInterface();
+        ip->ForceCompleteRedraw(FALSE);
+
+        ViewExp& vp = ip->GetActiveViewExp();
+        Gdiplus::Bitmap* bmp = CaptureViewportDIB(&vp);
+        if (!bmp) throw std::runtime_error("Failed to capture viewport DIB");
+
+        std::string path = SaveBitmapToTemp(bmp, L"3dsmax_viewport.png");
+        int w = bmp->GetWidth();
+        int h = bmp->GetHeight();
+        delete bmp;
+
+        json result;
+        result["file"] = path;
+        result["width"] = w;
+        result["height"] = h;
+        return result.dump();
+    });
+}
+
+// ── native:capture_screen ───────────────────────────────────
+std::string NativeHandlers::CaptureScreen(const std::string& params, MCPBridgeGUP* gup) {
+    // Screen capture doesn't need main thread — pure Win32/GDI+
+    json p = json::parse(params, nullptr, false);
+    int maxWidth = p.value("max_width", 1600);
+    int maxHeight = p.value("max_height", 0);
+
+    // Get screen dimensions
+    int screenW = GetSystemMetrics(SM_CXSCREEN);
+    int screenH = GetSystemMetrics(SM_CYSCREEN);
+
+    // Capture screen via GDI
+    HDC hScreen = GetDC(NULL);
+    HDC hMemDC = CreateCompatibleDC(hScreen);
+    HBITMAP hBitmap = CreateCompatibleBitmap(hScreen, screenW, screenH);
+    SelectObject(hMemDC, hBitmap);
+    BitBlt(hMemDC, 0, 0, screenW, screenH, hScreen, 0, 0, SRCCOPY);
+    ReleaseDC(NULL, hScreen);
+
+    // Create GDI+ bitmap from HBITMAP
+    Gdiplus::Bitmap* srcBmp = Gdiplus::Bitmap::FromHBITMAP(hBitmap, NULL);
+    DeleteObject(hBitmap);
+    DeleteDC(hMemDC);
+
+    if (!srcBmp) throw std::runtime_error("Failed to capture screen");
+
+    // Resize if needed
+    int outW = screenW;
+    int outH = screenH;
+    if (maxWidth > 0 && outW > maxWidth) {
+        float scale = (float)maxWidth / outW;
+        outW = maxWidth;
+        outH = (int)(screenH * scale);
+    }
+    if (maxHeight > 0 && outH > maxHeight) {
+        float scale = (float)maxHeight / outH;
+        outH = maxHeight;
+        outW = (int)(outW * scale);
+    }
+
+    Gdiplus::Bitmap* outBmp;
+    if (outW != screenW || outH != screenH) {
+        outBmp = new Gdiplus::Bitmap(outW, outH, PixelFormat24bppRGB);
+        Gdiplus::Graphics g(outBmp);
+        g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+        g.DrawImage(srcBmp, 0, 0, outW, outH);
+        delete srcBmp;
+    } else {
+        outBmp = srcBmp;
+    }
+
+    // Save as JPEG for smaller file size
+    wchar_t tempPath[MAX_PATH];
+    GetTempPathW(MAX_PATH, tempPath);
+    std::wstring outPath = std::wstring(tempPath) + L"3dsmax_screen.jpg";
+
+    CLSID jpgClsid;
+    GetEncoderClsid(L"image/jpeg", &jpgClsid);
+    Gdiplus::EncoderParameters encoderParams;
+    ULONG quality = 85;
+    encoderParams.Count = 1;
+    encoderParams.Parameter[0].Guid = Gdiplus::EncoderQuality;
+    encoderParams.Parameter[0].Type = Gdiplus::EncoderParameterValueTypeLong;
+    encoderParams.Parameter[0].NumberOfValues = 1;
+    encoderParams.Parameter[0].Value = &quality;
+    outBmp->Save(outPath.c_str(), &jpgClsid, &encoderParams);
+
+    int finalW = outBmp->GetWidth();
+    int finalH = outBmp->GetHeight();
+    delete outBmp;
+
+    json result;
+    result["file"] = WideToUtf8(outPath.c_str());
+    result["width"] = finalW;
+    result["height"] = finalH;
+    return result.dump();
+}

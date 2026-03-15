@@ -90,6 +90,13 @@ def capture_viewport() -> Image:
     Returns the viewport screenshot as a PNG image that can be displayed
     directly in the chat.
     """
+    if client.native_available:
+        response = client.send_command(json.dumps({}), cmd_type="native:capture_viewport")
+        data = json.loads(response.get("result", "{}"))
+        file_path = data.get("file", "")
+        if file_path:
+            return Image(data=_read_image_bytes(file_path), format="png")
+
     capture_path = os.path.join(COMMS_DIR, "viewport_capture.png").replace("\\", "/")
     _capture_viewport_to_file(capture_path)
     img_data = _read_image_bytes(capture_path)
@@ -126,6 +133,15 @@ def capture_screen(
 
     max_width = max(0, int(max_width))
     max_height = max(0, int(max_height))
+
+    if client.native_available:
+        payload = json.dumps({"max_width": max_width, "max_height": max_height})
+        response = client.send_command(payload, cmd_type="native:capture_screen")
+        data = json.loads(response.get("result", "{}"))
+        file_path = data.get("file", "")
+        if file_path:
+            return Image(data=_read_image_bytes(file_path), format="jpeg")
+
     max_bytes = max(0, int(max_bytes))
     min_width = max(1, int(min_width))
 

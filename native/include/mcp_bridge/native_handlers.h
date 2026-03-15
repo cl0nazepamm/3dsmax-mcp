@@ -52,4 +52,6 @@ namespace NativeHandlers {
 
     // Viewport capture
     std::string CaptureMultiView(const std::string& params, MCPBridgeGUP* gup);
+    std::string CaptureViewport(const std::string& params, MCPBridgeGUP* gup);
+    std::string CaptureScreen(const std::string& params, MCPBridgeGUP* gup);
 }

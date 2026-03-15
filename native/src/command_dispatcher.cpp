@@ -238,6 +238,10 @@ std::string CommandDispatcher::Dispatch(
         // Viewport capture
         } else if (cmd_type == "native:capture_multi_view") {
             result = NativeHandlers::CaptureMultiView(command, gup);
+        } else if (cmd_type == "native:capture_viewport") {
+            result = NativeHandlers::CaptureViewport(command, gup);
+        } else if (cmd_type == "native:capture_screen") {
+            result = NativeHandlers::CaptureScreen(command, gup);
         } else {
             throw std::runtime_error("Unknown command type: " + cmd_type);
         }
