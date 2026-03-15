@@ -1,3 +1,5 @@
+import json as _json
+
 from ..server import mcp, client
 
 
@@ -22,10 +24,33 @@ def get_scene_info(
         offset: Pagination offset.
         roots_only: Only top-level objects (no parent).
     """
+    if client.native_available:
+        try:
+            params = {}
+            if class_name:
+                params["class_name"] = class_name
+            if pattern:
+                params["pattern"] = pattern
+            if layer:
+                params["layer"] = layer
+            if roots_only:
+                params["roots_only"] = True
+            if limit != 100:
+                params["limit"] = limit
+            if offset:
+                params["offset"] = offset
+            response = client.send_command(
+                _json.dumps(params) if params else "",
+                cmd_type="native:scene_info",
+            )
+            return response.get("result", "{}")
+        except RuntimeError:
+            pass
+
+    # ── MAXScript fallback (TCP) ──────────────────────────────────
     has_filter = class_name or pattern or layer or roots_only
 
     if not has_filter and offset == 0:
-        # Summary mode — compact overview regardless of scene size
         maxscript = r"""(
             local totalCount = objects.count
             local hiddenCount = 0
@@ -66,8 +91,6 @@ def get_scene_info(
         response = client.send_command(maxscript)
         return response.get("result", "{}")
 
-    # Filtered mode — return per-object details, capped at limit
-    # Build MAXScript filter conditions
     conditions = []
     if class_name:
         conditions.append(
@@ -130,6 +153,14 @@ def get_selection() -> str:
     Returns a formatted list with each selected object's name, class,
     position, and wireframe color.
     """
+    if client.native_available:
+        try:
+            response = client.send_command("", cmd_type="native:selection")
+            return response.get("result", "[]")
+        except RuntimeError:
+            pass
+
+    # ── MAXScript fallback (TCP) ──────────────────────────────────
     maxscript = r"""(
         local arr = #()
         for obj in selection do (

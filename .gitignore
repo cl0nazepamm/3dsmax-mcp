@@ -13,3 +13,7 @@ build/
 nul
 cache/
 local/
+
+# Native C++ build artifacts (but ship the binary)
+native/build/
+!native/bin/

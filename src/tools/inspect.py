@@ -5,6 +5,7 @@ showProperties to:stringstream for declared type detection, and
 InstanceMgr for instance awareness.
 """
 
+import json as _json
 from ..server import mcp, client
 from src.helpers.maxscript import safe_string
 
@@ -23,6 +24,14 @@ def inspect_object(name: str) -> str:
 
     Returns detailed JSON property dump.
     """
+    if client.native_available:
+        try:
+            payload = _json.dumps({"name": name})
+            response = client.send_command(payload, cmd_type="native:inspect_object")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
     safe = safe_string(name)
     maxscript = f"""(
         local obj = getNodeByName "{safe}"
@@ -151,6 +160,14 @@ def inspect_properties(
         JSON with all properties, their current values, runtime types,
         and declared types.
     """
+    if client.native_available:
+        try:
+            payload = {"name": name, "target": target, "modifier_index": modifier_index}
+            response = client.send_command(_json.dumps(payload), cmd_type="native:inspect_properties")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
     safe = safe_string(name)
 
     # Build the MAXScript expression to get the target object

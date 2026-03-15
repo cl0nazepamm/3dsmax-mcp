@@ -1,3 +1,5 @@
+import json as _json
+
 from ..server import mcp, client
 from src.helpers.maxscript import safe_string
 
@@ -69,6 +71,15 @@ def get_hierarchy(name: str) -> str:
 
     Returns JSON tree with name, class, and children for each node.
     """
+    if client.native_available:
+        try:
+            params = _json.dumps({"name": name})
+            response = client.send_command(params, cmd_type="native:get_hierarchy")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
+    # ── MAXScript fallback (TCP) ──────────────────────────────────
     safe = safe_string(name)
     maxscript = f"""(
         fn buildTree obj = (

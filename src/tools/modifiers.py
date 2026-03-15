@@ -1,4 +1,5 @@
 from typing import Optional
+import json as _json
 from ..server import mcp, client
 from src.helpers.maxscript import safe_string
 
@@ -14,6 +15,14 @@ def add_modifier(name: str, modifier: str, params: str = "") -> str:
 
     Returns confirmation or error.
     """
+    if client.native_available:
+        try:
+            payload = _json.dumps({"name": name, "modifier": modifier, "params": params})
+            response = client.send_command(payload, cmd_type="native:add_modifier")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
     safe = safe_string(name)
     maxscript = f"""(
         local obj = getNodeByName "{safe}"
@@ -43,6 +52,14 @@ def remove_modifier(name: str, modifier: str) -> str:
 
     Returns confirmation or error.
     """
+    if client.native_available:
+        try:
+            payload = _json.dumps({"name": name, "modifier": modifier})
+            response = client.send_command(payload, cmd_type="native:remove_modifier")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
     safe = safe_string(name)
     safe_mod = safe_string(modifier)
     maxscript = f"""(
@@ -98,6 +115,20 @@ def set_modifier_state(
 
     Returns confirmation.
     """
+    if client.native_available:
+        try:
+            payload = {"name": name, "modifier_name": modifier_name, "modifier_index": modifier_index}
+            if enabled is not None:
+                payload["enabled"] = enabled
+            if enabled_in_views is not None:
+                payload["enabled_in_views"] = enabled_in_views
+            if enabled_in_renders is not None:
+                payload["enabled_in_renders"] = enabled_in_renders
+            response = client.send_command(_json.dumps(payload), cmd_type="native:set_modifier_state")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
     safe = safe_string(name)
 
     if modifier_index > 0:
@@ -160,6 +191,14 @@ def collapse_modifier_stack(
 
     Returns confirmation.
     """
+    if client.native_available:
+        try:
+            payload = _json.dumps({"name": name, "to_index": to_index})
+            response = client.send_command(payload, cmd_type="native:collapse_modifier_stack")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
     safe = safe_string(name)
     if to_index > 0:
         maxscript = f"""(
@@ -202,6 +241,14 @@ def make_modifier_unique(name: str, modifier_index: int) -> str:
 
     Returns confirmation.
     """
+    if client.native_available:
+        try:
+            payload = _json.dumps({"name": name, "modifier_index": modifier_index})
+            response = client.send_command(payload, cmd_type="native:make_modifier_unique")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
     safe = safe_string(name)
     maxscript = f"""(
         local obj = getNodeByName "{safe}"
@@ -244,6 +291,21 @@ def batch_modify(
 
     Returns count of modified modifiers.
     """
+    if client.native_available:
+        try:
+            payload = {
+                "modifier_class": modifier_class,
+                "property_name": property_name,
+                "property_value": property_value,
+                "selection_only": selection_only,
+            }
+            if names:
+                payload["names"] = names
+            response = client.send_command(_json.dumps(payload), cmd_type="native:batch_modify")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
     safe_class = safe_string(modifier_class)
     safe_prop = safe_string(property_name)
 

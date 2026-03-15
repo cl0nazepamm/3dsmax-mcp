@@ -1,3 +1,4 @@
+import json as _json
 from typing import Optional
 from ..server import mcp, client
 from src.helpers.maxscript import safe_string
@@ -18,6 +19,17 @@ def clone_objects(
 
     Returns list of new clone names.
     """
+    if client.native_available:
+        try:
+            params: dict = {"names": names, "mode": mode}
+            if offset:
+                params["offset"] = offset
+            response = client.send_command(_json.dumps(params), cmd_type="native:clone_objects")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
+    # ── MAXScript fallback (TCP) ──────────────────────────────────
     if offset is None:
         offset = [0.0, 0.0, 0.0]
 

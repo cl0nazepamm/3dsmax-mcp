@@ -6,6 +6,7 @@ object iteration.
 """
 
 from typing import Optional
+import json as _json
 from ..server import mcp, client
 from src.helpers.maxscript import safe_string
 
@@ -127,6 +128,14 @@ def get_instances(name: str) -> str:
     Returns:
         JSON with the instance group: all objects sharing the same base object.
     """
+    if client.native_available:
+        try:
+            payload = _json.dumps({"name": name})
+            response = client.send_command(payload, cmd_type="native:get_instances")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
     safe = safe_string(name)
     maxscript = f"""(
         local obj = getNodeByName "{safe}"
@@ -173,13 +182,27 @@ def get_dependencies(
     Returns:
         JSON with dependency information grouped by class.
     """
+    if client.native_available:
+        try:
+            payload = _json.dumps({"name": name, "direction": direction})
+            response = client.send_command(payload, cmd_type="native:get_dependencies")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
     safe = safe_string(name)
+    normalized_direction = direction.lower().strip()
+    if normalized_direction not in ("dependents", "dependentnodes"):
+        return "direction must be 'dependents' or 'dependentnodes'"
+    deps_expr = "refs.dependents obj"
+    if normalized_direction == "dependentnodes":
+        deps_expr = "refs.dependentnodes obj"
     maxscript = f"""(
         local obj = getNodeByName "{safe}"
         if obj == undefined then (
             "{{\\\"error\\\": \\\"Object not found: {safe}\\\"}}"
         ) else (
-            local deps = refs.dependents obj
+            local deps = {deps_expr}
             local classMap = #()
             local classNames = #()
             for d in deps do (
@@ -192,7 +215,7 @@ def get_dependencies(
                     classMap[idx] += 1
                 )
             )
-            local result = "{{\\\"object\\\": \\\"" + obj.name + "\\\", \\\"totalDependents\\\": " + (deps.count as string) + ", \\\"byClass\\\": {{"
+            local result = "{{\\\"object\\\": \\\"" + obj.name + "\\\", \\\"direction\\\": \\\"{normalized_direction}\\\", \\\"totalDependents\\\": " + (deps.count as string) + ", \\\"byClass\\\": {{"
             for i = 1 to classNames.count do (
                 if i > 1 do result += ","
                 result += "\\\"" + classNames[i] + "\\\": " + (classMap[i] as string)
@@ -227,6 +250,18 @@ def find_objects_by_property(
     Returns:
         JSON list of matching objects.
     """
+    if client.native_available:
+        try:
+            payload = {
+                "property_name": property_name,
+                "property_value": property_value,
+                "class_filter": class_filter,
+            }
+            response = client.send_command(_json.dumps(payload), cmd_type="native:find_objects_by_property")
+            return response.get("result", "[]")
+        except RuntimeError:
+            pass
+
     safe_prop = safe_string(property_name)
     safe_val = safe_string(property_value)
     class_cond = ""

@@ -671,6 +671,31 @@ def get_material_slots(
     Returns:
         Compact JSON with categorized slot names (and optional values).
     """
+    if client.native_available:
+        try:
+            payload = json.dumps({
+                "name": name,
+                "sub_material_index": sub_material_index,
+                "include_values": include_values,
+                "max_slots": max(1, int(max_slots)),
+                "slot_scope": (slot_scope or "map").strip().lower(),
+                "max_per_group": max(1, int(max_per_group)),
+            })
+            response = client.send_command(payload, cmd_type="native:get_material_slots")
+            raw = response.get("result", "")
+            if not raw:
+                return raw
+            try:
+                payload_data = json.loads(raw)
+            except Exception:
+                return raw
+            if isinstance(payload_data, dict):
+                material_class = str(payload_data.get("class", ""))
+                payload_data["hints"] = _material_slot_hints(material_class)
+            return json.dumps(payload_data, separators=(",", ":"))
+        except RuntimeError:
+            pass
+
     safe = safe_string(name)
     max_slots = max(1, int(max_slots))
     max_per_group = max(1, int(max_per_group))

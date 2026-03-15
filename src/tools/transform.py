@@ -1,3 +1,4 @@
+import json as _json
 from typing import Optional
 from ..server import mcp, client
 from src.helpers.maxscript import safe_string
@@ -22,6 +23,23 @@ def transform_object(
 
     Returns confirmation of applied transforms.
     """
+    if client.native_available:
+        try:
+            params: dict = {"name": name}
+            if move:
+                params["move"] = move
+            if rotate:
+                params["rotate"] = rotate
+            if scale:
+                params["scale"] = scale
+            if coordinate_system != "world":
+                params["coordinate_system"] = coordinate_system
+            response = client.send_command(_json.dumps(params), cmd_type="native:transform_object")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
+    # ── MAXScript fallback (TCP) ──────────────────────────────────
     safe = safe_string(name)
 
     ops = []

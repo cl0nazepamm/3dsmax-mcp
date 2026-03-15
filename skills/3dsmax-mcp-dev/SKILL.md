@@ -287,6 +287,7 @@ Useful signals:
 - `Empty command` / `Unknown command type`: protocol mismatch
 - syntax errors around JSON literals: escaping/building issue in MAXScript
 - mutation success with no readback change: verification gap, not success
+- Codex `shell_command` can be polluted by user PowerShell profile output/errors; use `login:false` for clean command output during repo diagnostics.
 
 ## Practical Endgame
 

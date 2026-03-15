@@ -1,0 +1,8 @@
+LIBRARY mcp_bridge
+EXPORTS
+    LibDescription      @1
+    LibNumberClasses    @2
+    LibClassDesc        @3
+    LibVersion          @4
+    LibInitialize       @5
+    LibShutdown         @6

@@ -17,6 +17,20 @@ def get_scene_snapshot(max_roots: int = 50) -> str:
     Args:
         max_roots: Max root object names to include (default 50).
     """
+    if client.native_available:
+        try:
+            params = {}
+            if max_roots != 50:
+                params["max_roots"] = max_roots
+            response = client.send_command(
+                json.dumps(params) if params else "",
+                cmd_type="native:scene_snapshot",
+            )
+            return response.get("result", "{}")
+        except RuntimeError:
+            pass
+
+    # ── MAXScript fallback (TCP) ──────────────────────────────────
     maxscript = r"""(
         local esc = MCP_Server.escapeJsonString
         local totalCount = objects.count
@@ -121,6 +135,20 @@ def get_selection_snapshot(max_items: int = 50) -> str:
     Args:
         max_items: Max objects to return (default 50).
     """
+    if client.native_available:
+        try:
+            params = {}
+            if max_items != 50:
+                params["max_items"] = max_items
+            response = client.send_command(
+                json.dumps(params) if params else "",
+                cmd_type="native:selection_snapshot",
+            )
+            return response.get("result", "{}")
+        except RuntimeError:
+            pass
+
+    # ── MAXScript fallback (TCP) ──────────────────────────────────
     maxscript = r"""(
         local esc = MCP_Server.escapeJsonString
         local arr = ""

@@ -1,3 +1,4 @@
+import json as _json
 from typing import Optional
 from ..server import mcp, client
 from src.helpers.maxscript import safe_string
@@ -19,6 +20,19 @@ def set_visibility(
     At least one of names or pattern must be provided.
     Returns count of affected objects.
     """
+    if client.native_available:
+        try:
+            params: dict = {"action": action}
+            if names:
+                params["names"] = names
+            if pattern:
+                params["pattern"] = pattern
+            response = client.send_command(_json.dumps(params), cmd_type="native:set_visibility")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
+    # ── MAXScript fallback (TCP) ──────────────────────────────────
     action = action.lower().strip()
 
     if action == "hide":

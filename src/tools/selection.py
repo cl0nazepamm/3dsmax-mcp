@@ -1,3 +1,4 @@
+import json as _json
 from typing import Optional
 from ..server import mcp, client
 from src.helpers.maxscript import safe_string
@@ -22,6 +23,23 @@ def select_objects(
 
     Returns count and names of selected objects.
     """
+    if client.native_available:
+        try:
+            params: dict = {}
+            if all:
+                params["all"] = True
+            if names:
+                params["names"] = names
+            if pattern:
+                params["pattern"] = pattern
+            if class_name:
+                params["class_name"] = class_name
+            response = client.send_command(_json.dumps(params), cmd_type="native:select_objects")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
+    # ── MAXScript fallback (TCP) ──────────────────────────────────
     if all:
         maxscript = """(
             select objects

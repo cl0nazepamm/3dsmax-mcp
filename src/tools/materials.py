@@ -1,3 +1,4 @@
+import json as _json
 from ..server import mcp, client
 
 
@@ -8,6 +9,13 @@ def get_materials() -> str:
     Returns a formatted list with each material's name, class, and which
     objects it is assigned to.
     """
+    if client.native_available:
+        try:
+            response = client.send_command(_json.dumps({}), cmd_type="native:get_materials")
+            return response.get("result", "[]")
+        except RuntimeError:
+            pass
+
     maxscript = r"""(
         local arr = #()
         local matSet = #()

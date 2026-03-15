@@ -1,3 +1,5 @@
+import json as _json
+
 from ..server import mcp, client
 from src.helpers.maxscript import safe_string
 
@@ -11,6 +13,15 @@ def get_object_properties(name: str) -> str:
 
     Returns properties including transform, material, and modifier stack.
     """
+    if client.native_available:
+        try:
+            params = _json.dumps({"name": name})
+            response = client.send_command(params, cmd_type="native:get_object_properties")
+            return response.get("result", "{}")
+        except RuntimeError:
+            pass
+
+    # ── MAXScript fallback (TCP) ──────────────────────────────────
     safe = safe_string(name)
     maxscript = f"""(
         local obj = getNodeByName "{safe}"
@@ -90,6 +101,15 @@ def set_object_property(name: str, property: str, value: str) -> str:
 
     Returns confirmation or error message.
     """
+    if client.native_available:
+        try:
+            params = _json.dumps({"name": name, "property": property, "value": value})
+            response = client.send_command(params, cmd_type="native:set_object_property")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
+    # ── MAXScript fallback (TCP) ──────────────────────────────────
     safe = safe_string(name)
     safe_prop = safe_string(property)
     maxscript = f"""(
@@ -120,6 +140,19 @@ def create_object(type: str, name: str = "", params: str = "") -> str:
 
     Returns the name of the created object.
     """
+    if client.native_available:
+        try:
+            p = {"type": type}
+            if name:
+                p["name"] = name
+            if params:
+                p["params"] = params
+            response = client.send_command(_json.dumps(p), cmd_type="native:create_object")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
+    # ── MAXScript fallback (TCP) ──────────────────────────────────
     safe = safe_string(name)
     name_param = f' name:"{safe}"' if name else ""
     maxscript = f"""(
@@ -139,6 +172,15 @@ def delete_objects(names: list[str]) -> str:
 
     Returns summary of deleted and not found objects.
     """
+    if client.native_available:
+        try:
+            params = _json.dumps({"names": names})
+            response = client.send_command(params, cmd_type="native:delete_objects")
+            return response.get("result", "")
+        except RuntimeError:
+            pass
+
+    # ── MAXScript fallback (TCP) ──────────────────────────────────
     name_checks = [f'"{safe_string(n)}"' for n in names]
     names_array = "#(" + ", ".join(name_checks) + ")"
 
