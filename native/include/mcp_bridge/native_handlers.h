@@ -49,4 +49,7 @@ namespace NativeHandlers {
     std::string InspectMaxFile(const std::string& params, MCPBridgeGUP* gup);
     std::string MergeFromFile(const std::string& params, MCPBridgeGUP* gup);
     std::string BatchFileInfo(const std::string& params, MCPBridgeGUP* gup);
+
+    // Viewport capture
+    std::string CaptureMultiView(const std::string& params, MCPBridgeGUP* gup);
 }

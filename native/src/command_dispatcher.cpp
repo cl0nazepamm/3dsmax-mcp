@@ -235,6 +235,9 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::MergeFromFile(command, gup);
         } else if (cmd_type == "native:batch_file_info") {
             result = NativeHandlers::BatchFileInfo(command, gup);
+        // Viewport capture
+        } else if (cmd_type == "native:capture_multi_view") {
+            result = NativeHandlers::CaptureMultiView(command, gup);
         } else {
             throw std::runtime_error("Unknown command type: " + cmd_type);
         }
