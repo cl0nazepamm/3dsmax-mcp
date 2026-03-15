@@ -249,6 +249,9 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::SetMaterialProperty(command, gup);
         } else if (cmd_type == "native:set_material_properties") {
             result = NativeHandlers::SetMaterialProperties(command, gup);
+        // Plugin enumeration
+        } else if (cmd_type == "native:list_plugin_classes") {
+            result = NativeHandlers::ListPluginClasses(command, gup);
         } else {
             throw std::runtime_error("Unknown command type: " + cmd_type);
         }

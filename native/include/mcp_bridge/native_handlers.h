@@ -59,4 +59,7 @@ namespace NativeHandlers {
     std::string AssignMaterial(const std::string& params, MCPBridgeGUP* gup);
     std::string SetMaterialProperty(const std::string& params, MCPBridgeGUP* gup);
     std::string SetMaterialProperties(const std::string& params, MCPBridgeGUP* gup);
+
+    // Plugin enumeration
+    std::string ListPluginClasses(const std::string& params, MCPBridgeGUP* gup);
 }

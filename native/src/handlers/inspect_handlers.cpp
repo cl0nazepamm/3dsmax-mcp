@@ -1014,3 +1014,95 @@ std::string NativeHandlers::GetMaterialSlots(const std::string& params, MCPBridg
         return result.dump();
     });
 }
+
+// ── native:list_plugin_classes ──────────────────────────────
+std::string NativeHandlers::ListPluginClasses(const std::string& params, MCPBridgeGUP* gup) {
+    json p = json::parse(params, nullptr, false);
+    std::string superclass = p.value("superclass", "material");
+
+    std::string lower = superclass;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+
+    struct SCEntry { std::string name; SClass_ID id; };
+    std::vector<SCEntry> scMap = {
+        {"material",    MATERIAL_CLASS_ID},
+        {"texturemap",  TEXMAP_CLASS_ID},
+        {"modifier",    OSM_CLASS_ID},
+        {"wsmodifier",  WSM_CLASS_ID},
+        {"geometry",    GEOMOBJECT_CLASS_ID},
+        {"shape",       SHAPE_CLASS_ID},
+        {"camera",      CAMERA_CLASS_ID},
+        {"light",       LIGHT_CLASS_ID},
+        {"helper",      HELPER_CLASS_ID},
+        {"system",      SYSTEM_CLASS_ID},
+        {"atmospheric", ATMOSPHERIC_CLASS_ID},
+        {"effect",      RENDER_EFFECT_CLASS_ID},
+        {"renderer",    RENDERER_CLASS_ID},
+    };
+
+    bool enumAll = (lower == "all");
+
+    std::vector<SClass_ID> targetSuperIDs;
+    if (!enumAll) {
+        for (auto& sc : scMap) {
+            if (sc.name == lower) { targetSuperIDs.push_back(sc.id); break; }
+        }
+        if (targetSuperIDs.empty()) {
+            return "{\"error\": \"Unknown superclass: " + superclass +
+                   ". Use: material, texturemap, modifier, geometry, shape, "
+                   "camera, light, helper, system, atmospheric, effect, renderer, or all\"}";
+        }
+    } else {
+        for (auto& sc : scMap) targetSuperIDs.push_back(sc.id);
+    }
+
+    auto& dir = DllDir::GetInstance();
+    int numDlls = dir.Count();
+
+    std::map<std::string, json> byCategory;
+
+    for (int d = 0; d < numDlls; d++) {
+        const DllDesc& dll = dir[d];
+        for (int c = 0; c < dll.NumberOfClasses(); c++) {
+            ClassDesc* cd = dll[c];
+            if (!cd) continue;
+            SClass_ID scid = cd->SuperClassID();
+
+            std::string catName;
+            for (auto& sc : scMap) {
+                if (sc.id == scid) { catName = sc.name; break; }
+            }
+            if (catName.empty()) continue;
+
+            bool match = false;
+            for (SClass_ID t : targetSuperIDs) { if (scid == t) { match = true; break; } }
+            if (!match) continue;
+
+            const MCHAR* cn = cd->ClassName();
+            if (!cn || !*cn) continue;
+
+            json entry;
+            entry["name"] = WideToUtf8(cn);
+            const MCHAR* intName = cd->InternalName();
+            if (intName && *intName) {
+                std::string iname = WideToUtf8(intName);
+                if (iname != entry["name"]) entry["internalName"] = iname;
+            }
+            byCategory[catName].push_back(entry);
+        }
+    }
+
+    json result;
+    result["superclass"] = superclass;
+    if (enumAll) {
+        for (auto& [cat, arr] : byCategory) {
+            result[cat] = arr;
+            result[cat + "Count"] = (int)arr.size();
+        }
+    } else {
+        auto it = byCategory.find(lower);
+        result["count"] = it != byCategory.end() ? (int)it->second.size() : 0;
+        result["classes"] = it != byCategory.end() ? it->second : json::array();
+    }
+    return result.dump();
+}

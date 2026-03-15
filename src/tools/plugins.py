@@ -816,6 +816,12 @@ def list_plugin_classes(
     limit: int = 200,
 ) -> str:
     """List classes likely tied to a plugin or superclass family."""
+    if client.native_available and not plugin_name:
+        # Pure SDK path for superclass-only enumeration
+        payload = json.dumps({"superclass": superclass or "all"})
+        response = client.send_command(payload, cmd_type="native:list_plugin_classes")
+        return response.get("result", "")
+
     classes = _fetch_runtime_classes(
         superclass=superclass,
         filter_terms=_plugin_terms(plugin_name) if plugin_name else None,
