@@ -6,6 +6,7 @@ modifier's angle). These tools expose wiring as first-class operations.
 """
 
 from typing import Optional
+import json as _json
 from ..server import mcp, client
 from src.helpers.maxscript import safe_string, safe_name
 
@@ -37,6 +38,15 @@ def list_wireable_params(
         "modifiers[#Bend][#angle]" — bend modifier angle
         "position.controller[#X_Position]" — X position track
     """
+    if client.native_available:
+        payload = _json.dumps({
+            "name": name,
+            "filter": filter or "",
+            "depth": min(max(depth, 1), 5),
+        })
+        response = client.send_command(payload, cmd_type="native:list_wireable_params")
+        return response.get("result", "")
+
     safe = safe_string(name)
     d = min(max(depth, 1), 5)
 

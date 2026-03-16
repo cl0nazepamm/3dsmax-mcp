@@ -62,4 +62,8 @@ namespace NativeHandlers {
 
     // Plugin enumeration
     std::string ListPluginClasses(const std::string& params, MCPBridgeGUP* gup);
+
+    // Controller / track inspection
+    std::string InspectTrackView(const std::string& params, MCPBridgeGUP* gup);
+    std::string ListWireableParams(const std::string& params, MCPBridgeGUP* gup);
 }

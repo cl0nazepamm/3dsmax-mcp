@@ -6,6 +6,7 @@ math-driven motion, and list controllers for layered blending.
 """
 
 from typing import Optional
+import json as _json
 from ..server import mcp, client
 from src.helpers.maxscript import safe_string, safe_name
 
@@ -456,6 +457,16 @@ def inspect_track_view(
     Returns:
         JSON with object info and nested track tree.
     """
+    if client.native_available:
+        payload = _json.dumps({
+            "name": name,
+            "depth": min(max(int(depth), 1), 6),
+            "filter": filter or "",
+            "include_values": include_values,
+        })
+        response = client.send_command(payload, cmd_type="native:inspect_track_view")
+        return response.get("result", "")
+
     safe_obj = safe_name(name)
     safe_filter = safe_string((filter or "").lower())
     max_depth = min(max(int(depth), 1), 6)

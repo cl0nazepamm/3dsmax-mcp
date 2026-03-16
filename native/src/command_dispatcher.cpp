@@ -252,6 +252,11 @@ std::string CommandDispatcher::Dispatch(
         // Plugin enumeration
         } else if (cmd_type == "native:list_plugin_classes") {
             result = NativeHandlers::ListPluginClasses(command, gup);
+        // Controller / track inspection
+        } else if (cmd_type == "native:inspect_track_view") {
+            result = NativeHandlers::InspectTrackView(command, gup);
+        } else if (cmd_type == "native:list_wireable_params") {
+            result = NativeHandlers::ListWireableParams(command, gup);
         } else {
             throw std::runtime_error("Unknown command type: " + cmd_type);
         }
