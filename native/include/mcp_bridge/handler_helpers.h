@@ -99,7 +99,7 @@ inline std::string RunMAXScript(const std::string& script) {
     try {
         ok = ExecuteMAXScriptScript(
             wcmd.c_str(),
-            MAXScript::ScriptSource::NotSpecified,
+            MAXScript::ScriptSource::NonEmbedded,
             FALSE,   // quietErrors
             &fpv,    // result
             TRUE     // logQuietErrors

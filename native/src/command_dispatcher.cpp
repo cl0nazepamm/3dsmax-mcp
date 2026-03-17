@@ -91,7 +91,7 @@ static std::string HandleMaxScript(
         try {
             ok = ExecuteMAXScriptScript(
                 wcmd.c_str(),
-                MAXScript::ScriptSource::NotSpecified,
+                MAXScript::ScriptSource::NonEmbedded,
                 FALSE,   // quietErrors
                 &fpv,    // result goes here
                 TRUE     // logQuietErrors
