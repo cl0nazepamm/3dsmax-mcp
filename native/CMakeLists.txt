@@ -30,6 +30,8 @@ set(SOURCES
     src/handlers/viewport_handlers.cpp
     src/handlers/material_handlers.cpp
     src/handlers/controller_handlers.cpp
+    src/handlers/plugin_introspect_handlers.cpp
+    src/handlers/organize_handlers.cpp
 )
 
 add_library(mcp_bridge SHARED ${SOURCES})

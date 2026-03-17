@@ -1162,5 +1162,99 @@ def plugin_gotchas_resource(plugin_name: str) -> str:
     return _plugin_gotchas_markdown(plugin_name)
 
 
+# ── Deep C++ SDK introspection tools ─────────────────────────────
+
+@mcp.tool()
+def discover_plugin_classes(
+    superclass: str = "",
+    pattern: str = "",
+    limit: int = 500,
+) -> str:
+    """Enumerate ALL registered classes in 3ds Max's DLL directory via native C++ SDK.
+
+    Scans every loaded plugin DLL and returns class metadata. Much faster and
+    more complete than MAXScript's showClass — covers classes that MAXScript
+    cannot see.
+
+    Args:
+        superclass: Filter by superclass: "geometry", "modifier", "material",
+                    "texturemap", "helper", "light", "camera", "shape", "spacewarp".
+                    Empty = all superclasses.
+        pattern: Wildcard name filter (e.g. "Forest*", "*Vray*"). Empty = all.
+        limit: Max classes to return (default 500).
+    """
+    payload = {}
+    if superclass:
+        payload["superclass"] = superclass
+    if pattern:
+        payload["pattern"] = pattern
+    if limit != 500:
+        payload["limit"] = limit
+    response = client.send_command(
+        json.dumps(payload) if payload else "",
+        cmd_type="native:discover_classes",
+    )
+    return response.get("result", "{}")
+
+
+@mcp.tool()
+def introspect_class(
+    class_name: str,
+) -> str:
+    """Deep C++ SDK introspection of a class — returns the COMPLETE API surface.
+
+    Enumerates all ParamBlock2 parameters (names, types, defaults, ranges,
+    animatable flags) and all FPInterface functions and properties directly
+    from the class descriptor. Works on ANY class — built-in or third-party plugin.
+
+    This goes deeper than inspect_plugin_class (MAXScript reflection). Use it
+    when you need parameter defaults, ranges, function signatures, or when
+    MAXScript reflection is incomplete.
+
+    Requires the native C++ bridge plugin.
+
+    Args:
+        class_name: The class to introspect (e.g. "TurboSmooth", "Forest_Pro",
+                    "PhysicalMaterial", "tyFlow").
+    """
+    payload = json.dumps({"class_name": class_name})
+    response = client.send_command(payload, cmd_type="native:introspect_class")
+    return response.get("result", "{}")
+
+
+@mcp.tool()
+def introspect_instance(
+    name: str,
+    include_subanims: bool = False,
+    subanim_depth: int = 3,
+) -> str:
+    """Deep C++ SDK introspection of a live scene object with actual values.
+
+    Reads all ParamBlock2 parameters with their CURRENT values, all FPInterface
+    methods and properties, the modifier stack with per-modifier params, material
+    params, and optionally the full SubAnim tree.
+
+    Goes deeper than inspect_plugin_instance. Use when you need to see parameter
+    values that MAXScript's getPropNames/showProperties cannot reach.
+
+    Requires the native C++ bridge plugin.
+
+    Args:
+        name: The scene object name to inspect.
+        include_subanims: Include the SubAnim hierarchy tree (can be large).
+        subanim_depth: Max depth for SubAnim tree traversal (default 3).
+    """
+    payload = {"name": name}
+    if include_subanims:
+        payload["include_subanims"] = True
+    if subanim_depth != 3:
+        payload["subanim_depth"] = subanim_depth
+    response = client.send_command(
+        json.dumps(payload),
+        cmd_type="native:introspect_instance",
+    )
+    return response.get("result", "{}")
+
+
 # Imported lazily to avoid circular imports at module load time.
 from .capabilities import get_plugin_capabilities  # noqa: E402

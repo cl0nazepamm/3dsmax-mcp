@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from ..server import mcp
+from ..server import mcp, client
 
 
 def _load_json(raw: str, fallback):
@@ -229,6 +229,17 @@ def set_material_verified(
     sub_material_index: int = 0,
 ) -> str:
     """Set material properties, then verify via delta, object readback, and slot summary."""
+    if client.native_available:
+        response = client.send_command(
+            json.dumps({
+                "name": name,
+                "properties": properties,
+                "sub_material_index": sub_material_index,
+            }),
+            cmd_type="native:set_material_verified",
+        )
+        return response.get("result", "")
+
     from .material_ops import get_material_slots, set_material_properties
     from .snapshots import get_scene_delta
 
@@ -284,6 +295,17 @@ def add_modifier_verified(
     params: str = "",
 ) -> str:
     """Add a modifier, then verify via delta and object readback."""
+    if client.native_available:
+        response = client.send_command(
+            json.dumps({
+                "name": name,
+                "modifier": modifier,
+                "params": params,
+            }),
+            cmd_type="native:add_modifier_verified",
+        )
+        return response.get("result", "")
+
     from .inspect import inspect_modifier_properties
     from .modifiers import add_modifier
     from .snapshots import get_scene_delta

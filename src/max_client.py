@@ -2,6 +2,7 @@ import ctypes
 import ctypes.wintypes as wintypes
 import json
 import socket
+import threading
 import time
 from typing import Any, Optional
 from uuid import uuid4
@@ -82,6 +83,8 @@ class MaxClient:
         self.timeout = timeout
         self.transport = transport
         self.pipe_name = pipe_name
+        self._pipe_handle: Optional[int] = None
+        self._pipe_lock = threading.Lock()
 
     @property
     def native_available(self) -> bool:
@@ -120,6 +123,62 @@ class MaxClient:
             return True
         return False
 
+    def _close_pipe_handle(self) -> None:
+        handle = self._pipe_handle
+        if handle not in (None, 0, _INVALID_HANDLE):
+            _kernel32.CloseHandle(handle)
+        self._pipe_handle = None
+
+    def _ensure_pipe_handle(self, deadline: float) -> int:
+        handle = self._pipe_handle
+        if handle not in (None, 0, _INVALID_HANDLE):
+            return handle
+
+        while True:
+            handle = _kernel32.CreateFileW(
+                self.pipe_name,
+                _GENERIC_READ | _GENERIC_WRITE,
+                0,
+                None,
+                _OPEN_EXISTING,
+                0,
+                None,
+            )
+            if handle != _INVALID_HANDLE:
+                self._pipe_handle = handle
+                return handle
+
+            err = ctypes.get_last_error()
+            if err in (_ERROR_FILE_NOT_FOUND, _ERROR_PATH_NOT_FOUND):
+                raise ConnectionError(
+                    f"Named pipe {self.pipe_name} not found. "
+                    "Is the MCP Bridge plugin loaded in 3ds Max?"
+                )
+            if err != _ERROR_PIPE_BUSY:
+                raise ConnectionError(f"Failed to open pipe: Win32 error {err}")
+
+            remaining_ms = int((deadline - time.perf_counter()) * 1000)
+            if remaining_ms <= 0:
+                raise TimeoutError(
+                    f"Timed out waiting for named pipe {self.pipe_name} after "
+                    f"{self.timeout}s."
+                )
+
+            wait_ms = min(remaining_ms, 250)
+            if _kernel32.WaitNamedPipeW(self.pipe_name, wait_ms):
+                continue
+            wait_err = ctypes.get_last_error()
+            if wait_err in (_ERROR_FILE_NOT_FOUND, _ERROR_PATH_NOT_FOUND):
+                raise ConnectionError(
+                    f"Named pipe {self.pipe_name} disappeared while waiting."
+                )
+            if wait_err in (_ERROR_SEM_TIMEOUT, _ERROR_PIPE_BUSY):
+                continue
+            raise ConnectionError(
+                f"Failed waiting for named pipe {self.pipe_name}: "
+                f"Win32 error {wait_err}"
+            )
+
     def send_command(
         self,
         command: str,
@@ -153,119 +212,78 @@ class MaxClient:
     # ── Named Pipe transport ─────────────────────────────────────
     def _send_via_pipe(self, request: str, timeout: float) -> bytes:
         deadline = time.perf_counter() + timeout
-        handle = _INVALID_HANDLE
+        data = (request + "\n").encode("utf-8")
 
-        while True:
-            handle = _kernel32.CreateFileW(
-                self.pipe_name,
-                _GENERIC_READ | _GENERIC_WRITE,
-                0,
-                None,
-                _OPEN_EXISTING,
-                0,
-                None,
-            )
-            if handle != _INVALID_HANDLE:
-                break
+        with self._pipe_lock:
+            for attempt in range(2):
+                handle = self._ensure_pipe_handle(deadline)
+                try:
+                    total_written = 0
+                    while total_written < len(data):
+                        written = wintypes.DWORD()
+                        ok = _kernel32.WriteFile(
+                            handle,
+                            data[total_written:],
+                            len(data) - total_written,
+                            ctypes.byref(written),
+                            None,
+                        )
+                        if not ok:
+                            err = ctypes.get_last_error()
+                            if err == _ERROR_BROKEN_PIPE:
+                                raise BrokenPipeError("Pipe closed while writing request.")
+                            raise ConnectionError(
+                                f"Failed writing to pipe: Win32 error {err}"
+                            )
+                        if written.value == 0:
+                            raise ConnectionError(
+                                "Pipe write returned 0 bytes written."
+                            )
+                        total_written += written.value
 
-            err = ctypes.get_last_error()
-            if err in (_ERROR_FILE_NOT_FOUND, _ERROR_PATH_NOT_FOUND):
-                raise ConnectionError(
-                    f"Named pipe {self.pipe_name} not found. "
-                    "Is the MCP Bridge plugin loaded in 3ds Max?"
-                )
-            if err != _ERROR_PIPE_BUSY:
-                raise ConnectionError(f"Failed to open pipe: Win32 error {err}")
+                    response_data = bytearray()
+                    buf = ctypes.create_string_buffer(65536)
+                    while True:
+                        if time.perf_counter() >= deadline:
+                            self._close_pipe_handle()
+                            raise TimeoutError(
+                                f"Timed out waiting for named pipe response after "
+                                f"{timeout}s."
+                            )
 
-            remaining_ms = int((deadline - time.perf_counter()) * 1000)
-            if remaining_ms <= 0:
-                raise TimeoutError(
-                    f"Timed out waiting for named pipe {self.pipe_name} after {timeout}s."
-                )
+                        bytes_read = wintypes.DWORD()
+                        ok = _kernel32.ReadFile(
+                            handle, buf, len(buf), ctypes.byref(bytes_read), None
+                        )
+                        if bytes_read.value > 0:
+                            response_data.extend(buf.raw[:bytes_read.value])
+                            if b"\n" in response_data:
+                                return bytes(response_data)
 
-            wait_ms = min(remaining_ms, 250)
-            if _kernel32.WaitNamedPipeW(self.pipe_name, wait_ms):
-                continue
-            wait_err = ctypes.get_last_error()
-            if wait_err in (_ERROR_FILE_NOT_FOUND, _ERROR_PATH_NOT_FOUND):
-                raise ConnectionError(
-                    f"Named pipe {self.pipe_name} disappeared while waiting."
-                )
-            if wait_err in (_ERROR_SEM_TIMEOUT, _ERROR_PIPE_BUSY):
-                continue
-            raise ConnectionError(
-                f"Failed waiting for named pipe {self.pipe_name}: Win32 error {wait_err}"
-            )
+                        if not ok:
+                            err = ctypes.get_last_error()
+                            if err == _ERROR_BROKEN_PIPE:
+                                raise BrokenPipeError(
+                                    "Pipe closed while reading response."
+                                )
+                            raise ConnectionError(
+                                f"Failed reading from pipe: Win32 error {err}"
+                            )
 
-        try:
-            # Write request
-            data = (request + "\n").encode("utf-8")
-            total_written = 0
-            while total_written < len(data):
-                written = wintypes.DWORD()
-                ok = _kernel32.WriteFile(
-                    handle,
-                    data[total_written:],
-                    len(data) - total_written,
-                    ctypes.byref(written),
-                    None,
-                )
-                if not ok:
-                    err = ctypes.get_last_error()
-                    raise ConnectionError(f"Failed writing to pipe: Win32 error {err}")
-                if written.value == 0:
-                    raise ConnectionError("Pipe write returned 0 bytes written.")
-                total_written += written.value
-
-            # Read response
-            response_data = bytearray()
-            buf = ctypes.create_string_buffer(65536)
-            while True:
-                now = time.perf_counter()
-                if now >= deadline:
-                    raise TimeoutError(
-                        f"Timed out waiting for named pipe response after {timeout}s."
-                    )
-
-                bytes_available = wintypes.DWORD()
-                ok = _kernel32.PeekNamedPipe(
-                    handle,
-                    None,
-                    0,
-                    None,
-                    ctypes.byref(bytes_available),
-                    None,
-                )
-                if not ok:
-                    err = ctypes.get_last_error()
-                    if err == _ERROR_BROKEN_PIPE:
-                        break
-                    raise ConnectionError(f"Failed peeking pipe: Win32 error {err}")
-
-                if bytes_available.value == 0:
-                    time.sleep(0.005)
-                    continue
-
-                bytes_to_read = min(bytes_available.value, len(buf))
-                bytes_read = wintypes.DWORD()
-                ok = _kernel32.ReadFile(
-                    handle, buf, bytes_to_read, ctypes.byref(bytes_read), None
-                )
-                if bytes_read.value > 0:
-                    response_data.extend(buf.raw[:bytes_read.value])
-                if b"\n" in response_data:
-                    break
-                if not ok:
-                    err = ctypes.get_last_error()
-                    if err == _ERROR_BROKEN_PIPE:
-                        break
-                    raise ConnectionError(f"Failed reading from pipe: Win32 error {err}")
-                if bytes_read.value == 0:
-                    break
-
-            return bytes(response_data)
-        finally:
-            _kernel32.CloseHandle(handle)
+                        if bytes_read.value == 0:
+                            raise BrokenPipeError(
+                                "Pipe closed before response terminator."
+                            )
+                except BrokenPipeError:
+                    self._close_pipe_handle()
+                    if attempt == 0 and time.perf_counter() < deadline:
+                        continue
+                    raise ConnectionError("Named pipe connection closed during request.")
+                except ConnectionError:
+                    self._close_pipe_handle()
+                    if attempt == 0 and time.perf_counter() < deadline:
+                        continue
+                    raise
 
     # ── TCP transport (legacy) ───────────────────────────────────
     def _send_via_tcp(self, request: str, timeout: float) -> bytes:

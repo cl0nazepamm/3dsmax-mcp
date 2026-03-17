@@ -24,6 +24,7 @@ namespace NativeHandlers {
 
     // Phase 2: Modifier operations
     std::string AddModifier(const std::string& params, MCPBridgeGUP* gup);
+    std::string AddModifierVerified(const std::string& params, MCPBridgeGUP* gup);
     std::string RemoveModifier(const std::string& params, MCPBridgeGUP* gup);
     std::string SetModifierState(const std::string& params, MCPBridgeGUP* gup);
     std::string CollapseModifierStack(const std::string& params, MCPBridgeGUP* gup);
@@ -59,6 +60,7 @@ namespace NativeHandlers {
     std::string AssignMaterial(const std::string& params, MCPBridgeGUP* gup);
     std::string SetMaterialProperty(const std::string& params, MCPBridgeGUP* gup);
     std::string SetMaterialProperties(const std::string& params, MCPBridgeGUP* gup);
+    std::string SetMaterialVerified(const std::string& params, MCPBridgeGUP* gup);
 
     // Plugin enumeration
     std::string ListPluginClasses(const std::string& params, MCPBridgeGUP* gup);
@@ -66,4 +68,14 @@ namespace NativeHandlers {
     // Controller / track inspection
     std::string InspectTrackView(const std::string& params, MCPBridgeGUP* gup);
     std::string ListWireableParams(const std::string& params, MCPBridgeGUP* gup);
+
+    // Plugin introspection (deep SDK reflection)
+    std::string DiscoverClasses(const std::string& params, MCPBridgeGUP* gup);
+    std::string IntrospectClass(const std::string& params, MCPBridgeGUP* gup);
+    std::string IntrospectInstance(const std::string& params, MCPBridgeGUP* gup);
+
+    // Scene organization
+    std::string ManageLayers(const std::string& params, MCPBridgeGUP* gup);
+    std::string ManageGroups(const std::string& params, MCPBridgeGUP* gup);
+    std::string ManageSelectionSets(const std::string& params, MCPBridgeGUP* gup);
 }

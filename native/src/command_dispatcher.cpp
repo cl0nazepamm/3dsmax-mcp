@@ -53,10 +53,34 @@ static std::string BuildResponse(
     return resp.dump();
 }
 
+// ── Safe mode filter ────────────────────────────────────────────
+static bool ContainsBlockedCommand(const std::string& cmd) {
+    // Case-insensitive check for dangerous MAXScript commands
+    std::string lower = cmd;
+    for (auto& c : lower) c = (char)tolower((unsigned char)c);
+
+    static const char* blocked[] = {
+        "doscommand",
+        "shelllaunch",
+        "deletefile",
+        "python.execute",
+        "createfile",
+        "hiddendoscommand",
+    };
+    for (const char* b : blocked) {
+        if (lower.find(b) != std::string::npos) return true;
+    }
+    return false;
+}
+
 // ── MAXScript handler ───────────────────────────────────────────
 static std::string HandleMaxScript(
     const std::string& command,
     MCPBridgeGUP* gup) {
+
+    if (ContainsBlockedCommand(command)) {
+        throw std::runtime_error("Blocked by safe mode: command contains a restricted function");
+    }
 
     return gup->GetExecutor().ExecuteSync([&command]() -> std::string {
         std::wstring wcmd = Utf8ToWide(command);
@@ -99,20 +123,12 @@ static std::string HandleMaxScript(
         if (fpv.type == TYPE_FLOAT) {
             return std::to_string(fpv.f);
         }
-
-        // Fallback: execute again and capture as string via MAXScript's own stringification
-        // For complex results, wrap in a string conversion
-        std::wstring wrap = L"(" + wcmd + L") as string";
-        FPValue fpv2;
-        if (ExecuteMAXScriptScript(wrap.c_str(), MAXScript::ScriptSource::NotSpecified, TRUE, &fpv2)) {
-            if (fpv2.type == TYPE_STRING || fpv2.type == TYPE_FILENAME) {
-                return WideToUtf8(fpv2.s);
-            }
-            if (fpv2.type == TYPE_TSTR) {
-                return WideToUtf8(fpv2.tstr->data());
-            }
+        if (fpv.type == TYPE_BOOL) {
+            return fpv.i ? "true" : "false";
         }
 
+        // Do not re-evaluate the command just to stringify the result.
+        // That doubled work on non-trivial MAXScript paths.
         return "OK";
     });
 }
@@ -194,6 +210,8 @@ std::string CommandDispatcher::Dispatch(
         // Phase 2: Modifier operations
         } else if (cmd_type == "native:add_modifier") {
             result = NativeHandlers::AddModifier(command, gup);
+        } else if (cmd_type == "native:add_modifier_verified") {
+            result = NativeHandlers::AddModifierVerified(command, gup);
         } else if (cmd_type == "native:remove_modifier") {
             result = NativeHandlers::RemoveModifier(command, gup);
         } else if (cmd_type == "native:set_modifier_state") {
@@ -249,6 +267,8 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::SetMaterialProperty(command, gup);
         } else if (cmd_type == "native:set_material_properties") {
             result = NativeHandlers::SetMaterialProperties(command, gup);
+        } else if (cmd_type == "native:set_material_verified") {
+            result = NativeHandlers::SetMaterialVerified(command, gup);
         // Plugin enumeration
         } else if (cmd_type == "native:list_plugin_classes") {
             result = NativeHandlers::ListPluginClasses(command, gup);
@@ -257,6 +277,20 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::InspectTrackView(command, gup);
         } else if (cmd_type == "native:list_wireable_params") {
             result = NativeHandlers::ListWireableParams(command, gup);
+        // Plugin introspection (deep SDK reflection)
+        } else if (cmd_type == "native:discover_classes") {
+            result = NativeHandlers::DiscoverClasses(command, gup);
+        } else if (cmd_type == "native:introspect_class") {
+            result = NativeHandlers::IntrospectClass(command, gup);
+        } else if (cmd_type == "native:introspect_instance") {
+            result = NativeHandlers::IntrospectInstance(command, gup);
+        // Scene organization
+        } else if (cmd_type == "native:manage_layers") {
+            result = NativeHandlers::ManageLayers(command, gup);
+        } else if (cmd_type == "native:manage_groups") {
+            result = NativeHandlers::ManageGroups(command, gup);
+        } else if (cmd_type == "native:manage_selection_sets") {
+            result = NativeHandlers::ManageSelectionSets(command, gup);
         } else {
             throw std::runtime_error("Unknown command type: " + cmd_type);
         }
