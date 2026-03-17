@@ -10,6 +10,8 @@ build/
 .claude/settings.local.json
 .claude/skills/
 .agents/
+AGENTS.md
+TODO.md
 *.skill
 nul
 cache/
