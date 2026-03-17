@@ -13,6 +13,30 @@ Keep it lean:
 - prefer dedicated tools over raw MAXScript
 - prefer action + verification loops over optimistic success strings
 
+## TOP PRIORITY: Deep SDK Introspection
+
+When you encounter an unfamiliar class, plugin, or object — **use the C++ SDK introspection tools first**. These return the complete API surface directly from the DLL class registry. They are faster, more complete, and more reliable than MAXScript reflection (`showClass`, `getPropNames`).
+
+### Tool hierarchy (use in this order):
+1. **`introspect_class`** — Get the full API of any class by name. Returns all ParamBlock2 parameters (names, types, defaults, ranges, animatable flags) and all FPInterface functions/properties. Works on ANY class — built-in or third-party plugin.
+2. **`introspect_instance`** — Same but on a live scene object with ACTUAL current values. Also includes modifier stack params, material params. Add `include_subanims:true` for the full animation tree.
+3. **`discover_plugin_classes`** — Enumerate ALL registered classes in Max's DLL directory. Filter by superclass (`geometry`, `modifier`, `material`, etc.) or name pattern (`*Vray*`, `Forest*`).
+
+### When to use these vs MAXScript reflection:
+- **Always prefer `introspect_class`** over `inspect_plugin_class` — it returns parameter defaults, ranges, and function signatures that MAXScript cannot see.
+- **Always prefer `introspect_instance`** over generic `inspect_properties` for plugin objects — it reads ParamBlock2 values directly from the SDK, catching parameters that `getPropNames` misses.
+- **Always prefer `discover_plugin_classes`** over `list_plugin_classes` for broad class enumeration — it scans every loaded DLL, not just MAXScript-visible classes.
+
+### Example workflow for unknown plugin:
+```
+1. discover_plugin_classes pattern:"*Forest*"     → find all Forest Pack classes
+2. introspect_class class_name:"Forest_Pro"        → get full parameter API
+3. introspect_instance name:"ForestPack001"        → read live values
+4. Now you know every parameter, its type, range, and current value — proceed with edits
+```
+
+These tools require the native C++ bridge plugin (`mcp_bridge.gup`). They fall back gracefully if not installed.
+
 ## Core Rules
 
 ### Materials
@@ -241,6 +265,9 @@ Do not create a new file for every `_verified` wrapper unless the orchestration 
 - MAXScript is case-insensitive.
 - Avoid ambiguous short variable names.
 
+### MAXScript execution and formatting
+- In `execute_maxscript`, wrap diagnostic/error-prone snippets with `try(...) catch (ex) (ex)` and return explicit values, because `format`/`print` output is often swallowed and failures otherwise appear as generic `MAXScript execution failed`.
+
 ### String / JSON escaping
 - Escape user-provided strings before embedding in MAXScript using shared helpers from `src.helpers.maxscript`.
 - For JSON emitted by MAXScript, use `MCP_Server.escapeJsonString`.
@@ -290,6 +317,13 @@ Internal details (for developers):
 - OSLMap ONLY compiles from inline `OSLCode` string — file-read approaches silently fail
 - Correct order: `OSLCode` first, then `OSLAutoUpdate`, then `OSLPath`
 - File-read via `readLine`/`readDelimitedString` produces strings OSLMap rejects
+
+### Plugin class registration gotcha
+- Some plugins (Arnold, scripted materials) do NOT register classes in DllDir under their MAXScript name
+- `FindClassDescByName("ai_standard_surface")` returns nullptr even when Arnold is loaded
+- Fix: try SDK ClassDesc first, fall back to `RunMAXScript("className()")` for creation
+- This affects `assign_material`, `create_object`, `add_modifier` for scripted/deferred plugin classes
+- DllDir shows Arnold as "Map to Material" (ArnoldMapToMtl) but not individual shader classes
 
 ### Native C++ SDK pitfalls
 - `is_array()` macro collision: MAXScript SDK defines `is_array` macro — use `.type() == json::value_t::array` instead of `.is_array()`
@@ -364,3 +398,4 @@ The target architecture is:
 
 If a task is common and failure is costly, add a verified workflow.
 If a task is rare or too broad, keep it in the inspect + primitive-tool layer.
+- MAXScript renaming: if a generic prefix/array loop fails, do separate matchPattern + substituteString passes per name prefix for reliable object renames in execute_maxscript.
