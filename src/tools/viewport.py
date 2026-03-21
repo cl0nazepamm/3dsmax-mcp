@@ -5,6 +5,7 @@ import tempfile
 from mcp.server.fastmcp import Image
 
 from ..server import mcp, client
+from ..coerce import StrList
 
 
 COMMS_DIR = os.path.join(tempfile.gettempdir(), "3dsmax-mcp")
@@ -168,7 +169,7 @@ def capture_screen(
 
 @mcp.tool()
 def capture_multi_view(
-    views: list[str] | None = None,
+    views: StrList | None = None,
 ) -> Image:
     """Capture multiple viewport angles and stitch into a single labeled grid image.
 

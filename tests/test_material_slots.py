@@ -7,12 +7,13 @@ from src.tools.material_ops import get_material_slots
 
 class MaterialSlotsTests(unittest.TestCase):
     def test_get_material_slots_builds_clean_error_json(self) -> None:
-        with patch("src.tools.material_ops.client.send_command", return_value={"result": '{"error":"Object not found: Missing"}'}) as mocked_send:
+        with patch("src.tools.material_ops.client") as mocked_client:
+            mocked_client.native_available = True
+            mocked_client.send_command.return_value = {"result": '{"error":"Object not found: Missing"}'}
             result = json.loads(get_material_slots("Missing"))
 
-        maxscript = mocked_send.call_args.args[0]
-        self.assertIn('"{\\"error\\":\\"Object not found: Missing\\"}"', maxscript)
-        self.assertNotIn('{{\\\\"error\\\\":', maxscript)
+        payload = json.loads(mocked_client.send_command.call_args.args[0])
+        self.assertEqual(payload["name"], "Missing")
         self.assertEqual(result["error"], "Object not found: Missing")
 
     def test_get_material_slots_compacts_payload(self) -> None:
@@ -28,7 +29,9 @@ class MaterialSlotsTests(unittest.TestCase):
             "boolSlots": ["thin_walled"],
             "otherSlots": ["name"],
         }
-        with patch("src.tools.material_ops.client.send_command", return_value={"result": json.dumps(payload)}):
+        with patch("src.tools.material_ops.client") as mocked_client:
+            mocked_client.native_available = True
+            mocked_client.send_command.return_value = {"result": json.dumps(payload)}
             result = json.loads(get_material_slots("AITest_Box", slot_scope="all"))
 
         self.assertEqual(result["class"], "ai_standard_surface")

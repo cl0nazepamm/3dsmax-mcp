@@ -7,6 +7,7 @@ import json
 from src.helpers.maxscript import safe_string
 
 from ..server import client, mcp
+from ..coerce import StrList, FloatList, IntList
 
 
 def _load_json(raw: str, fallback):
@@ -132,9 +133,9 @@ def _execute_tyflow_recipe(
 @mcp.tool()
 def create_tyflow_basic_verified(
     name: str = "",
-    position: list[float] | None = None,
+    position: FloatList | None = None,
     event_name: str = "Emit",
-    event_position: list[int] | None = None,
+    event_position: IntList | None = None,
     birth_mode: str = "total",
     birth_amount: int = 100,
     select_created: bool = True,
@@ -174,11 +175,11 @@ def create_tyflow_basic_verified(
 
 @mcp.tool()
 def create_tyflow_scatter_from_objects_verified(
-    source_names: list[str],
+    source_names: StrList,
     flow_name: str = "",
-    position: list[float] | None = None,
+    position: FloatList | None = None,
     event_name: str = "Scatter",
-    event_position: list[int] | None = None,
+    event_position: IntList | None = None,
     birth_mode: str = "total",
     birth_amount: int = 100,
     select_created: bool = True,

@@ -8,6 +8,7 @@ math-driven motion, and list controllers for layered blending.
 from typing import Optional
 import json as _json
 from ..server import mcp, client
+from ..coerce import DictList
 from src.helpers.maxscript import safe_string, safe_name, normalize_subanim_path
 
 
@@ -90,7 +91,7 @@ def assign_controller(
     param_path: str,
     controller_type: str,
     script: Optional[str] = None,
-    variables: Optional[list[dict]] = None,
+    variables: Optional[DictList] = None,
     params: Optional[dict] = None,
     layer: bool = False,
 ) -> str:
@@ -118,8 +119,10 @@ def assign_controller(
             LIST: "float_list", "position_list", "rotation_list", "scale_list"
             EXPRESSION: "float_expression", "position_expression"
             OTHER: "spring"
-        script: Script text for script controllers, or expression string
-                for expression controllers.
+        script: Script text for script controllers (full MAXScript supported),
+                or math expression for expression controllers (NO MAXScript,
+                only math with named variables like "x + 10").
+                To reference other objects, use float_script NOT float_expression.
         variables: List of dicts for node references:
             - Script controllers: [{"var_name": "ground", "object": "Plane001"}]
               Creates name-independent node references via ctrl.addNode.
@@ -676,12 +679,18 @@ def set_controller_props(
     expression, or set properties (noise seed/frequency, constraint weights, etc.)
     without replacing the controller.
 
+    IMPORTANT: Float_Expression only supports simple math with named scalar
+    variables (added via add_controller_target). It does NOT support MAXScript
+    or object references like "$Cylinder001.height". If you need MAXScript
+    references to other objects, use float_script controller instead
+    (assign_controller with controller_type="float_script").
+
     Args:
         name: Object name.
         param_path: Sub-anim path to the controlled track.
-        script: New script text for script controllers, or new expression
-                for expression controllers. Expression controllers will
-                automatically call update() after setting.
+        script: New script text for float_script controllers, or new math
+                expression for Float_Expression controllers (e.g. "x + 10",
+                NOT "$obj.height"). Expression controllers call update() after.
         params: Dict of property names to values to set on the controller.
 
     Returns:

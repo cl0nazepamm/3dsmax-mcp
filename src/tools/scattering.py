@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..server import mcp, client
+from ..coerce import StrList, FloatList
 from src.helpers.maxscript import safe_string
 
 
@@ -16,9 +17,9 @@ def _float_array(values: list[float]) -> str:
 
 @mcp.tool()
 def scatter_forest_pack(
-    surfaces: list[str],
-    geometry: list[str],
-    probabilities: list[float] | None = None,
+    surfaces: StrList,
+    geometry: StrList,
+    probabilities: FloatList | None = None,
     density: int = 100,
     seed: int = 12345,
     scale_min: float = 85.0,

@@ -15,6 +15,7 @@ import random
 from typing import Any
 
 from ..server import mcp, client
+from ..coerce import FloatList
 from src.helpers.maxscript import safe_string
 from ..helpers.construction import (
     WALL_THICKNESS,
@@ -3222,7 +3223,7 @@ def _build_central_plaza(
 @mcp.tool()
 def build_structure(
     type: str,
-    location: list[float] = [0, 0, 0],
+    location: FloatList = [0, 0, 0],
     width: float = 200.0,
     depth: float = 150.0,
     height: float = 120.0,

@@ -28,4 +28,4 @@ When you encounter a bug, unexpected behavior, or discover a MAXScript/3ds Max/M
 - All tools send MAXScript strings to 3ds Max via `client.send_command()`
 - MAXScript results returned as JSON strings via manual concatenation
 - Viewport capture: `gw.getViewportDib()` → save to temp → `Read` tool to view
-- Do not RENDER or SCREENSHOT unless user explicitly asks
+- Do not RENDER unless user explicitly asks — but `capture_multi_view` (quad view) is encouraged after scene changes

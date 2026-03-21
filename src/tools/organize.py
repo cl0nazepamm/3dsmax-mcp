@@ -3,15 +3,32 @@
 import json
 
 from ..server import mcp, client
+from ..coerce import StrList, IntList
+
+
+def _resolve_pattern(pattern: str) -> list[str]:
+    """Resolve a wildcard pattern to matching scene object names."""
+    import fnmatch
+    response = client.send_command(
+        json.dumps({"max_roots": 9999}), cmd_type="native:scene_snapshot"
+    )
+    result = json.loads(response.get("result", "{}"))
+    # Native snapshot returns "roots" (list of name strings),
+    # MAXScript fallback returns "objects" (list of dicts with "name").
+    all_names = result.get("roots", [])
+    if not all_names:
+        all_names = [obj["name"] for obj in result.get("objects", [])]
+    return [n for n in all_names if fnmatch.fnmatch(n.lower(), pattern.lower())]
 
 
 @mcp.tool()
 def manage_layers(
     action: str,
     name: str = "",
-    names: list[str] | None = None,
+    names: StrList | None = None,
+    pattern: str = "",
     layer: str = "",
-    color: list[int] | None = None,
+    color: IntList | None = None,
     hidden: bool | None = None,
     frozen: bool | None = None,
     renderable: bool | None = None,
@@ -39,13 +56,14 @@ def manage_layers(
         set_current: Set the active layer by name.
         set_properties: Set layer properties. Params: name + any of hidden, frozen,
                         renderable, color, rename, boxMode, castShadows, rcvShadows.
-        add_objects: Move objects to a layer. Params: layer (target), names (object list).
+        add_objects: Move objects to a layer. Params: layer (target), names or pattern.
         select_objects: Select all objects on a layer. Params: name.
 
     Args:
         action: One of: list, create, delete, set_current, set_properties, add_objects, select_objects.
         name: Layer name (used by most actions).
         names: Object names (for add_objects).
+        pattern: Wildcard pattern to match object names (for add_objects). E.g. "Metal_Sigil_*".
         layer: Target layer name (for add_objects).
         color: RGB color [r, g, b] 0-255.
         hidden: Hide the layer.
@@ -64,6 +82,12 @@ def manage_layers(
         primaryVisibility: Primary visibility flag.
         secondaryVisibility: Secondary visibility flag.
     """
+    # Resolve pattern to names for add_objects
+    if action == "add_objects" and pattern and not names:
+        names = _resolve_pattern(pattern)
+        if not names:
+            return json.dumps({"error": f"No objects matched pattern: {pattern}"})
+
     payload = {"action": action}
     if name:
         payload["name"] = name
@@ -112,7 +136,7 @@ def manage_layers(
 def manage_groups(
     action: str,
     name: str = "",
-    names: list[str] | None = None,
+    names: StrList | None = None,
     group: str = "",
 ) -> str:
     """Manage object groups — create, ungroup, open, close, attach, detach.
@@ -150,7 +174,7 @@ def manage_groups(
 def manage_selection_sets(
     action: str,
     name: str = "",
-    names: list[str] | None = None,
+    names: StrList | None = None,
 ) -> str:
     """Manage named selection sets — create, delete, list, select, replace.
 

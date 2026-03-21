@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from ..server import mcp, client
+from ..coerce import StrList, FloatList
 
 
 def _load_json(raw: str, fallback):
@@ -190,7 +191,7 @@ def create_object_verified(
 
 @mcp.tool()
 def assign_material_verified(
-    names: list[str],
+    names: StrList,
     material_class: str,
     material_name: str = "",
     params: str = "",
@@ -326,9 +327,9 @@ def add_modifier_verified(
 @mcp.tool()
 def transform_object_verified(
     name: str,
-    move: list[float] | None = None,
-    rotate: list[float] | None = None,
-    scale: list[float] | None = None,
+    move: FloatList | None = None,
+    rotate: FloatList | None = None,
+    scale: FloatList | None = None,
     coordinate_system: str = "world",
 ) -> str:
     """Transform an object, then verify via delta and object readback."""

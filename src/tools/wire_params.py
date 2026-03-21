@@ -122,10 +122,15 @@ def wire_params(
     Creates a wire so that changes to the source parameter automatically
     drive the target parameter via the given expression.
 
+    IMPORTANT: source_param and target_param MUST be exact paths from
+    list_wireable_params output. Do NOT invent paths like
+    "[#Object (Cylinder)][#Parameters][#height]" — they will fail.
+    Call list_wireable_params first to get valid paths.
+
     Args:
         source_object: Source object name (e.g. "Box001").
-        source_param: Sub-anim path on source, as returned by list_wireable_params
-                      (e.g. "baseObject[#length]").
+        source_param: Sub-anim path on source — MUST come from list_wireable_params
+                      (e.g. "[#Object (Cylinder)][#height]").
         target_object: Target object name (e.g. "Sphere001").
         target_param: Sub-anim path on target (e.g. "baseObject[#radius]").
         expression: MAXScript expression driving the target value.

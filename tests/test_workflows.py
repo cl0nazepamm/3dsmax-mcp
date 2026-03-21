@@ -66,6 +66,7 @@ class WorkflowToolTests(unittest.TestCase):
 
     def test_set_material_verified_returns_delta_and_slots(self) -> None:
         with (
+            patch("src.tools.workflows.client") as mocked_client,
             patch("src.tools.snapshots.get_scene_delta", side_effect=['{"baseline":true}', '{"modified":[{"name":"Box001","material":{"from":"A","to":"B"}}]}']),
             patch("src.tools.material_ops.set_material_properties", return_value="set"),
             patch("src.tools.inspect.inspect_object", return_value='{"name":"Box001","material":{"name":"Mat"}}'),
@@ -74,6 +75,7 @@ class WorkflowToolTests(unittest.TestCase):
                 '{"class":"ai_standard_surface","numericSlots":[{"name":"metalness","value":"1.0"}]}',
             ]),
         ):
+            mocked_client.native_available = False
             result = json.loads(set_material_verified("Box001", {"metalness": "1.0"}))
 
         self.assertEqual(result["setResult"], "set")
@@ -84,11 +86,13 @@ class WorkflowToolTests(unittest.TestCase):
 
     def test_add_modifier_verified_returns_modifier_details(self) -> None:
         with (
+            patch("src.tools.workflows.client") as mocked_client,
             patch("src.tools.snapshots.get_scene_delta", side_effect=['{"baseline":true}', '{"modified":[{"name":"Box001","modifierCount":{"from":0,"to":1}}]}']),
             patch("src.tools.modifiers.add_modifier", return_value="added"),
             patch("src.tools.inspect.inspect_object", return_value='{"name":"Box001","modifiers":[{"name":"Bend","class":"Bend"},{"name":"TurboSmooth","class":"TurboSmooth"}]}'),
             patch("src.tools.inspect.inspect_modifier_properties", return_value='{"target":"modifier","class":"Bend"}') as mocked_inspect_modifier,
         ):
+            mocked_client.native_available = False
             result = json.loads(add_modifier_verified("Box001", "Bend", "angle:15"))
 
         mocked_inspect_modifier.assert_called_once_with("Box001", modifier_index=1)

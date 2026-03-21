@@ -12,7 +12,7 @@ class MaxClientTests(unittest.TestCase):
         ]
 
         with patch("src.max_client.socket.socket", return_value=fake_socket):
-            client = MaxClient(timeout=1.0)
+            client = MaxClient(timeout=1.0, transport="tcp")
             response = client.send_command('print("Merhaba ğüş")')
 
         self.assertEqual(response["result"], "ok")
@@ -34,7 +34,7 @@ class MaxClientTests(unittest.TestCase):
         ]
 
         with patch("src.max_client.socket.socket", return_value=fake_socket):
-            client = MaxClient(timeout=1.0)
+            client = MaxClient(timeout=1.0, transport="tcp")
             response = client.send_command("x")
 
         self.assertEqual(response["result"], "bad\ufffd")
@@ -46,7 +46,7 @@ class MaxClientTests(unittest.TestCase):
         ]
 
         with patch("src.max_client.socket.socket", return_value=fake_socket):
-            client = MaxClient(timeout=1.0)
+            client = MaxClient(timeout=1.0, transport="tcp")
             with self.assertRaisesRegex(RuntimeError, "Mismatched response requestId"):
                 client.send_command("x")
 

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Optional
 from ..server import mcp, client
+from ..coerce import StrList
 
 
 @mcp.tool()
@@ -47,7 +48,7 @@ def inspect_max_file(
 @mcp.tool()
 def merge_from_file(
     file_path: str,
-    object_names: Optional[list[str]] = None,
+    object_names: Optional[StrList] = None,
     select_merged: bool = True,
     duplicate_action: str = "rename",
 ) -> str:
@@ -83,7 +84,7 @@ def merge_from_file(
 
 @mcp.tool()
 def batch_file_info(
-    file_paths: list[str],
+    file_paths: StrList,
     list_objects: bool = False,
 ) -> str:
     """Read metadata from multiple .max files in a single call.

@@ -1,11 +1,12 @@
 import json as _json
 
 from ..server import mcp, client
+from ..coerce import StrList
 from src.helpers.maxscript import safe_string
 
 
 @mcp.tool()
-def set_parent(children: list[str], parent: str = "") -> str:
+def set_parent(children: StrList, parent: str = "") -> str:
     """Parent or unparent objects in the 3ds Max scene.
 
     Args:

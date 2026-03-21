@@ -11,6 +11,7 @@ from typing import Any
 
 import json as _json
 from ..server import mcp, client
+from ..coerce import FloatList, IntList
 from ..helpers.construction import grid_position, circular_position
 from src.helpers.maxscript import safe_string
 
@@ -74,12 +75,12 @@ def _create_at(
 @mcp.tool()
 def place_on_grid(
     type: str = "Box",
-    grid_origin: list[float] = [0, 0, 0],
-    grid_index: list[float] = [0, 0, 0],
+    grid_origin: FloatList = [0, 0, 0],
+    grid_index: FloatList = [0, 0, 0],
     cell_size: float = 100.0,
-    object_size: list[float] = [100, 100, 100],
+    object_size: FloatList = [100, 100, 100],
     name: str = "",
-    color: list[int] | None = None,
+    color: IntList | None = None,
 ) -> str:
     """Place a single object at a grid cell position.
 
@@ -121,14 +122,14 @@ def place_on_grid(
 @mcp.tool()
 def place_grid_array(
     type: str = "Box",
-    grid_origin: list[float] = [0, 0, 0],
+    grid_origin: FloatList = [0, 0, 0],
     rows: int = 3,
     cols: int = 3,
     layers: int = 1,
     cell_size: float = 100.0,
-    object_size: list[float] = [80, 80, 80],
+    object_size: FloatList = [80, 80, 80],
     name_prefix: str = "Grid",
-    color: list[int] | None = None,
+    color: IntList | None = None,
 ) -> str:
     """Fill a 3D grid with objects.
 
@@ -182,12 +183,12 @@ def place_grid_array(
 @mcp.tool()
 def place_circle(
     type: str = "Box",
-    center: list[float] = [0, 0, 0],
+    center: FloatList = [0, 0, 0],
     radius: float = 200.0,
     count: int = 8,
-    object_size: list[float] = [30, 30, 30],
+    object_size: FloatList = [30, 30, 30],
     name_prefix: str = "Circle",
-    color: list[int] | None = None,
+    color: IntList | None = None,
 ) -> str:
     """Place objects evenly around a circle (e.g. fence posts, village houses, plaza benches).
 

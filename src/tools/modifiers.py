@@ -1,6 +1,7 @@
 from typing import Optional
 import json as _json
 from ..server import mcp, client
+from ..coerce import StrList
 from src.helpers.maxscript import safe_string
 
 
@@ -273,7 +274,7 @@ def batch_modify(
     modifier_class: str,
     property_name: str,
     property_value: str,
-    names: Optional[list[str]] = None,
+    names: Optional[StrList] = None,
     selection_only: bool = False,
 ) -> str:
     """Batch-set a property on all modifiers of a given class across multiple objects.

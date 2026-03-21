@@ -99,17 +99,19 @@ static Gdiplus::Bitmap* CaptureViewportDIB(ViewExp* vp) {
 static void DrawLabel(Gdiplus::Graphics& g, const wchar_t* text,
                       int x, int y, int quadW, int quadH) {
     Gdiplus::FontFamily fontFamily(L"Arial");
-    Gdiplus::Font font(&fontFamily, 14, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
-    Gdiplus::SolidBrush bgBrush(Gdiplus::Color(160, 0, 0, 0));
+    Gdiplus::Font font(&fontFamily, 28, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+    Gdiplus::SolidBrush bgBrush(Gdiplus::Color(180, 0, 0, 0));
     Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, 255, 255, 255));
 
+    int barHeight = 40;
     Gdiplus::RectF layoutRect((Gdiplus::REAL)x, (Gdiplus::REAL)y,
-                               (Gdiplus::REAL)quadW, 24.0f);
+                               (Gdiplus::REAL)quadW, (Gdiplus::REAL)barHeight);
     Gdiplus::StringFormat format;
     format.SetAlignment(Gdiplus::StringAlignmentCenter);
+    format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
 
     // Background bar
-    g.FillRectangle(&bgBrush, x, y, quadW, 22);
+    g.FillRectangle(&bgBrush, x, y, quadW, barHeight);
     // Text
     g.DrawString(text, -1, &font, layoutRect, &format, &textBrush);
 }
@@ -127,10 +129,15 @@ std::string NativeHandlers::CaptureMultiView(const std::string& params, MCPBridg
         Interface* ip = GetCOREInterface();
         TimeValue t = ip->GetTime();
 
-        // Save current viewport state
+        // Save current viewport state (type + camera transform)
         ViewExp& vp = ip->GetActiveViewExp();
         Matrix3 savedTM;
         vp.GetAffineTM(savedTM);
+        // Save viewport type string so we can restore it after cycling views
+        std::string savedViewType;
+        try {
+            savedViewType = RunMAXScript("viewport.getType() as string");
+        } catch (...) {}
 
         // Map view names to MAXScript viewport types
         struct ViewDef {
@@ -195,7 +202,10 @@ std::string NativeHandlers::CaptureMultiView(const std::string& params, MCPBridg
             captures.push_back(bmp);
         }
 
-        // Restore original viewport state
+        // Restore original viewport state (type first, then camera transform)
+        if (!savedViewType.empty()) {
+            RunMAXScript("viewport.setType " + savedViewType);
+        }
         vp.SetAffineTM(savedTM);
         ip->RedrawViews(t);
 

@@ -9,7 +9,7 @@ Principles:
 - Prefer dedicated tools over raw MAXScript
 - Prefer SDK introspection over MAXScript reflection
 - Prefer verified workflows over optimistic success strings
-- Do NOT render or screenshot unless asked
+- Do NOT render unless asked — but `capture_multi_view` (quad view) is encouraged after building or modifying scenes so the user can see the result
 
 ## 1. Deep SDK Introspection (Use First)
 
@@ -215,7 +215,11 @@ Only when no dedicated tool exists:
 
 Never as default when a proper tool exists.
 
-## 7. MAXScript Pitfalls
+## 7. MCP Tool Pitfalls
+
+- Fast/small models send `"foo"` instead of `["foo"]` for list params — all tool signatures use coerced types (`StrList`, `FloatList`, `IntList`, `DictList` from `src/coerce.py`) that auto-wrap single values into one-element lists. Any new tool with a `list[T]` param **must** use these types instead of bare `list[]`.
+
+## 8. MAXScript Pitfalls
 
 - **No parens with keyword args**: `Box width:10` not `Box() width:10`
 - **Case-insensitive** but avoid ambiguous short names
@@ -244,7 +248,7 @@ Never as default when a proper tool exists.
 - OSLMap lowercases all param names — use lowercase keys
 - After creation, wire via `set_material_property`
 
-## 8. C++ SDK Pitfalls
+## 9. C++ SDK Pitfalls
 
 - `is_array()` macro collision with MAXScript headers — use `.type() == json::value_t::array`
 - `Matrix3(1)` deprecated in Max 2026 — use `Matrix3()` default
@@ -254,7 +258,7 @@ Never as default when a proper tool exists.
 - `WStr::operator bool` deleted in Max 2026 — use `.data() && .data()[0]` checks
 - Native scene-delta baselines must be scoped per pipe client and cleared on scene reset/fetch; one process-global snapshot leaks across simultaneous agents and unrelated scenes.
 
-## 9. Architecture
+## 10. Architecture
 
 ```
 Agent <-> FastMCP (Python/stdio) <-> Named Pipe <-> C++ GUP Plugin <-> 3ds Max SDK

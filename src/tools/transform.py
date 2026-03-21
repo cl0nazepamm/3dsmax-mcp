@@ -1,15 +1,16 @@
 import json as _json
 from typing import Optional
 from ..server import mcp, client
+from ..coerce import FloatList
 from src.helpers.maxscript import safe_string
 
 
 @mcp.tool()
 def transform_object(
     name: str,
-    move: Optional[list[float]] = None,
-    rotate: Optional[list[float]] = None,
-    scale: Optional[list[float]] = None,
+    move: Optional[FloatList] = None,
+    rotate: Optional[FloatList] = None,
+    scale: Optional[FloatList] = None,
     coordinate_system: str = "world",
 ) -> str:
     """Move, rotate, and/or scale an object by the given offsets.

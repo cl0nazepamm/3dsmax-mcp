@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from typing import Optional
 from ..server import mcp, client
+from ..coerce import StrList
 from src.helpers.maxscript import safe_string
 
 
@@ -435,7 +436,7 @@ def _build_redshift_maxscript(
 
 @mcp.tool()
 def assign_material(
-    names: list[str],
+    names: StrList,
     material_class: str,
     material_name: str = "",
     params: str = "",
@@ -1304,7 +1305,7 @@ def create_material_from_textures(
     texture_folder: str,
     material_class: str = "",
     material_name: str = "",
-    assign_to: list[str] | None = None,
+    assign_to: StrList | None = None,
     custom_patterns: dict[str, list[str]] | None = None,
 ) -> str:
     """Create a fully-wired PBR material from a folder of texture maps.
@@ -1553,7 +1554,7 @@ def create_shell_material(
     orm_path: str,
     normal_path: str = "",
     gltf_material_name: str = "",
-    assign_to: list[str] | None = None,
+    assign_to: StrList | None = None,
 ) -> str:
     """Create a Shell Material with UberBitmap-based Arnold render slot and glTF export slot.
 

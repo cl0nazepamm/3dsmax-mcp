@@ -8,6 +8,7 @@ position, selection, vertex color, UVs, normals, etc.
 
 from typing import Optional
 from ..server import mcp, client
+from ..coerce import DictList, IntList
 from src.helpers.maxscript import safe_string
 
 
@@ -56,8 +57,8 @@ _OP_IDS = {
 @mcp.tool()
 def add_data_channel(
     name: str,
-    operators: list[dict],
-    order: Optional[list[int]] = None,
+    operators: DictList,
+    order: Optional[IntList] = None,
     display: bool = True,
 ) -> str:
     """Add a Data Channel modifier with a complete operator graph.

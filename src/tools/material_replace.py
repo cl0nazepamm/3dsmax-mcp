@@ -8,6 +8,7 @@ swapping materials across many objects at once.
 
 import json as _json
 from ..server import mcp, client
+from ..coerce import DictList
 from src.helpers.maxscript import safe_string
 
 
@@ -104,7 +105,7 @@ def replace_material(
 
 @mcp.tool()
 def batch_replace_materials(
-    replacements: list[dict],
+    replacements: DictList,
     preview: bool = False,
 ) -> str:
     """Replace multiple materials in a single operation.

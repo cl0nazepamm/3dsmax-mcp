@@ -13,6 +13,7 @@ import json
 from typing import Any
 
 from ..server import mcp, client
+from ..coerce import FloatList, DictList
 from ..helpers.construction import DOOR_OPENING_WIDTH, LABEL_SIZE
 from src.helpers.maxscript import safe_string
 
@@ -298,10 +299,10 @@ def _grid_to_world(
 
 @mcp.tool()
 def build_floor_plan(
-    location: list[float] = [0, 0, 0],
+    location: FloatList = [0, 0, 0],
     cell_size: float = 100.0,
-    rooms: list[dict[str, Any]] = [],
-    doors: list[dict[str, Any]] = [],
+    rooms: DictList = [],
+    doors: DictList = [],
     options: dict[str, Any] | None = None,
 ) -> str:
     """Build a 2D floor plan from grid-based room definitions.

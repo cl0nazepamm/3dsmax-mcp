@@ -1,12 +1,13 @@
 import json as _json
 from typing import Optional
 from ..server import mcp, client
+from ..coerce import StrList
 from src.helpers.maxscript import safe_string
 
 
 @mcp.tool()
 def select_objects(
-    names: Optional[list[str]] = None,
+    names: Optional[StrList] = None,
     pattern: str = "",
     class_name: str = "",
     all: bool = False,

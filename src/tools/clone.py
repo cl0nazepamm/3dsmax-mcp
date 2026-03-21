@@ -1,14 +1,15 @@
 import json as _json
 from typing import Optional
 from ..server import mcp, client
+from ..coerce import StrList, FloatList
 from src.helpers.maxscript import safe_string
 
 
 @mcp.tool()
 def clone_objects(
-    names: list[str],
+    names: StrList,
     mode: str = "copy",
-    offset: Optional[list[float]] = None,
+    offset: Optional[FloatList] = None,
 ) -> str:
     """Clone (copy/instance/reference) objects in the scene.
 

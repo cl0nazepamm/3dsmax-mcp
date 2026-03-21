@@ -6,6 +6,7 @@ from typing import Any
 from src.helpers.maxscript import safe_string
 
 from ..server import client, mcp
+from ..coerce import StrList, FloatList, IntList, DictList
 
 
 SHAPE_3D_IDS: dict[str, int] = {
@@ -192,10 +193,10 @@ if tyFlow == undefined then (
 @mcp.tool()
 def create_tyflow(
     name: str = "",
-    position: list[float] | None = None,
+    position: FloatList | None = None,
     event_name: str = "Emit",
-    event_position: list[int] | None = None,
-    operators: list[dict[str, Any]] | None = None,
+    event_position: IntList | None = None,
+    operators: DictList | None = None,
     select_created: bool = True,
 ) -> str:
     """Create tyFlow with one event and a configurable operator list."""
@@ -540,7 +541,7 @@ if flow == undefined then (
 
 
 @mcp.tool()
-def add_tyflow_event(name: str, event_name: str, event_position: list[int] | None = None) -> str:
+def add_tyflow_event(name: str, event_name: str, event_position: IntList | None = None) -> str:
     """Add one event to an existing tyFlow object."""
     pos = event_position or [0, 0]
     if len(pos) != 2:
@@ -708,7 +709,7 @@ if flow == undefined then (
 def add_tyflow_collision(
     name: str,
     event_name: str,
-    collider_names: list[str],
+    collider_names: StrList,
     operator_name: str = "Collision",
     create_if_missing: bool = True,
 ) -> str:
@@ -939,7 +940,7 @@ if targets.count == 0 then (
 def create_tyflow_preset(
     preset: str,
     name: str = "",
-    position: list[float] | None = None,
+    position: FloatList | None = None,
     amount: int = 100,
     speed: float = 120.0,
 ) -> str:
