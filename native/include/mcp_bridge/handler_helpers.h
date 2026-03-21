@@ -135,7 +135,7 @@ inline std::string RunMAXScript(const std::string& script) {
     // Fallback: wrap in string conversion
     std::wstring wrap = L"(" + wcmd + L") as string";
     FPValue fpv2;
-    if (ExecuteMAXScriptScript(wrap.c_str(), MAXScript::ScriptSource::NotSpecified, TRUE, &fpv2)) {
+    if (ExecuteMAXScriptScript(wrap.c_str(), MAXScript::ScriptSource::NonEmbedded, TRUE, &fpv2)) {
         if (fpv2.type == TYPE_STRING || fpv2.type == TYPE_FILENAME) {
             return WideToUtf8(fpv2.s);
         }
