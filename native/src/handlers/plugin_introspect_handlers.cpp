@@ -3,6 +3,7 @@
 #include "mcp_bridge/bridge_gup.h"
 
 #include <ifnpub.h>
+#include <iparamb.h>
 #include <iparamb2.h>
 #include <modstack.h>
 #include <set>
@@ -189,6 +190,162 @@ static json DescribeInterface(FPInterface* fpi) {
     }
 
     return iface;
+}
+
+// ── Get MAXScript property names for a PB1 owner ────────────────
+// PB1 doesn't store names for non-animatable params. Use getPropNames
+// via MAXScript on the actual instance to get the full name list.
+// msRef is a MAXScript expression that evaluates to the object
+// (e.g. "(getNodeByName \"Rect\").modifiers[1]")
+static std::vector<std::string> GetPB1PropNames(const std::string& msRef) {
+    std::vector<std::string> names;
+    if (msRef.empty()) return names;
+    try {
+        std::string script = "(local obj = " + msRef +
+            "; local props = getPropNames obj; local r = \"\"; "
+            "for p in props do (r += (p as string) + \"\\n\"); r)";
+        std::wstring wcmd = Utf8ToWide(script);
+        FPValue fpv;
+        if (ExecuteMAXScriptScript(wcmd.c_str(),
+                MAXScript::ScriptSource::NonEmbedded, TRUE, &fpv)) {
+            std::string result;
+            if (fpv.type == TYPE_STRING || fpv.type == TYPE_FILENAME)
+                result = WideToUtf8(fpv.s);
+            else if (fpv.type == TYPE_TSTR)
+                result = WideToUtf8(fpv.tstr->data());
+
+            size_t pos = 0;
+            while (pos < result.size()) {
+                size_t nl = result.find('\n', pos);
+                if (nl == std::string::npos) nl = result.size();
+                std::string name = result.substr(pos, nl - pos);
+                if (!name.empty()) names.push_back(name);
+                pos = nl + 1;
+            }
+        }
+    } catch (...) {}
+    return names;
+}
+
+// ── Legacy PB1 detection and reading ────────────────────────────
+// Walks sub-anims of an Animatable looking for IParamBlock (PB1).
+// Returns a JSON array of PB1 blocks with their params and live values.
+// Uses MAXScript getPropNames as fallback for non-animatable param names.
+// msRef: MAXScript expression to reference this object for getPropNames fallback
+//        e.g. "(getNodeByName \"Box001\").baseObject" or
+//             "(getNodeByName \"Rect001\").modifiers[1]"
+static json ReadPB1Params(Animatable* anim, TimeValue t, const std::string& msRef = "") {
+    json pb1Blocks = json::array();
+    if (!anim) return pb1Blocks;
+
+    int numSubs = anim->NumSubs();
+    for (int si = 0; si < numSubs; si++) {
+        Animatable* sub = anim->SubAnim(si);
+        if (!sub) continue;
+
+        // Check if this sub-anim is a PB1 (SuperClassID == PARAMETER_BLOCK_CLASS_ID)
+        if (sub->SuperClassID() != PARAMETER_BLOCK_CLASS_ID) continue;
+        IParamBlock* pb1 = dynamic_cast<IParamBlock*>(sub);
+        if (!pb1) continue;
+
+        json block;
+        MSTR blockName = anim->SubAnimName(si, false);
+        block["name"] = WideToUtf8(blockName.data());
+        block["subAnimIndex"] = si;
+        block["numParams"] = pb1->NumParams();
+        block["params"] = json::array();
+
+        // Build param index -> name map from anim sub-anims
+        // PB1 sub-anims only cover animatable params; indices don't match param indices
+        std::map<int, std::string> paramNames;
+        int numAnims = pb1->NumSubs();
+        for (int ai = 0; ai < numAnims; ai++) {
+            int paramIdx = pb1->AnimNumToParamNum(ai);
+            MSTR aname = pb1->SubAnimName(ai, false);
+            if (aname.data() && aname.data()[0])
+                paramNames[paramIdx] = WideToUtf8(aname.data());
+        }
+
+        // Fallback: get property names from MAXScript for unnamed params
+        int numParams = pb1->NumParams();
+        std::vector<std::string> msPropNames;
+        bool hasUnnamed = false;
+        for (int pi = 0; pi < numParams; pi++) {
+            if (paramNames.find(pi) == paramNames.end()) { hasUnnamed = true; break; }
+        }
+        if (hasUnnamed && !msRef.empty()) {
+            msPropNames = GetPB1PropNames(msRef);
+        }
+
+        for (int pi = 0; pi < numParams; pi++) {
+            json param;
+
+            auto nameIt = paramNames.find(pi);
+            if (nameIt != paramNames.end()) {
+                param["name"] = nameIt->second;
+            } else if (pi < (int)msPropNames.size()) {
+                param["name"] = msPropNames[pi];
+            } else {
+                param["name"] = "param_" + std::to_string(pi);
+            }
+
+            param["index"] = pi;
+
+            // Type and value
+            ParamType ptype = pb1->GetParameterType(pi);
+            switch (ptype) {
+            case TYPE_FLOAT: {
+                param["type"] = "float";
+                Interval valid = FOREVER;
+                float v = 0;
+                pb1->GetValue(pi, t, v, valid);
+                param["value"] = v;
+                break;
+            }
+            case TYPE_INT: {
+                param["type"] = "int";
+                Interval valid = FOREVER;
+                int v = 0;
+                pb1->GetValue(pi, t, v, valid);
+                param["value"] = v;
+                break;
+            }
+            case TYPE_BOOL: {
+                param["type"] = "bool";
+                param["value"] = pb1->GetInt(pi, t) != 0;
+                break;
+            }
+            case TYPE_POINT3: {
+                param["type"] = "point3";
+                Interval valid = FOREVER;
+                Point3 v(0, 0, 0);
+                pb1->GetValue(pi, t, v, valid);
+                param["value"] = json::array({v.x, v.y, v.z});
+                break;
+            }
+            case TYPE_RGBA: {
+                param["type"] = "color";
+                Color v = pb1->GetColor(pi, t);
+                param["value"] = json::array({v.r * 255.0f, v.g * 255.0f, v.b * 255.0f});
+                break;
+            }
+            default:
+                param["type"] = "unknown_" + std::to_string(ptype);
+                param["value"] = nullptr;
+                break;
+            }
+
+            // Check if animatable (has controller)
+            Control* ctrl = pb1->GetController(pi);
+            param["animated"] = ctrl != nullptr;
+
+            block["params"].push_back(param);
+        }
+
+        pb1Blocks.push_back(block);
+    }
+
+    return pb1Blocks;
 }
 
 // ── Build SubAnim tree ──────────────────────────────────────────
@@ -542,6 +699,13 @@ std::string NativeHandlers::IntrospectInstance(const std::string& params, MCPBri
             result["paramBlocks"].push_back(pbj);
         }
 
+        // Legacy PB1 params (older plugins that don't use PB2)
+        std::string baseRef = "(getNodeByName \"" + JsonEscape(objName) + "\").baseObject";
+        json pb1 = ReadPB1Params(obj, t, baseRef);
+        if (!pb1.empty()) {
+            result["pb1ParamBlocks"] = pb1;
+        }
+
         // FPInterfaces on the live object
         result["interfaces"] = json::array();
         // Try ClassDesc2 interfaces first
@@ -579,7 +743,7 @@ std::string NativeHandlers::IntrospectInstance(const std::string& params, MCPBri
                     (unsigned int)mod->ClassID().PartB()
                 });
 
-                // Modifier param blocks
+                // Modifier param blocks (PB2)
                 modj["paramBlocks"] = json::array();
                 int modPB = mod->NumParamBlocks();
                 for (int mp = 0; mp < modPB; mp++) {
@@ -587,6 +751,14 @@ std::string NativeHandlers::IntrospectInstance(const std::string& params, MCPBri
                     if (mpb && mpb->GetDesc()) {
                         modj["paramBlocks"].push_back(DescribeParamBlock(mpb->GetDesc()));
                     }
+                }
+
+                // Legacy PB1 on modifier
+                std::string modRef = "(getNodeByName \"" + JsonEscape(objName) +
+                    "\").modifiers[" + std::to_string(m + 1) + "]"; // 1-based in MAXScript
+                json modPB1 = ReadPB1Params(mod, t, modRef);
+                if (!modPB1.empty()) {
+                    modj["pb1ParamBlocks"] = modPB1;
                 }
 
                 result["modifiers"].push_back(modj);
