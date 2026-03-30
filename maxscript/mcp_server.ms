@@ -23,6 +23,18 @@ struct MCPServerStruct
 	safeMode = true,
 	protocolVersion = 2,
 
+	-- Load safe_mode from shared config: %LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini
+	fn loadSafeMode =
+	(
+		local iniPath = (dotNetClass "System.Environment").GetFolderPath (dotNetClass "System.Environment+SpecialFolder").LocalApplicationData
+		iniPath += "\\3dsmax-mcp\\mcp_config.ini"
+		local val = "true"
+		try (val = getINISetting iniPath "mcp" "safe_mode") catch ()
+		if val == "" do val = "true"
+		val = toLower (trimLeft (trimRight val))
+		not (val == "false" or val == "0" or val == "off")
+	),
+
 	-- Parse a hex string (e.g. "00e9") to integer for \uXXXX decoding
 	fn hexToInt hexStr =
 	(
@@ -216,7 +228,21 @@ struct MCPServerStruct
 				else if cmdType == "maxscript" then
 				(
 					if safeMode then
-						result = safeExecute command
+					(
+						-- Block dangerous commands
+						local lowerCmd = toLower command
+						local blocked = #("doscommand", "shelllaunch", "deletefile", "python.execute", "createfile", "hiddendoscommand")
+						local isBlocked = false
+						for b in blocked while not isBlocked do
+							if findString lowerCmd b != undefined do isBlocked = true
+						if isBlocked then
+						(
+							success = false
+							errorMsg = "Blocked by safe mode. Set safe_mode=false in %LOCALAPPDATA%\\3dsmax-mcp\\mcp_config.ini to disable."
+						)
+						else
+							result = execute command
+					)
 					else
 						result = execute command
 				)
@@ -384,4 +410,6 @@ if MCP_Server != undefined and MCP_Server.isRunning then
 	MCP_Server.stop()
 )
 MCP_Server = MCPServerStruct()
+MCP_Server.safeMode = MCP_Server.loadSafeMode()
+format "MCP: safe_mode = %\n" MCP_Server.safeMode
 MCP_Server.start()

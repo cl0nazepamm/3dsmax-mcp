@@ -18,6 +18,9 @@ ROOT = Path(__file__).resolve().parent
 GUP_SRC = ROOT / "native" / "bin" / "mcp_bridge.gup"
 MS_SERVER = ROOT / "maxscript" / "mcp_server.ms"
 MS_AUTOSTART = ROOT / "maxscript" / "startup" / "mcp_autostart.ms"
+CONFIG_SRC = ROOT / "mcp_config.ini"
+CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "3dsmax-mcp"
+CONFIG_DST = CONFIG_DIR / "mcp_config.ini"
 
 # Common Max install locations
 MAX_DIRS = [
@@ -50,10 +53,26 @@ def copy_elevated(src: Path, dst: Path) -> bool:
         return dst.exists()
 
 
+def deploy_config() -> bool:
+    print(f"\n[1/5] Config -> {CONFIG_DST}")
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    if CONFIG_DST.exists():
+        print("  Already exists (keeping current settings)")
+        return True
+    if CONFIG_SRC.exists():
+        shutil.copy2(CONFIG_SRC, CONFIG_DST)
+        print("  OK (safe_mode=true)")
+        return True
+    # Write default if source template missing
+    CONFIG_DST.write_text("[mcp]\nsafe_mode = true\n", "utf-8")
+    print("  OK (created default, safe_mode=true)")
+    return True
+
+
 def deploy_native_bridge(max_dir: Path) -> bool:
     plugins_dir = max_dir / "plugins"
     dst = plugins_dir / "mcp_bridge.gup"
-    print(f"\n[1/4] Native bridge -> {dst}")
+    print(f"\n[2/5] Native bridge -> {dst}")
     if not GUP_SRC.exists():
         print("  SKIP: pre-built binary not found at native/bin/mcp_bridge.gup")
         return False
@@ -65,7 +84,7 @@ def deploy_native_bridge(max_dir: Path) -> bool:
 
 
 def deploy_maxscript(max_dir: Path) -> bool:
-    print(f"\n[2/4] MAXScript listener (TCP fallback)")
+    print(f"\n[3/5] MAXScript listener (TCP fallback)")
     scripts_dir = max_dir / "scripts"
     mcp_dir = scripts_dir / "mcp"
     startup_dir = scripts_dir / "startup"
@@ -91,7 +110,7 @@ def deploy_maxscript(max_dir: Path) -> bool:
 
 
 def build_skills() -> bool:
-    print(f"\n[3/4] Building skill files")
+    print(f"\n[4/5] Building skill files")
     print("  Where should skills be installed?")
     print("    1) Project only")
     print("    2) Global only (default)")
@@ -110,7 +129,7 @@ def build_skills() -> bool:
 
 
 def register_agents() -> bool:
-    print(f"\n[4/4] Agent registration")
+    print(f"\n[5/5] Agent registration")
     dir_str = str(ROOT)
 
     # Detect which agents are installed
@@ -186,12 +205,13 @@ def main():
                 max_dir = None
 
     # Deploy
+    deploy_config()
     if max_dir:
         deploy_native_bridge(max_dir)
         deploy_maxscript(max_dir)
     else:
-        print("\n[1/4] SKIP: no Max installation")
-        print("[2/4] SKIP: no Max installation")
+        print("\n[2/5] SKIP: no Max installation")
+        print("[3/5] SKIP: no Max installation")
 
     build_skills()
     register_agents()

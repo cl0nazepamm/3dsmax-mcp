@@ -91,10 +91,21 @@ python scripts/build_skill.py
 
 ## Safe mode
 
-The native bridge runs with safe mode ON by default. Blocked:
+Both the native bridge and the MAXScript listener read from a shared config:
+
+```
+%LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini
+```
+
+```ini
+[mcp]
+safe_mode = true
+```
+
+When enabled (default), these commands are blocked:
 `DOSCommand`, `ShellLaunch`, `deleteFile`, `python.Execute`, `createFile`
 
-Everything else is allowed: scene operations, file reads, renders, viewport captures, saves.
+To disable, set `safe_mode = false` and restart 3ds Max.
 
 ## Tools
 

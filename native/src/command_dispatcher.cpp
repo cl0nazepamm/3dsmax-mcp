@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 #include <chrono>
 #include <unordered_set>
+#include <shlobj.h>
 
 #include <max.h>
 #include <maxapi.h>
@@ -13,6 +14,34 @@
 #include <CoreFunctions.h>
 
 using json = nlohmann::json;
+
+// ── Safe mode config ───────────────────────────────────────────
+// Read from %LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini
+// [mcp] safe_mode = true|false  (default: true)
+static bool g_safeMode = true;
+static bool g_safeModeLoaded = false;
+
+static bool LoadSafeModeSetting() {
+    char localAppData[MAX_PATH];
+    if (FAILED(SHGetFolderPathA(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, localAppData)))
+        return true;  // default: safe
+
+    std::string iniPath = std::string(localAppData) + "\\3dsmax-mcp\\mcp_config.ini";
+
+    char buf[16] = {};
+    GetPrivateProfileStringA("mcp", "safe_mode", "true", buf, 16, iniPath.c_str());
+
+    std::string val(buf);
+    return !(val == "false" || val == "0" || val == "off");
+}
+
+static bool IsSafeModeEnabled() {
+    if (!g_safeModeLoaded) {
+        g_safeMode = LoadSafeModeSetting();
+        g_safeModeLoaded = true;
+    }
+    return g_safeMode;
+}
 
 // ── Thread mode classification ──────────────────────────────────
 // Read-only handlers run directly on the pipe worker thread,
@@ -113,7 +142,7 @@ static std::string BuildResponse(
     resp["meta"] = {
         {"protocolVersion", 2},
         {"cmdType", cmd_type},
-        {"safeMode", false},
+        {"safeMode", IsSafeModeEnabled()},
         {"durationMs", duration_ms},
         {"transport", "namedpipe"},
         {"threadMode", MainThreadExecutor::IsDirectMode() ? "direct" : "mainThread"}
@@ -146,8 +175,8 @@ static std::string HandleMaxScript(
     const std::string& command,
     MCPBridgeGUP* gup) {
 
-    if (ContainsBlockedCommand(command)) {
-        throw std::runtime_error("Blocked by safe mode: command contains a restricted function");
+    if (IsSafeModeEnabled() && ContainsBlockedCommand(command)) {
+        throw std::runtime_error("Blocked by safe mode: command contains a restricted function. Set safe_mode=false in %LOCALAPPDATA%\\3dsmax-mcp\\mcp_config.ini to disable.");
     }
 
     return gup->GetExecutor().ExecuteSync([&command]() -> std::string {
