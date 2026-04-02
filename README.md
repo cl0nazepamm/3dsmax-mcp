@@ -1,5 +1,7 @@
 # 3dsmax-mcp
 
+[![SafeSkill 92/100](https://img.shields.io/badge/SafeSkill-92%2F100_Verified%20Safe-brightgreen)](https://safeskill.dev/scan/cl0nazepamm-3dsmax-mcp)
+
 <p align="left">
   <img src="images/logo.png" alt="3dsmax-mcp logo" width="200">
 </p>
