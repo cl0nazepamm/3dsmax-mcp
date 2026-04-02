@@ -14,7 +14,7 @@ Works with Claude Code, Claude Desktop, Codex, Gemini, and any MCP-compatible cl
 - **Multi-view capture** — pure SDK viewport switching, no MAXScript re-entrancy
 - **Controller & wiring tools** — assign controllers, wire parameters, inspect track views
 - **PB1 fallback** — legacy primitives (Capsule, Hedra, etc.) now get correct params
-- **159 tools** across scene, objects, materials, modifiers, controllers, viewport, introspection.
+- **110 tools** across scene, objects, materials, modifiers, controllers, viewport, introspection.
 - **Bundled MAXScript reference** — 10 topic files for agents to write correct MAXScript
 
 ## Architecture
@@ -109,14 +109,14 @@ To disable, set `safe_mode = false` and restart 3ds Max.
 
 ## Tools
 
-159 tools across scene management, objects, materials, modifiers, controllers, wiring, viewport capture, file access, plugin introspection, tyFlow, Forest Pack, RailClone, Data Channel, and more.
+110 tools across scene management, objects, materials, modifiers, controllers, wiring, viewport capture, file access, plugin introspection, tyFlow, Forest Pack, RailClone, Data Channel, and more.
 
 | Category | Tools | Transport |
 |----------|-------|-----------|
-| Scene reads | `get_scene_info`, `get_selection`, `get_scene_snapshot`, `get_selection_snapshot`, `get_scene_delta`, `get_hierarchy`, `get_session_context` | C++ |
-| Objects | `create_object`, `delete_objects`, `transform_object`, `clone_objects`, `select_objects`, `set_object_property`, `set_visibility`, `set_parent`, `batch_rename_objects` | C++/Hybrid |
+| Scene reads | `get_scene_info`, `get_selection`, `get_scene_snapshot`, `get_selection_snapshot`, `get_scene_delta`, `get_hierarchy` | C++ |
+| Objects | `create_object`, `delete_objects`, `transform_object`, `clone_objects`, `select_objects`, `set_object_property`, `set_visibility`, `set_parent` | C++/Hybrid |
 | Inspection | `inspect_object`, `inspect_properties`, `introspect_class`, `introspect_instance`, `walk_references`, `learn_scene_patterns`, `map_class_relationships` | C++ |
-| Materials | `assign_material`, `set_material_property`, `get_material_slots`, `create_texture_map`, `write_osl_shader`, `create_shell_material`, `replace_material` | Hybrid |
+| Materials | `assign_material`, `set_material_properties`, `get_material_slots`, `create_texture_map`, `write_osl_shader`, `create_shell_material`, `replace_material` | Hybrid |
 | Modifiers | `add_modifier`, `remove_modifier`, `set_modifier_state`, `collapse_modifier_stack`, `batch_modify` | Hybrid |
 | Controllers | `assign_controller`, `inspect_controller`, `inspect_track_view`, `set_controller_props`, `add_controller_target` | Hybrid |
 | Wiring | `wire_params`, `unwire_params`, `get_wired_params`, `list_wireable_params` | Hybrid |
@@ -126,9 +126,13 @@ To disable, set `safe_mode = false` and restart 3ds Max.
 | Plugins | `discover_plugin_classes`, `introspect_class`, `introspect_instance`, `get_plugin_capabilities` | C++ |
 | Scene events | `watch_scene`, `get_scene_delta` | C++ |
 | tyFlow | `create_tyflow`, `get_tyflow_info`, `modify_tyflow_operator`, `set_tyflow_shape`, `reset_tyflow_simulation` | MAXScript |
-| Forest Pack | `scatter_forest_pack`, `verify_scatter_output` | MAXScript |
+| Forest Pack | `scatter_forest_pack` | MAXScript |
 | Data Channel | `add_data_channel`, `inspect_data_channel`, `set_data_channel_operator` | MAXScript |
 | Scripting | `execute_maxscript` | Pipe |
+
+## v0.5.2 Notice
+
+Deleted the procedural placement tools (kept floor plan — will update that to be actually useful) and removed verified workflows. The native bridge already handles verification and the verified tools were causing crashes.
 
 ## Building from source (native bridge)
 
