@@ -104,11 +104,6 @@ def capture_viewport() -> Image:
     return Image(data=img_data, format="png")
 
 
-@mcp.tool()
-def capture_model() -> Image:
-    """Backward-compatible alias for fast viewport-only capture."""
-    return capture_viewport()
-
 
 @mcp.tool()
 def capture_screen(
