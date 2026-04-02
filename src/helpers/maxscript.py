@@ -20,6 +20,21 @@ def safe_name(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'")
 
 
+def safe_value(val: str) -> str:
+    """Auto-protect file paths in MAXScript value expressions.
+
+    Detects quoted strings containing backslashes and converts them to
+    MAXScript verbatim strings (@"...") so backslashes aren't interpreted
+    as escape sequences (e.g. \\t becoming tab).
+    """
+    v = val.strip()
+    if v.startswith('@"'):
+        return v
+    if v.startswith('"') and v.endswith('"') and '\\' in v:
+        return '@' + v
+    return val
+
+
 def normalize_subanim_path(path: str) -> str:
     """Normalize a sub-anim path for MAXScript execute() compatibility.
 

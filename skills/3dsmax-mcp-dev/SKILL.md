@@ -206,11 +206,19 @@ NOTE: Arnold materials (ai_standard_surface, etc.) are scripted plugins — `dis
 
 ## 6. When to Use `execute_maxscript`
 
-Only when no dedicated tool exists:
-- Quick experiments, animation keyframing, render/environment settings
-- Custom scripted operations, unsupported host features
+**Almost never.** Only when there is genuinely no dedicated tool:
+- Animation keyframing, render/environment settings, custom scripted operations
 
-Never as default when a proper tool exists.
+**DO NOT use execute_maxscript for:**
+- Anything a dedicated tool already does — even if it feels faster to write a script
+- Batch operations — call the dedicated tool in a loop, do not write MAXScript `for` loops
+- Setting properties — use `set_object_property`, not `execute_maxscript("$obj.prop = val")`
+- Creating objects — use `create_object`, not `execute_maxscript("Box()")`
+- Assigning materials — use `assign_material`, not MAXScript
+- Selecting objects — use `select_objects`, not `execute_maxscript("select $obj")`
+- Inspecting — use `inspect_object`/`introspect_instance`/`introspect_osl`, not `showProperties`
+
+If you catch yourself writing MAXScript that a tool already handles, stop and use the tool.
 
 ## 7. MCP Tool Pitfalls
 
