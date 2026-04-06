@@ -138,12 +138,20 @@ Deleted the procedural placement tools (kept floor plan — will update that to 
 
 Only needed if you want to modify the C++ plugin.
 
-Requires: 3ds Max 2026 SDK, Visual Studio 2022, CMake 3.20+
+**Max 2024/2025/2026** — Visual Studio 2022 (v143), CMake 3.20+
 
 ```powershell
 cd native
-cmake -B build -G "Visual Studio 17 2022" -A x64
+cmake -B build -G "Visual Studio 17 2022" -A x64 -DMAX_VERSION=2026
 cmake --build build --config Release
 ```
 
-Then copy `native/build/Release/mcp_bridge.gup` to `C:\Program Files\Autodesk\3ds Max 2026\plugins\`.
+**Max 2027+** — Visual Studio 2026 (v144), C++20, CMake 3.20+
+
+```powershell
+cd native
+cmake -B build -G "Visual Studio 18 2026" -A x64 -DMAX_VERSION=2027
+cmake --build build --config Release
+```
+
+Then copy `native/build/Release/mcp_bridge.gup` to `C:\Program Files\Autodesk\3ds Max <version>\plugins\`.

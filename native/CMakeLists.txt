@@ -1,12 +1,28 @@
 cmake_minimum_required(VERSION 3.20)
 project(mcp_bridge VERSION 1.0.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+# 3ds Max 2027 SDK requires C++20; earlier versions use C++17
+if(MAX_VERSION GREATER_EQUAL 2027)
+    set(CMAKE_CXX_STANDARD 20)
+else()
+    set(CMAKE_CXX_STANDARD 17)
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# ── Max version ──────────────────────────────────────────────────
+set(MAX_VERSION "2026" CACHE STRING "Target 3ds Max version (2024, 2025, 2026, 2027)")
+message(STATUS "Building for 3ds Max ${MAX_VERSION}")
+
+# Compiler requirements per version:
+#   2024/2025/2026 → Visual Studio 2022 (v143), C++17
+#   2027+          → Visual Studio 2026 (v144), C++20
+if(MAX_VERSION GREATER_EQUAL 2027)
+    message(STATUS "Max 2027+ requires Visual Studio 2026 (v144 toolset) and C++20")
+endif()
 
 # ── Max SDK ──────────────────────────────────────────────────────
 if(NOT DEFINED MAXSDK_PATH)
-    set(MAXSDK_PATH "C:/Program Files/Autodesk/3ds Max 2026 SDK/maxsdk"
+    set(MAXSDK_PATH "C:/Program Files/Autodesk/3ds Max ${MAX_VERSION} SDK/maxsdk"
         CACHE PATH "Path to 3ds Max SDK")
 endif()
 
@@ -64,6 +80,7 @@ target_compile_definitions(mcp_bridge PRIVATE
     _USRDLL
     _CRT_SECURE_NO_WARNINGS
     MAX_SILENCE_DEPRECATED_MATRIX_BOOL_CTOR
+    MAX_SDK_VERSION=${MAX_VERSION}
 )
 
 # ── Link ─────────────────────────────────────────────────────────
@@ -89,7 +106,7 @@ if(MSVC)
 endif()
 
 # ── Deploy ───────────────────────────────────────────────────────
-set(MAX_PLUGINS_DIR "C:/Program Files/Autodesk/3ds Max 2026/plugins"
+set(MAX_PLUGINS_DIR "C:/Program Files/Autodesk/3ds Max ${MAX_VERSION}/plugins"
     CACHE PATH "3ds Max plugins directory")
 
 install(TARGETS mcp_bridge

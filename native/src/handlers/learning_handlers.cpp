@@ -9,6 +9,9 @@
 #include <deque>
 #include <mutex>
 #include <notify.h>
+#if MAX_SDK_VERSION >= 2027
+#include <notifyParams.h>
+#endif
 
 using json = nlohmann::json;
 using namespace HandlerHelpers;
@@ -335,10 +338,18 @@ static void UnregisterOverlay() {
 
 // ── Deep notification callbacks ─────────────────────────────────
 
+// ── Notify callParam extraction — 2027 SDK uses typed GetNotifyParam<> ──
+// For older SDKs, callParam is void* and can be cast directly.
+#if MAX_SDK_VERSION >= 2027
+#   define GET_NOTIFY_NODE(info, code)  GetNotifyParam<code>(info)
+#else
+#   define GET_NOTIFY_NODE(info, code)  ((INode*)info->callParam)
+#endif
+
 // Node created — callParam is INode*
 static void NotifyNodeCreated(void* param, NotifyInfo* info) {
     if (!g_watcherActive || !info) return;
-    INode* node = (INode*)info->callParam;
+    INode* node = GET_NOTIFY_NODE(info, NOTIFY_NODE_CREATED);
     std::string name = node ? WideToUtf8(node->GetName()) : "";
     std::string cls = "";
     if (node) {
@@ -352,10 +363,14 @@ static void NotifyNodeCreated(void* param, NotifyInfo* info) {
     PushEvent("node_created", detail);
 }
 
-// Node deleted — callParam is INode*
+// Node deleted — callParam is INode* (NOTIFY_SCENE_PRE_DELETED_NODE)
 static void NotifyNodeDeleted(void* param, NotifyInfo* info) {
     if (!g_watcherActive || !info) return;
+#if MAX_SDK_VERSION >= 2027
+    INode* node = GetNotifyParam<NOTIFY_SCENE_PRE_DELETED_NODE>(info);
+#else
     INode* node = (INode*)info->callParam;
+#endif
     std::string name = node ? WideToUtf8(node->GetName()) : "";
     PushEvent("node_deleted", name);
 }
@@ -379,42 +394,51 @@ static void NotifySelectionChanged(void* param, NotifyInfo* info) {
     PushEvent("selection_changed", detail);
 }
 
-// Modifier added — callParam may be struct with INode* and Modifier*
+// Modifier added/deleted — 2027 uses NotifyModAddDelParam* and PRE/POST codes
 static void NotifyModifierAdded(void* param, NotifyInfo* info) {
-    if (!g_watcherActive || !info || !info->callParam) return;
-    // Try to extract node and modifier names
-    // NotifyModAddDelParam: INode* node, Modifier* mod, ModContext* mc
+    if (!g_watcherActive || !info) return;
+#if MAX_SDK_VERSION >= 2027
+    NotifyModAddDelParam* p = GetNotifyParam<NOTIFY_POST_MODIFIER_ADDED>(info);
+#else
     struct ModAddDelParam { INode* node; Modifier* mod; void* mc; };
+    if (!info->callParam) return;
     ModAddDelParam* p = (ModAddDelParam*)info->callParam;
+#endif
+    if (!p) return;
     std::string detail;
     try {
         if (p->mod) detail = WideToUtf8(p->mod->ClassName().data());
         if (p->node) detail += " on " + WideToUtf8(p->node->GetName());
-    } catch (...) {
-        detail = "unknown";
-    }
+    } catch (...) { detail = "unknown"; }
     PushEvent("modifier_added", detail);
 }
 
-// Modifier deleted
 static void NotifyModifierDeleted(void* param, NotifyInfo* info) {
-    if (!g_watcherActive || !info || !info->callParam) return;
+    if (!g_watcherActive || !info) return;
+#if MAX_SDK_VERSION >= 2027
+    NotifyModAddDelParam* p = GetNotifyParam<NOTIFY_POST_MODIFIER_DELETED>(info);
+#else
     struct ModAddDelParam { INode* node; Modifier* mod; void* mc; };
+    if (!info->callParam) return;
     ModAddDelParam* p = (ModAddDelParam*)info->callParam;
+#endif
+    if (!p) return;
     std::string detail;
     try {
         if (p->mod) detail = WideToUtf8(p->mod->ClassName().data());
         if (p->node) detail += " from " + WideToUtf8(p->node->GetName());
-    } catch (...) {
-        detail = "unknown";
-    }
+    } catch (...) { detail = "unknown"; }
     PushEvent("modifier_deleted", detail);
 }
 
-// Material assigned — callParam is INode*
+// Material assigned — callParam is INode* (NOTIFY_NODE_POST_MTL)
 static void NotifyMaterialAssigned(void* param, NotifyInfo* info) {
     if (!g_watcherActive || !info) return;
+#if MAX_SDK_VERSION >= 2027
+    INode* node = GetNotifyParam<NOTIFY_NODE_POST_MTL>(info);
+#else
     INode* node = (INode*)info->callParam;
+#endif
     std::string detail;
     if (node) {
         detail = WideToUtf8(node->GetName());
@@ -424,15 +448,19 @@ static void NotifyMaterialAssigned(void* param, NotifyInfo* info) {
     PushEvent("material_assigned", detail);
 }
 
-// Node renamed
+// Node renamed — callParam is NameChange*
 static void NotifyNodeRenamed(void* param, NotifyInfo* info) {
-    if (!g_watcherActive || !info || !info->callParam) return;
-    // callParam points to struct with oldname, newname
+    if (!g_watcherActive || !info) return;
+#if MAX_SDK_VERSION >= 2027
+    NameChange* nc = GetNotifyParam<NOTIFY_NODE_RENAMED>(info);
+#else
+    if (!info->callParam) return;
     struct NameChange { const MCHAR* oldname; const MCHAR* newname; };
     NameChange* nc = (NameChange*)info->callParam;
+#endif
     std::string detail;
     try {
-        if (nc->oldname && nc->newname)
+        if (nc && nc->oldname && nc->newname)
             detail = WideToUtf8(nc->oldname) + " -> " + WideToUtf8(nc->newname);
     } catch (...) {}
     PushEvent("node_renamed", detail);
@@ -441,45 +469,59 @@ static void NotifyNodeRenamed(void* param, NotifyInfo* info) {
 // Node hide/unhide/freeze/unfreeze — callParam is INode*
 static void NotifyNodeHide(void* param, NotifyInfo* info) {
     if (!g_watcherActive || !info) return;
-    INode* node = (INode*)info->callParam;
+    INode* node = GET_NOTIFY_NODE(info, NOTIFY_NODE_HIDE);
     PushEvent("node_hidden", node ? WideToUtf8(node->GetName()) : "");
 }
 static void NotifyNodeUnhide(void* param, NotifyInfo* info) {
     if (!g_watcherActive || !info) return;
-    INode* node = (INode*)info->callParam;
+    INode* node = GET_NOTIFY_NODE(info, NOTIFY_NODE_UNHIDE);
     PushEvent("node_unhidden", node ? WideToUtf8(node->GetName()) : "");
 }
 static void NotifyNodeFreeze(void* param, NotifyInfo* info) {
     if (!g_watcherActive || !info) return;
-    INode* node = (INode*)info->callParam;
+    INode* node = GET_NOTIFY_NODE(info, NOTIFY_NODE_FREEZE);
     PushEvent("node_frozen", node ? WideToUtf8(node->GetName()) : "");
 }
 static void NotifyNodeUnfreeze(void* param, NotifyInfo* info) {
     if (!g_watcherActive || !info) return;
-    INode* node = (INode*)info->callParam;
+    INode* node = GET_NOTIFY_NODE(info, NOTIFY_NODE_UNFREEZE);
     PushEvent("node_unfrozen", node ? WideToUtf8(node->GetName()) : "");
 }
 
 // Sub-object level change
 static void NotifySubObjectChanged(void* param, NotifyInfo* info) {
-    if (!g_watcherActive || !info || !info->callParam) return;
+    if (!g_watcherActive || !info) return;
+#if MAX_SDK_VERSION >= 2027
+    NumberChange* nc = GetNotifyParam<NOTIFY_MODPANEL_SUBOBJECTLEVEL_CHANGED>(info);
+#else
+    if (!info->callParam) return;
     struct NumberChange { int oldNumber; int newNumber; };
     NumberChange* nc = (NumberChange*)info->callParam;
+#endif
+    if (!nc) return;
     const char* levels[] = {"object", "vertex", "edge", "border", "face", "element"};
     std::string oldLvl = (nc->oldNumber >= 0 && nc->oldNumber <= 5) ? levels[nc->oldNumber] : std::to_string(nc->oldNumber);
     std::string newLvl = (nc->newNumber >= 0 && nc->newNumber <= 5) ? levels[nc->newNumber] : std::to_string(nc->newNumber);
     PushEvent("subobject_changed", oldLvl + " -> " + newLvl);
 }
 
-// Undo/redo — callParam is const MCHAR* description
+// Undo/redo — callParam is const MCHAR*
 static void NotifyUndo(void* param, NotifyInfo* info) {
     if (!g_watcherActive || !info) return;
+#if MAX_SDK_VERSION >= 2027
+    const MCHAR* desc = GetNotifyParam<NOTIFY_SCENE_UNDO>(info);
+#else
     const MCHAR* desc = (const MCHAR*)info->callParam;
+#endif
     PushEvent("undo", desc ? WideToUtf8(desc) : "");
 }
 static void NotifyRedo(void* param, NotifyInfo* info) {
     if (!g_watcherActive || !info) return;
+#if MAX_SDK_VERSION >= 2027
+    const MCHAR* desc = GetNotifyParam<NOTIFY_SCENE_REDO>(info);
+#else
     const MCHAR* desc = (const MCHAR*)info->callParam;
+#endif
     PushEvent("redo", desc ? WideToUtf8(desc) : "");
 }
 
@@ -504,7 +546,7 @@ static void NotifyRenderEnd(void* param, NotifyInfo* info) {
 // Node linked/unlinked — callParam is INode*
 static void NotifyNodeLinked(void* param, NotifyInfo* info) {
     if (!g_watcherActive || !info) return;
-    INode* node = (INode*)info->callParam;
+    INode* node = GET_NOTIFY_NODE(info, NOTIFY_NODE_LINKED);
     std::string detail = node ? WideToUtf8(node->GetName()) : "";
     if (node) {
         INode* parent = node->GetParentNode();
@@ -515,7 +557,7 @@ static void NotifyNodeLinked(void* param, NotifyInfo* info) {
 }
 static void NotifyNodeUnlinked(void* param, NotifyInfo* info) {
     if (!g_watcherActive || !info) return;
-    INode* node = (INode*)info->callParam;
+    INode* node = GET_NOTIFY_NODE(info, NOTIFY_NODE_UNLINKED);
     PushEvent("node_unlinked", node ? WideToUtf8(node->GetName()) : "");
 }
 

@@ -22,19 +22,40 @@ CONFIG_SRC = ROOT / "mcp_config.ini"
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "3dsmax-mcp"
 CONFIG_DST = CONFIG_DIR / "mcp_config.ini"
 
-# Common Max install locations
+# Common Max install locations (newest first)
 MAX_DIRS = [
+    Path(r"C:\Program Files\Autodesk\3ds Max 2027"),
     Path(r"C:\Program Files\Autodesk\3ds Max 2026"),
     Path(r"C:\Program Files\Autodesk\3ds Max 2025"),
     Path(r"C:\Program Files\Autodesk\3ds Max 2024"),
 ]
 
 
+def find_max_installations() -> list[Path]:
+    return [d for d in MAX_DIRS if (d / "3dsmax.exe").exists()]
+
+
 def find_max() -> Path | None:
-    for d in MAX_DIRS:
-        if (d / "3dsmax.exe").exists():
-            return d
-    return None
+    found = find_max_installations()
+    return found[0] if found else None
+
+
+def select_max(found: list[Path]) -> Path | None:
+    if not found:
+        return None
+    if len(found) == 1:
+        return found[0]
+    print("\nMultiple 3ds Max installations found:")
+    for i, d in enumerate(found, 1):
+        print(f"  {i}) {d}")
+    choice = input(f"  Select version [1]: ").strip()
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(found):
+            return found[idx]
+    except ValueError:
+        pass
+    return found[0]
 
 
 def copy_elevated(src: Path, dst: Path) -> bool:
@@ -191,10 +212,10 @@ def main():
     print("=" * 60)
 
     # Find Max
-    max_dir = find_max()
-    if max_dir:
-        print(f"\nFound 3ds Max at: {max_dir}")
-        year = max_dir.name.split()[-1]
+    found = find_max_installations()
+    if found:
+        max_dir = select_max(found)
+        print(f"\nUsing 3ds Max at: {max_dir}")
     else:
         print("\n3ds Max not found in default locations.")
         custom = input("Enter 3ds Max install path (or press Enter to skip): ").strip()
@@ -203,6 +224,8 @@ def main():
             if not (max_dir / "3dsmax.exe").exists():
                 print(f"  3dsmax.exe not found in {max_dir}")
                 max_dir = None
+        else:
+            max_dir = None
 
     # Deploy
     deploy_config()

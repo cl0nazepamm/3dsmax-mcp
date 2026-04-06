@@ -1086,7 +1086,7 @@ std::string NativeHandlers::ListPluginClasses(const std::string& params, MCPBrid
             const MCHAR* intName = cd->InternalName();
             if (intName && *intName) {
                 std::string iname = WideToUtf8(intName);
-                if (iname != entry["name"]) entry["internalName"] = iname;
+                if (iname != entry["name"].get<std::string>()) entry["internalName"] = iname;
             }
             byCategory[catName].push_back(entry);
         }
