@@ -111,7 +111,14 @@ def deploy_maxscript(max_dir: Path) -> bool:
     startup_dir = scripts_dir / "startup"
 
     ok = True
-    mcp_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        mcp_dir.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        subprocess.run(
+            ["powershell", "-Command",
+             f'Start-Process -FilePath cmd.exe -ArgumentList \'/c mkdir "{mcp_dir}"\' -Verb RunAs -Wait'],
+            capture_output=True, timeout=30,
+        )
     dst1 = mcp_dir / "mcp_server.ms"
     dst2 = startup_dir / "mcp_autostart.ms"
 
