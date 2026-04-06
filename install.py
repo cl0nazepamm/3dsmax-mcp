@@ -15,7 +15,19 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-GUP_SRC = ROOT / "native" / "bin" / "mcp_bridge.gup"
+GUP_SRC_DEFAULT = ROOT / "native" / "bin" / "mcp_bridge.gup"
+GUP_SRCS = {
+    2027: ROOT / "native" / "bin" / "mcp_bridge_2027.gup",
+}
+
+
+def gup_src_for(max_dir: Path) -> Path:
+    try:
+        year = int(max_dir.name.split()[-1])
+        src = GUP_SRCS.get(year, GUP_SRC_DEFAULT)
+        return src if src.exists() else GUP_SRC_DEFAULT
+    except (ValueError, IndexError):
+        return GUP_SRC_DEFAULT
 MS_SERVER = ROOT / "maxscript" / "mcp_server.ms"
 MS_AUTOSTART = ROOT / "maxscript" / "startup" / "mcp_autostart.ms"
 CONFIG_SRC = ROOT / "mcp_config.ini"
@@ -93,11 +105,13 @@ def deploy_config() -> bool:
 def deploy_native_bridge(max_dir: Path) -> bool:
     plugins_dir = max_dir / "plugins"
     dst = plugins_dir / "mcp_bridge.gup"
+    gup_src = gup_src_for(max_dir)
     print(f"\n[2/5] Native bridge -> {dst}")
-    if not GUP_SRC.exists():
-        print("  SKIP: pre-built binary not found at native/bin/mcp_bridge.gup")
+    print(f"  Using: {gup_src.name}")
+    if not gup_src.exists():
+        print(f"  SKIP: pre-built binary not found at {gup_src}")
         return False
-    if copy_elevated(GUP_SRC, dst):
+    if copy_elevated(gup_src, dst):
         print("  OK")
         return True
     print("  FAILED")
