@@ -18,13 +18,14 @@ git diff --stat
 ### 2단계: GitHub에 푸시
 
 ```bash
-git push origin master
+git push myfork master
 ```
 
 ### 3단계: GCP VM 코드 동기화
 
 ```bash
 gcloud compute ssh sanjuk-project --zone=us-central1-b --command="cd ~/3dsmax-mcp && git pull origin master 2>&1"
+# Note: GCP remote is set to kanzaka110/3dsmax-mcp (the fork)
 ```
 
 ### 4단계: GCP VM에 로컬 전용 파일 동기화

@@ -18,7 +18,7 @@ git status
 ```bash
 git fetch origin
 git log --oneline HEAD..origin/master  # 새 커밋 확인
-git pull origin master
+git pull myfork master
 ```
 
 ### 3단계: GCP에서 로컬 전용 파일 역동기화
@@ -40,7 +40,7 @@ gcloud compute scp ohmil@sanjuk-project:/home/ohmil/.claude/projects/-home-ohmil
 ### 4단계: GCP VM 코드도 최신으로
 
 ```bash
-gcloud compute ssh sanjuk-project --zone=us-central1-b --command="cd ~/3dsmax-mcp && git pull origin master 2>&1"
+gcloud compute ssh sanjuk-project --zone=us-central1-b --command="cd ~/3dsmax-mcp && git pull myfork master 2>&1"
 ```
 
 ### 5단계: 변경사항 비교 보고
