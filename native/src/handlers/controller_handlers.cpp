@@ -4,6 +4,9 @@
 
 #include <control.h>
 
+#include <unordered_set>
+#include <vector>
+
 using json = nlohmann::json;
 using namespace HandlerHelpers;
 
@@ -169,12 +172,33 @@ std::string NativeHandlers::InspectTrackView(const std::string& params, MCPBridg
 }
 
 // ── native:list_wireable_params ─────────────────────────────
+//
+// Sub-anim trees can explode on rigs (Skin/biped/CAT bone tables),
+// Multi/Sub materials, particle systems, and modifier stacks with
+// keyed tracks. A naive DFS visits 100k+ Animatables and blocks
+// Max's main thread for minutes.
+//
+// This walk is bounded on four axes — total visits, result count,
+// wall-clock time, and per-node fan-out — and uses a visited set
+// to skip shared subtrees. Each Animatable call is wrapped in
+// try/catch because third-party plugins can throw from NumSubs/
+// SubAnim/SubAnimName/ClassName. When any cap trips, results are
+// returned as-is plus a synthetic terminal entry with path
+// "__truncated__" so existing array consumers stay valid and the
+// agent can decide whether to refine the query.
 std::string NativeHandlers::ListWireableParams(const std::string& params, MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([&params]() -> std::string {
         json p = json::parse(params, nullptr, false);
         std::string name = p.value("name", "");
         std::string filter = p.value("filter", "");
         int depth = p.value("depth", 3);
+
+        // Caller-tunable safety budgets. Defaults chosen to feel
+        // instant on normal scenes and survive a Skin-on-biped.
+        int maxVisits  = std::max(100, p.value("max_visits",  20000));
+        int maxResults = std::max(10,  p.value("max_results", 500));
+        int maxMs      = std::max(100, p.value("max_ms",      5000));
+        int maxFanout  = std::max(8,   p.value("max_fanout",  200));
 
         if (name.empty()) throw std::runtime_error("name is required");
         depth = std::max(1, std::min(depth, 5));
@@ -186,61 +210,145 @@ std::string NativeHandlers::ListWireableParams(const std::string& params, MCPBri
         TimeValue t = ip->GetTime();
 
         std::string lowerFilter = filter;
-        std::transform(lowerFilter.begin(), lowerFilter.end(), lowerFilter.begin(), ::tolower);
+        std::transform(lowerFilter.begin(), lowerFilter.end(),
+                       lowerFilter.begin(), ::tolower);
 
         json results = json::array();
+        std::unordered_set<Animatable*> visited;
+        visited.reserve(1024);
 
-        // Recursive lambda to walk sub-anims
-        std::function<void(Animatable*, const std::string&, int)> walkParams =
-            [&](Animatable* anim, const std::string& path, int depthLeft) {
-            if (!anim || depthLeft <= 0) return;
+        const DWORD startTick = GetTickCount();
+        int visits = 0;
+        int fanoutSkips = 0;
+        const char* truncReason = nullptr;
 
-            int numSubs = anim->NumSubs();
-            for (int i = 0; i < numSubs; i++) {
-                Animatable* child = anim->SubAnim(i);
+        struct Frame {
+            Animatable* anim;
+            std::string path;
+            int depthLeft;
+        };
+        std::vector<Frame> stack;
+        stack.reserve(64);
+        stack.push_back({static_cast<Animatable*>(node), std::string(), depth});
+
+        while (!stack.empty()) {
+            // Cheap budget checks every iteration.
+            if (static_cast<int>(results.size()) >= maxResults) {
+                truncReason = "results"; break;
+            }
+            if (visits >= maxVisits) {
+                truncReason = "visits"; break;
+            }
+            // GetTickCount is cheap but still skip most of the time.
+            if ((visits & 0xFF) == 0 &&
+                static_cast<int>(GetTickCount() - startTick) > maxMs) {
+                truncReason = "time"; break;
+            }
+
+            Frame f = stack.back();
+            stack.pop_back();
+            if (!f.anim || f.depthLeft <= 0) continue;
+            if (!visited.insert(f.anim).second) continue;
+
+            int numSubs = 0;
+            try { numSubs = f.anim->NumSubs(); }
+            catch (...) { continue; }
+            if (numSubs <= 0) continue;
+
+            // Cap fan-out per node — protects against bone tables,
+            // Multi/Sub material slots, particle operator arrays, etc.
+            int walkLimit = numSubs;
+            if (numSubs > maxFanout) {
+                walkLimit = maxFanout;
+                fanoutSkips += (numSubs - maxFanout);
+            }
+
+            for (int i = 0; i < walkLimit; i++) {
+                visits++;
+
+                Animatable* child = nullptr;
+                try { child = f.anim->SubAnim(i); }
+                catch (...) { continue; }
                 if (!child) continue;
 
-                MSTR childNameM = anim->SubAnimName(i, false);
+                MSTR childNameM;
+                try { childNameM = f.anim->SubAnimName(i, false); }
+                catch (...) { continue; }
                 if (childNameM.isNull() || childNameM.Length() == 0) continue;
 
                 std::string childName = WideToUtf8(childNameM.data());
-                std::string childPath = path + "[#" + childName + "]";
+                std::string childPath = f.path + "[#" + childName + "]";
 
-                // Check if this has a controller (wireable)
-                Control* ctrl = (Control*)child->GetInterface(I_CONTROL);
+                Control* ctrl = nullptr;
+                try { ctrl = (Control*)child->GetInterface(I_CONTROL); }
+                catch (...) { ctrl = nullptr; }
                 bool isWireable = ctrl != nullptr;
-                int childSubs = child->NumSubs();
 
+                int childSubs = 0;
+                try { childSubs = child->NumSubs(); }
+                catch (...) { childSubs = 0; }
+
+                // Add as a result if leaf or wireable. Filter is
+                // applied to the leaf path here, but recursion
+                // proceeds regardless so deeper matches aren't lost.
                 if (childSubs == 0 || isWireable) {
-                    // Filter check
+                    bool include = true;
                     if (!lowerFilter.empty()) {
                         std::string lower = childPath;
-                        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-                        if (lower.find(lowerFilter) == std::string::npos) {
-                            if (childSubs > 0) walkParams(child, childPath, depthLeft - 1);
-                            continue;
+                        std::transform(lower.begin(), lower.end(),
+                                       lower.begin(), ::tolower);
+                        if (lower.find(lowerFilter) == std::string::npos)
+                            include = false;
+                    }
+                    if (include) {
+                        json entry;
+                        entry["path"] = childPath;
+                        entry["is_wireable"] = isWireable;
+                        try {
+                            entry["type"] = ctrl
+                                ? WideToUtf8(ctrl->ClassName().data())
+                                : "none";
+                        } catch (...) { entry["type"] = "?"; }
+                        try {
+                            std::string val = CompactValue(child, t);
+                            entry["value"] = val.empty() ? "?" : val;
+                        } catch (...) { entry["value"] = "?"; }
+                        results.push_back(entry);
+                        if (static_cast<int>(results.size()) >= maxResults) {
+                            truncReason = "results";
+                            break;
                         }
                     }
-
-                    json entry;
-                    entry["path"] = childPath;
-                    entry["is_wireable"] = isWireable;
-                    entry["type"] = ctrl ? WideToUtf8(ctrl->ClassName().data()) : "none";
-
-                    // Compact value
-                    std::string val = CompactValue(child, t);
-                    entry["value"] = val.empty() ? "?" : val;
-
-                    results.push_back(entry);
                 }
 
-                if (childSubs > 0) {
-                    walkParams(child, childPath, depthLeft - 1);
+                if (childSubs > 0 && f.depthLeft > 1) {
+                    stack.push_back({child, childPath, f.depthLeft - 1});
                 }
             }
-        };
 
-        walkParams(node, "", depth);
+            if (truncReason) break;
+        }
+
+        // Surface fan-out truncation only if nothing harder tripped.
+        if (!truncReason && fanoutSkips > 0) truncReason = "fanout";
+
+        if (truncReason) {
+            char buf[320];
+            snprintf(buf, sizeof(buf),
+                "Walk hit %s cap (visited=%d, results=%zu, depth=%d, "
+                "fanout_skips=%d, elapsed_ms=%u). Refine with "
+                "filter:\"keyword\" or depth:1, or raise "
+                "max_visits/max_results/max_ms/max_fanout.",
+                truncReason, visits, results.size(), depth,
+                fanoutSkips,
+                static_cast<unsigned>(GetTickCount() - startTick));
+            json warn;
+            warn["path"] = "__truncated__";
+            warn["is_wireable"] = false;
+            warn["type"] = "warning";
+            warn["value"] = buf;
+            results.push_back(warn);
+        }
 
         return results.dump();
     });

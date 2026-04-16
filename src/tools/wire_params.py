@@ -16,21 +16,37 @@ def list_wireable_params(
     name: str,
     filter: Optional[str] = None,
     depth: int = 3,
+    max_visits: int = 20000,
+    max_results: int = 500,
+    max_ms: int = 5000,
+    max_fanout: int = 200,
 ) -> str:
     """Discover sub-anim parameters on an object that can be wired.
 
-    Recursively walks the sub-anim tree to find leaf parameters with
-    controllers (wireable). Use the returned paths with wire_params.
+    Walks the sub-anim tree to find leaf parameters with controllers
+    (wireable). The walk is bounded on visits, results, time, and per-node
+    fan-out so it stays responsive on rigs (Skin/biped/CAT), Multi/Sub
+    materials, and particle systems where a naive walk would explore
+    100k+ animatables.
 
     Args:
         name: Object name (e.g. "Box001").
         filter: Optional case-insensitive substring to filter param names
-                (e.g. "radius", "position", "bend").
-        depth: Max recursion depth (default 3, max 5). Sub-anims can be
-               deeply nested — increase if you don't find what you need.
+                (e.g. "radius", "position", "bend"). Always pass this
+                when you know what you're looking for — it's the cheapest
+                way to keep the call fast.
+        depth: Max recursion depth (default 3, max 5).
+        max_visits: Hard cap on Animatables visited (default 20000).
+        max_results: Hard cap on returned entries (default 500).
+        max_ms: Wall-clock time budget in ms (default 5000).
+        max_fanout: Per-node child cap — protects against bone tables
+                    and Multi/Sub material slots (default 200).
 
     Returns:
-        JSON array of {path, value, type, is_wireable} for each parameter.
+        JSON array of {path, value, type, is_wireable} entries.
+        If any cap trips, the LAST entry has path="__truncated__" and
+        type="warning" with a `value` describing which cap and how to
+        refine the query. Existing array consumers stay valid.
 
     Example paths returned:
         "baseObject[#radius]" — sphere radius
@@ -43,6 +59,10 @@ def list_wireable_params(
             "name": name,
             "filter": filter or "",
             "depth": min(max(depth, 1), 5),
+            "max_visits": max_visits,
+            "max_results": max_results,
+            "max_ms": max_ms,
+            "max_fanout": max_fanout,
         })
         response = client.send_command(payload, cmd_type="native:list_wireable_params")
         return response.get("result", "")
