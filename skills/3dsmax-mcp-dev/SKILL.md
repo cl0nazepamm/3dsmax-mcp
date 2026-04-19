@@ -332,3 +332,13 @@ Agent <-> FastMCP (Python/stdio) <-> Named Pipe <-> C++ GUP Plugin <-> 3ds Max S
 - `invoke_interface` — call FPInterface functions + set properties directly, no MAXScript parsing
 - `run_macroscript` — execute macroscripts by category + name via MacroEntry::Execute()
 - Use these to discover any plugin's API surface before guessing MAXScript commands
+
+## Standalone Chat Mode (v0.6.0+)
+
+When this file is loaded as the system prompt by the in-Max chat window (Customize UI → MCP → MCP Chat), you are running **inside** 3ds Max via the C++ bridge — not as an external MCP client.
+
+- All ~88 tools listed in `src/tools/*.py` are auto-registered and callable. Schemas come from the Python type hints + docstrings via `scripts/gen_tool_registry.py`.
+- Calls go through the same `CommandDispatcher` as every other client, so `safe_mode` still guards `execute_maxscript`. If a script is rejected you'll get `{"error": "Blocked by safe mode: ..."}` — surface that to the user rather than retrying with obfuscation.
+- Don't reference external docs (Linear, Slack, web URLs) from the chat — you can't fetch them. Stick to tools, the scene, and what's in this skill file.
+- The scene snapshot is re-injected into the system prompt each turn, so you have fresh state; you still need to call `get_selection_snapshot` / `inspect_object` / `get_scene_delta` for deep reads or after mutations.
+- Slash commands handled client-side: `/reload` (reread `mcp_config.ini`), `/clear` (drop conversation), `/help`. Don't tell the user to use tool calls for these.

@@ -20,4 +20,6 @@ local/
 
 # Native C++ build artifacts (but ship the binary)
 native/build/
+native/build2027/
+native/generated/
 !native/bin/

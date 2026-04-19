@@ -1,82 +1,93 @@
-#include "mcp_bridge/claude_client.h"
+#include "mcp_bridge/llm_client.h"
 #include "mcp_bridge/handler_helpers.h"
 #include "mcp_bridge/bridge_gup.h"
 #include "mcp_bridge/native_handlers.h"
+#include "mcp_bridge/command_dispatcher.h"
 
 #include <windows.h>
 #include <winhttp.h>
+#include <shlobj.h>
 #include <fstream>
 #include <sstream>
+#include <mutex>
 
 #pragma comment(lib, "winhttp.lib")
 
 using json = nlohmann::json;
 using namespace HandlerHelpers;
 
+// ── Config state ────────────────────────────────────────────────
 static LLMClient::Config g_config;
 
-// ── Config file I/O ─────────────────────────────────────────────
+// Cached SKILL.md content — read once per Init() and reused across turns.
+static std::string g_skillPromptCache;
+static bool g_skillPromptLoaded = false;
+static std::mutex g_skillMutex;
 
-void LLMClient::Init(const std::string& pluginDir) {
-    g_config.configPath = pluginDir + "\\mcp_llm_config.json";
+// ── Paths under %LOCALAPPDATA%\3dsmax-mcp\ ──────────────────────
+static std::string LocalAppDataDir() {
+    char buf[MAX_PATH];
+    if (FAILED(SHGetFolderPathA(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, buf))) {
+        return {};
+    }
+    return std::string(buf) + "\\3dsmax-mcp";
+}
 
-    // Try loading config file
-    std::ifstream f(g_config.configPath);
-    if (f.is_open()) {
-        try {
-            json cfg = json::parse(f);
-            g_config.apiKey = cfg.value("apiKey", "");
-            g_config.baseUrl = cfg.value("baseUrl", "https://api.minimaxi.chat");
-            g_config.model = cfg.value("model", "MiniMax-M1-80k");
-            g_config.maxTokens = cfg.value("maxTokens", 4096);
-            g_config.temperature = cfg.value("temperature", 0.7f);
-        } catch (...) {}
-        f.close();
-    }
+static std::string ConfigIniPath() {
+    auto dir = LocalAppDataDir();
+    return dir.empty() ? "" : (dir + "\\mcp_config.ini");
+}
 
-    // Fallback: check environment variables
-    if (g_config.apiKey.empty()) {
-        char* envKey = nullptr;
-        size_t len = 0;
-        if (_dupenv_s(&envKey, &len, "LLM_API_KEY") == 0 && envKey) {
-            g_config.apiKey = envKey;
-            free(envKey);
-        }
+static std::string SkillMdPath() {
+    auto dir = LocalAppDataDir();
+    return dir.empty() ? "" : (dir + "\\skill\\SKILL.md");
+}
+
+// ── INI read helper ─────────────────────────────────────────────
+static std::string ReadIni(const std::string& ini, const char* section,
+                           const char* key, const char* defaultVal) {
+    char buf[1024] = {};
+    GetPrivateProfileStringA(section, key, defaultVal, buf, sizeof(buf), ini.c_str());
+    return std::string(buf);
+}
+
+static std::string ReadEnv(const char* name) {
+    char* val = nullptr;
+    size_t len = 0;
+    std::string out;
+    if (_dupenv_s(&val, &len, name) == 0 && val) {
+        out = val;
+        free(val);
     }
-    if (g_config.apiKey.empty()) {
-        char* envKey = nullptr;
-        size_t len = 0;
-        if (_dupenv_s(&envKey, &len, "MINIMAX_API_KEY") == 0 && envKey) {
-            g_config.apiKey = envKey;
-            free(envKey);
-        }
-    }
-    if (g_config.apiKey.empty()) {
-        char* envKey = nullptr;
-        size_t len = 0;
-        if (_dupenv_s(&envKey, &len, "OPENAI_API_KEY") == 0 && envKey) {
-            g_config.apiKey = envKey;
-            free(envKey);
-        }
+    return out;
+}
+
+// ── Init from INI + env ─────────────────────────────────────────
+void LLMClient::Init() {
+    std::string ini = ConfigIniPath();
+
+    g_config.apiKey     = ReadIni(ini, "llm", "api_key",     "");
+    g_config.baseUrl    = ReadIni(ini, "llm", "base_url",    "https://openrouter.ai/api/v1");
+    g_config.model      = ReadIni(ini, "llm", "model",       "anthropic/claude-sonnet-4.6");
+    g_config.maxTokens  = std::stoi(ReadIni(ini, "llm", "max_tokens",  "4096"));
+
+    std::string temp    = ReadIni(ini, "llm", "temperature", "0.7");
+    try { g_config.temperature = std::stof(temp); } catch (...) { g_config.temperature = 0.7f; }
+
+    // Env-var fallback for api_key
+    if (g_config.apiKey.empty()) g_config.apiKey = ReadEnv("OPENROUTER_API_KEY");
+    if (g_config.apiKey.empty()) g_config.apiKey = ReadEnv("LLM_API_KEY");
+    if (g_config.apiKey.empty()) g_config.apiKey = ReadEnv("OPENAI_API_KEY");
+
+    // Invalidate skill cache so /reload re-reads SKILL.md too
+    {
+        std::lock_guard<std::mutex> lock(g_skillMutex);
+        g_skillPromptCache.clear();
+        g_skillPromptLoaded = false;
     }
 }
 
-LLMClient::Config& LLMClient::GetConfig() { return g_config; }
-
-void LLMClient::SaveConfig() {
-    json cfg;
-    cfg["apiKey"] = g_config.apiKey;
-    cfg["baseUrl"] = g_config.baseUrl;
-    cfg["model"] = g_config.model;
-    cfg["maxTokens"] = g_config.maxTokens;
-    cfg["temperature"] = g_config.temperature;
-
-    std::ofstream f(g_config.configPath);
-    if (f.is_open()) {
-        f << cfg.dump(2);
-        f.close();
-    }
-}
+const LLMClient::Config& LLMClient::GetConfig() { return g_config; }
 
 bool LLMClient::IsConfigured() {
     return !g_config.apiKey.empty() && !g_config.baseUrl.empty();
@@ -89,7 +100,6 @@ static std::string HttpPost(
     const std::string& body,
     const std::string& apiKey) {
 
-    // Parse URL
     std::wstring wurl = Utf8ToWide(url);
 
     URL_COMPONENTS urlComp = {};
@@ -108,23 +118,20 @@ static std::string HttpPost(
     bool isHttps = (urlComp.nScheme == INTERNET_SCHEME_HTTPS);
     INTERNET_PORT port = urlComp.nPort;
 
-    // Open session
     HINTERNET hSession = WinHttpOpen(
-        L"3dsmax-mcp/1.0",
+        L"3dsmax-mcp/0.6.0",
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
         WINHTTP_NO_PROXY_NAME,
         WINHTTP_NO_PROXY_BYPASS,
         0);
     if (!hSession) return "{\"error\":\"WinHttpOpen failed\"}";
 
-    // Connect
     HINTERNET hConnect = WinHttpConnect(hSession, hostBuf, port, 0);
     if (!hConnect) {
         WinHttpCloseHandle(hSession);
         return "{\"error\":\"WinHttpConnect failed\"}";
     }
 
-    // Request
     DWORD flags = isHttps ? WINHTTP_FLAG_SECURE : 0;
     HINTERNET hRequest = WinHttpOpenRequest(
         hConnect, L"POST", pathBuf,
@@ -137,13 +144,10 @@ static std::string HttpPost(
         return "{\"error\":\"WinHttpOpenRequest failed\"}";
     }
 
-    // Headers
     std::wstring headers = L"Content-Type: application/json\r\n";
     headers += L"Authorization: Bearer " + Utf8ToWide(apiKey) + L"\r\n";
-
     WinHttpAddRequestHeaders(hRequest, headers.c_str(), -1, WINHTTP_ADDREQ_FLAG_ADD);
 
-    // Send
     BOOL sent = WinHttpSendRequest(
         hRequest,
         WINHTTP_NO_ADDITIONAL_HEADERS, 0,
@@ -159,7 +163,6 @@ static std::string HttpPost(
         return "{\"error\":\"WinHttpSendRequest failed: " + std::to_string(err) + "\"}";
     }
 
-    // Receive
     if (!WinHttpReceiveResponse(hRequest, nullptr)) {
         WinHttpCloseHandle(hRequest);
         WinHttpCloseHandle(hConnect);
@@ -167,7 +170,6 @@ static std::string HttpPost(
         return "{\"error\":\"WinHttpReceiveResponse failed\"}";
     }
 
-    // Read response body
     std::string response;
     DWORD bytesAvailable = 0;
     while (WinHttpQueryDataAvailable(hRequest, &bytesAvailable) && bytesAvailable > 0) {
@@ -193,11 +195,10 @@ LLMClient::Response LLMClient::Chat(
     Response resp;
 
     if (!IsConfigured()) {
-        resp.error = "LLM not configured. Set API key in mcp_llm_config.json or LLM_API_KEY env var.";
+        resp.error = "LLM not configured. Set api_key in %LOCALAPPDATA%\\3dsmax-mcp\\mcp_config.ini [llm] section or OPENROUTER_API_KEY env var.";
         return resp;
     }
 
-    // Build request body (OpenAI-compatible format)
     json body;
     body["model"] = g_config.model;
     body["max_tokens"] = g_config.maxTokens;
@@ -225,13 +226,11 @@ LLMClient::Response LLMClient::Chat(
         body["tools"] = tools;
     }
 
-    std::string url = g_config.baseUrl + "/v1/chat/completions";
+    std::string url = g_config.baseUrl + "/chat/completions";
     std::string reqBody = body.dump();
 
-    // Make the HTTP call
     std::string rawResp = HttpPost(url, reqBody, g_config.apiKey);
 
-    // Parse response
     try {
         json r = json::parse(rawResp);
 
@@ -251,12 +250,10 @@ LLMClient::Response LLMClient::Chat(
         resp.finishReason = choice.value("finish_reason", "stop");
         resp.ok = true;
 
-        // Extract text content
         if (msg.contains("content") && !msg["content"].is_null()) {
             resp.text = msg["content"].get<std::string>();
         }
 
-        // Extract tool calls
         if (msg.contains("tool_calls") && !msg["tool_calls"].is_null()) {
             for (auto& tc : msg["tool_calls"]) {
                 ToolCall call;
@@ -276,185 +273,176 @@ LLMClient::Response LLMClient::Chat(
     return resp;
 }
 
-// ── Tool execution ──────────────────────────────────────────────
+// ── Tool registry (generated) ───────────────────────────────────
+// chat_tool_registry.inc is generated by scripts/gen_tool_registry.py from
+// src/tools/*.py. It defines:
+//   struct ChatTool { const char* name; const char* cmdType;
+//                     const char* description; const char* schemaJson; };
+//   static const ChatTool kChatTools[] = { ... };
+//   static const size_t kChatToolCount = ...;
 
+struct ChatTool {
+    const char* name;
+    const char* cmdType;
+    const char* description;
+    const char* schemaJson;
+};
+
+#if __has_include("generated/chat_tool_registry.inc")
+#include "generated/chat_tool_registry.inc"
+#else
+// Fallback registry when the generator hasn't run. Covers the common tools
+// so chat still works in a dev build before Python is wired up.
+static const ChatTool kChatTools[] = {
+    {"get_scene_info",        "native:scene_info",        "Get scene object list with optional filters", "{\"type\":\"object\",\"properties\":{\"class_name\":{\"type\":\"string\"},\"pattern\":{\"type\":\"string\"},\"layer\":{\"type\":\"string\"}}}"},
+    {"get_scene_snapshot",    "native:scene_snapshot",    "Compact scene overview", "{\"type\":\"object\",\"properties\":{}}"},
+    {"get_selection",         "native:selection",         "Get currently selected objects", "{\"type\":\"object\",\"properties\":{}}"},
+    {"get_selection_snapshot","native:selection_snapshot","Detailed info for selected objects", "{\"type\":\"object\",\"properties\":{}}"},
+    {"get_hierarchy",         "native:get_hierarchy",     "Scene hierarchy tree", "{\"type\":\"object\",\"properties\":{}}"},
+    {"get_object_properties", "native:get_object_properties", "Object properties by name", "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}"},
+    {"set_object_property",   "native:set_object_property", "Set an object property", "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"property\":{\"type\":\"string\"},\"value\":{}},\"required\":[\"name\",\"property\"]}"},
+    {"create_object",         "native:create_object",     "Create a scene object", "{\"type\":\"object\",\"properties\":{\"type\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"params\":{\"type\":\"string\"}},\"required\":[\"type\"]}"},
+    {"delete_objects",        "native:delete_objects",    "Delete objects by name", "{\"type\":\"object\",\"properties\":{\"names\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"names\"]}"},
+    {"transform_object",      "native:transform_object",  "Move/rotate/scale an object", "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"position\":{\"type\":\"array\",\"items\":{\"type\":\"number\"}},\"rotation\":{\"type\":\"array\",\"items\":{\"type\":\"number\"}},\"scale\":{\"type\":\"array\",\"items\":{\"type\":\"number\"}}},\"required\":[\"name\"]}"},
+    {"select_objects",        "native:select_objects",    "Select objects by name/pattern/class", "{\"type\":\"object\",\"properties\":{\"names\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"pattern\":{\"type\":\"string\"},\"class_name\":{\"type\":\"string\"},\"all\":{\"type\":\"boolean\"}}}"},
+    {"set_visibility",        "native:set_visibility",    "Hide/show/freeze/unfreeze", "{\"type\":\"object\",\"properties\":{\"names\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"action\":{\"type\":\"string\"}},\"required\":[\"names\",\"action\"]}"},
+    {"clone_objects",         "native:clone_objects",     "Clone objects", "{\"type\":\"object\",\"properties\":{\"names\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"mode\":{\"type\":\"string\"},\"count\":{\"type\":\"integer\"}},\"required\":[\"names\"]}"},
+    {"add_modifier",          "native:add_modifier",      "Add a modifier to an object", "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"modifier\":{\"type\":\"string\"},\"params\":{\"type\":\"string\"}},\"required\":[\"name\",\"modifier\"]}"},
+    {"inspect_object",        "native:inspect_object",    "Deep inspection of one object", "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}"},
+    {"inspect_properties",    "native:inspect_properties","Live param values for an object", "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}"},
+    {"get_materials",         "native:get_materials",     "List all materials in the scene", "{\"type\":\"object\",\"properties\":{}}"},
+    {"assign_material",       "native:assign_material",   "Create + assign a material", "{\"type\":\"object\",\"properties\":{\"names\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"material_class\":{\"type\":\"string\"},\"material_name\":{\"type\":\"string\"},\"properties\":{\"type\":\"object\"}},\"required\":[\"names\",\"material_class\"]}"},
+    {"set_material_property", "native:set_material_property", "Set a material property", "{\"type\":\"object\",\"properties\":{\"material\":{\"type\":\"string\"},\"property\":{\"type\":\"string\"},\"value\":{}},\"required\":[\"material\",\"property\"]}"},
+    {"manage_layers",         "native:manage_layers",     "Layer list/create/delete/set", "{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"names\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"layer\":{\"type\":\"string\"}},\"required\":[\"action\"]}"},
+    {"manage_groups",         "native:manage_groups",     "Group operations", "{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"},\"names\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"action\"]}"},
+    {"set_parent",            "native:set_parent",        "Reparent objects", "{\"type\":\"object\",\"properties\":{\"names\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"parent\":{\"type\":\"string\"}},\"required\":[\"names\"]}"},
+    {"batch_rename_objects",  "native:batch_rename_objects","Rename objects by pattern", "{\"type\":\"object\",\"properties\":{\"names\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"prefix\":{\"type\":\"string\"},\"suffix\":{\"type\":\"string\"},\"replace\":{\"type\":\"object\"}}}"},
+    {"capture_viewport",      "native:capture_viewport",  "Viewport screenshot to disk", "{\"type\":\"object\",\"properties\":{}}"},
+    {"introspect_class",      "native:introspect_class",  "SDK-level class introspection", "{\"type\":\"object\",\"properties\":{\"class_name\":{\"type\":\"string\"}},\"required\":[\"class_name\"]}"},
+    {"introspect_instance",   "native:introspect_instance","Live param tree for an instance", "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"include_subanims\":{\"type\":\"boolean\"}},\"required\":[\"name\"]}"},
+    {"list_plugin_classes",   "native:list_plugin_classes","Enumerate installed plugin classes", "{\"type\":\"object\",\"properties\":{\"super_class\":{\"type\":\"string\"}}}"},
+    {"learn_scene_patterns",  "native:learn_scene_patterns","Analyze scene for class usage patterns", "{\"type\":\"object\",\"properties\":{}}"},
+    {"walk_references",       "native:walk_references",   "Walk the reference graph from a node", "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"depth\":{\"type\":\"integer\"}},\"required\":[\"name\"]}"},
+    {"execute_maxscript",     "maxscript",                "Run arbitrary MAXScript (subject to safe_mode filter)", "{\"type\":\"object\",\"properties\":{\"code\":{\"type\":\"string\"}},\"required\":[\"code\"]}"},
+};
+static const size_t kChatToolCount = sizeof(kChatTools) / sizeof(kChatTools[0]);
+#endif
+
+// ── OpenAI-format tool definitions ──────────────────────────────
+
+json LLMClient::GetToolDefinitions() {
+    json tools = json::array();
+    for (size_t i = 0; i < kChatToolCount; ++i) {
+        const auto& t = kChatTools[i];
+        json schema = json::parse(t.schemaJson, nullptr, false);
+        if (schema.is_discarded()) schema = json{{"type","object"},{"properties",json::object()}};
+        tools.push_back({
+            {"type", "function"},
+            {"function", {
+                {"name", t.name},
+                {"description", t.description},
+                {"parameters", schema}
+            }}
+        });
+    }
+    return tools;
+}
+
+// ── Tool execution via CommandDispatcher ────────────────────────
+// Routing through Dispatch inherits:
+//   - safe_mode filter (blocks dangerous MAXScript in execute_maxscript)
+//   - main-thread marshaling for mutation handlers
+//   - consistent error wrapping
 std::string LLMClient::ExecuteTool(
     const std::string& toolName,
     const json& input,
     MCPBridgeGUP* gup) {
 
-    std::string params = input.dump();
+    // Find tool in registry
+    const ChatTool* tool = nullptr;
+    for (size_t i = 0; i < kChatToolCount; ++i) {
+        if (toolName == kChatTools[i].name) { tool = &kChatTools[i]; break; }
+    }
+    if (!tool) {
+        return json{{"error", "Unknown tool: " + toolName}}.dump();
+    }
 
-    // Map tool names to native handlers
+    // Build command payload:
+    //   maxscript: command = raw code string (input["code"])
+    //   native:*:  command = input.dump() — handler parses JSON
+    std::string cmdType = tool->cmdType;
+    std::string command;
+    if (cmdType == "maxscript") {
+        command = input.value("code", "");
+    } else {
+        command = input.is_null() ? "{}" : input.dump();
+    }
+
+    json req;
+    req["type"] = cmdType;
+    req["command"] = command;
+    req["requestId"] = std::string("chat-") + toolName;
+
+    std::string raw = CommandDispatcher::Dispatch(req.dump(), gup, "chat-session");
+
+    // Dispatch returns JSON with success/result/error — unwrap for the LLM
     try {
-        if (toolName == "get_scene_info") return NativeHandlers::SceneInfo(params, gup);
-        if (toolName == "get_selection") return NativeHandlers::Selection(params, gup);
-        if (toolName == "get_scene_snapshot") return NativeHandlers::SceneSnapshot(params, gup);
-        if (toolName == "get_selection_snapshot") return NativeHandlers::SelectionSnapshot(params, gup);
-        if (toolName == "get_hierarchy") return NativeHandlers::GetHierarchy(params, gup);
-        if (toolName == "get_object_properties") return NativeHandlers::GetObjectProperties(params, gup);
-        if (toolName == "set_object_property") return NativeHandlers::SetObjectProperty(params, gup);
-        if (toolName == "create_object") return NativeHandlers::CreateObject(params, gup);
-        if (toolName == "delete_objects") return NativeHandlers::DeleteObjects(params, gup);
-        if (toolName == "transform_object") return NativeHandlers::TransformObject(params, gup);
-        if (toolName == "select_objects") return NativeHandlers::SelectObjects(params, gup);
-        if (toolName == "set_visibility") return NativeHandlers::SetVisibility(params, gup);
-        if (toolName == "clone_objects") return NativeHandlers::CloneObjects(params, gup);
-        if (toolName == "add_modifier") return NativeHandlers::AddModifier(params, gup);
-        if (toolName == "remove_modifier") return NativeHandlers::RemoveModifier(params, gup);
-        if (toolName == "set_modifier_state") return NativeHandlers::SetModifierState(params, gup);
-        if (toolName == "inspect_object") return NativeHandlers::InspectObject(params, gup);
-        if (toolName == "inspect_properties") return NativeHandlers::InspectProperties(params, gup);
-        if (toolName == "get_materials") return NativeHandlers::GetMaterials(params, gup);
-        if (toolName == "assign_material") return NativeHandlers::AssignMaterial(params, gup);
-        if (toolName == "set_material_property") return NativeHandlers::SetMaterialProperty(params, gup);
-        if (toolName == "get_material_slots") return NativeHandlers::GetMaterialSlots(params, gup);
-        if (toolName == "manage_layers") return NativeHandlers::ManageLayers(params, gup);
-        if (toolName == "manage_groups") return NativeHandlers::ManageGroups(params, gup);
-        if (toolName == "manage_selection_sets") return NativeHandlers::ManageSelectionSets(params, gup);
-        if (toolName == "set_parent") return NativeHandlers::SetParent(params, gup);
-        if (toolName == "batch_rename_objects") return NativeHandlers::BatchRenameObjects(params, gup);
-        if (toolName == "capture_viewport") return NativeHandlers::CaptureViewport(params, gup);
-        if (toolName == "introspect_class") return NativeHandlers::IntrospectClass(params, gup);
-        if (toolName == "introspect_instance") return NativeHandlers::IntrospectInstance(params, gup);
-        if (toolName == "discover_classes") return NativeHandlers::DiscoverClasses(params, gup);
-        if (toolName == "learn_scene_patterns") return NativeHandlers::LearnScenePatterns(params, gup);
-        if (toolName == "walk_references") return NativeHandlers::WalkReferences(params, gup);
-        if (toolName == "execute_maxscript") {
-            // Route through HandleMaxScript path (with safe mode)
-            return RunMAXScript(input.value("code", ""));
+        json r = json::parse(raw);
+        if (r.value("success", false)) {
+            // Result may be a JSON string (from handlers that return dump()'d JSON)
+            // or plain text; pass through verbatim.
+            std::string result = r.value("result", "");
+            return result.empty() ? "{}" : result;
+        } else {
+            return json{{"error", r.value("error", "Unknown error")}}.dump();
         }
     } catch (const std::exception& e) {
-        return std::string("{\"error\":\"") + e.what() + "\"}";
+        return json{{"error", std::string("Dispatch response parse error: ") + e.what()}}.dump();
     }
-
-    return "{\"error\":\"Unknown tool: " + toolName + "\"}";
 }
 
-// ── Scene context ───────────────────────────────────────────────
+// ── System prompt: runtime preamble + SKILL.md + scene snapshot ─
 
-std::string LLMClient::BuildSceneContext(MCPBridgeGUP* gup) {
+static std::string LoadSkillMdOnce() {
+    std::lock_guard<std::mutex> lock(g_skillMutex);
+    if (g_skillPromptLoaded) return g_skillPromptCache;
+
+    g_skillPromptLoaded = true;
+    std::string path = SkillMdPath();
+    if (path.empty()) return {};
+
+    std::ifstream f(path, std::ios::binary);
+    if (!f.is_open()) return {};
+
+    std::stringstream ss;
+    ss << f.rdbuf();
+    g_skillPromptCache = ss.str();
+    return g_skillPromptCache;
+}
+
+std::string LLMClient::BuildSystemPrompt(MCPBridgeGUP* gup) {
+    std::string prompt =
+        "You are an AI assistant embedded inside Autodesk 3ds Max, running "
+        "via the native C++ bridge. You have direct access to scene-read/write "
+        "tools and can call execute_maxscript for anything not covered by a "
+        "dedicated tool. Be concise. Use tools instead of explaining them. "
+        "When asked to do something, do it — don't narrate the plan.\n\n";
+
+    std::string skill = LoadSkillMdOnce();
+    if (!skill.empty()) {
+        prompt += "=== SKILL REFERENCE (3ds Max + MCP patterns) ===\n";
+        prompt += skill;
+        prompt += "\n=== END SKILL ===\n\n";
+    }
+
     try {
         std::string snapshot = NativeHandlers::SceneSnapshot("", gup);
-        return "Current 3ds Max scene state:\n" + snapshot;
+        prompt += "=== CURRENT SCENE ===\n";
+        prompt += snapshot;
+        prompt += "\n=== END SCENE ===\n";
     } catch (...) {
-        return "Could not read scene state.";
+        prompt += "(Could not read scene snapshot.)\n";
     }
-}
 
-// ── Tool definitions (OpenAI format) ────────────────────────────
-
-json LLMClient::GetToolDefinitions() {
-    json tools = json::array();
-
-    auto addTool = [&](const char* name, const char* desc, json params) {
-        tools.push_back({
-            {"type", "function"},
-            {"function", {
-                {"name", name},
-                {"description", desc},
-                {"parameters", params}
-            }}
-        });
-    };
-
-    addTool("get_scene_info", "Get scene object list with optional filters",
-        {{"type", "object"}, {"properties", {
-            {"class_name", {{"type", "string"}, {"description", "Filter by class"}}},
-            {"pattern", {{"type", "string"}, {"description", "Wildcard name filter"}}},
-            {"layer", {{"type", "string"}, {"description", "Filter by layer"}}}
-        }}});
-
-    addTool("get_scene_snapshot", "Compact scene overview: class counts, materials, modifiers, layers",
-        {{"type", "object"}, {"properties", {}}});
-
-    addTool("get_selection", "Get currently selected objects",
-        {{"type", "object"}, {"properties", {}}});
-
-    addTool("get_selection_snapshot", "Detailed info for selected objects",
-        {{"type", "object"}, {"properties", {}}});
-
-    addTool("inspect_object", "Deep inspection of one object",
-        {{"type", "object"}, {"properties", {
-            {"name", {{"type", "string"}, {"description", "Object name"}}}
-        }}, {"required", json::array({"name"})}});
-
-    addTool("introspect_instance", "SDK-level introspection with live param values",
-        {{"type", "object"}, {"properties", {
-            {"name", {{"type", "string"}, {"description", "Object name"}}},
-            {"include_subanims", {{"type", "boolean"}, {"description", "Include SubAnim tree"}}}
-        }}, {"required", json::array({"name"})}});
-
-    addTool("create_object", "Create a scene object",
-        {{"type", "object"}, {"properties", {
-            {"type", {{"type", "string"}, {"description", "Object type (Box, Sphere, etc.)"}}},
-            {"name", {{"type", "string"}, {"description", "Object name"}}},
-            {"params", {{"type", "string"}, {"description", "MAXScript params (width:10 height:20)"}}}
-        }}, {"required", json::array({"type"})}});
-
-    addTool("delete_objects", "Delete objects by name",
-        {{"type", "object"}, {"properties", {
-            {"names", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Object names to delete"}}}
-        }}, {"required", json::array({"names"})}});
-
-    addTool("transform_object", "Move, rotate, or scale an object",
-        {{"type", "object"}, {"properties", {
-            {"name", {{"type", "string"}, {"description", "Object name"}}},
-            {"position", {{"type", "array"}, {"items", {{"type", "number"}}}, {"description", "[x,y,z]"}}},
-            {"rotation", {{"type", "array"}, {"items", {{"type", "number"}}}, {"description", "[x,y,z] degrees"}}},
-            {"scale", {{"type", "array"}, {"items", {{"type", "number"}}}, {"description", "[x,y,z]"}}}
-        }}, {"required", json::array({"name"})}});
-
-    addTool("select_objects", "Select objects by name, pattern, or class",
-        {{"type", "object"}, {"properties", {
-            {"names", {{"type", "array"}, {"items", {{"type", "string"}}}}},
-            {"pattern", {{"type", "string"}}},
-            {"class_name", {{"type", "string"}}},
-            {"all", {{"type", "boolean"}}}
-        }}});
-
-    addTool("set_visibility", "Hide/show/freeze/unfreeze objects",
-        {{"type", "object"}, {"properties", {
-            {"names", {{"type", "array"}, {"items", {{"type", "string"}}}}},
-            {"action", {{"type", "string"}, {"description", "hide/show/toggle/freeze/unfreeze"}}}
-        }}, {"required", json::array({"names", "action"})}});
-
-    addTool("add_modifier", "Add a modifier to an object",
-        {{"type", "object"}, {"properties", {
-            {"name", {{"type", "string"}, {"description", "Object name"}}},
-            {"modifier", {{"type", "string"}, {"description", "Modifier class (TurboSmooth, Chamfer, etc.)"}}},
-            {"params", {{"type", "string"}, {"description", "MAXScript params"}}}
-        }}, {"required", json::array({"name", "modifier"})}});
-
-    addTool("assign_material", "Create and assign a material",
-        {{"type", "object"}, {"properties", {
-            {"names", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Object names"}}},
-            {"material_class", {{"type", "string"}, {"description", "Material class"}}},
-            {"material_name", {{"type", "string"}}},
-            {"properties", {{"type", "object"}}}
-        }}, {"required", json::array({"names", "material_class"})}});
-
-    addTool("get_materials", "List all materials in the scene",
-        {{"type", "object"}, {"properties", {}}});
-
-    addTool("manage_layers", "Manage scene layers",
-        {{"type", "object"}, {"properties", {
-            {"action", {{"type", "string"}, {"description", "list/create/delete/set_properties/add_objects"}}},
-            {"name", {{"type", "string"}}},
-            {"names", {{"type", "array"}, {"items", {{"type", "string"}}}}},
-            {"layer", {{"type", "string"}}}
-        }}, {"required", json::array({"action"})}});
-
-    addTool("learn_scene_patterns", "Analyze scene for class usage patterns",
-        {{"type", "object"}, {"properties", {}}});
-
-    addTool("execute_maxscript", "Run arbitrary MAXScript code",
-        {{"type", "object"}, {"properties", {
-            {"code", {{"type", "string"}, {"description", "MAXScript code to execute"}}}
-        }}, {"required", json::array({"code"})}});
-
-    addTool("capture_viewport", "Capture viewport screenshot",
-        {{"type", "object"}, {"properties", {}}});
-
-    return tools;
+    return prompt;
 }

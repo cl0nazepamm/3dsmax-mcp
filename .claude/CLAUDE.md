@@ -29,3 +29,4 @@ When you encounter a bug, unexpected behavior, or discover a MAXScript/3ds Max/M
 - MAXScript results returned as JSON strings via manual concatenation
 - Viewport capture: `gw.getViewportDib()` → save to temp → `Read` tool to view
 - Do not RENDER unless user explicitly asks — but `capture_multi_view` (quad view) is encouraged after scene changes
+- Standalone chat (v0.6.0): `MCP Chat` macroscript opens a Win32 window with the full tool surface; config in `%LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini` `[llm]`, tool registry auto-generated from Python by `scripts/gen_tool_registry.py`, dispatches through the same `CommandDispatcher` so `safe_mode` applies.

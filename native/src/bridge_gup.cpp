@@ -1,6 +1,6 @@
 #include "mcp_bridge/bridge_gup.h"
 #include "mcp_bridge/chat_ui.h"
-#include "mcp_bridge/claude_client.h"
+#include "mcp_bridge/llm_client.h"
 #include "mcp_bridge/handler_helpers.h"
 #include <maxapi.h>
 #include <notify.h>
@@ -43,7 +43,9 @@ void ShowChat() {
     if (LLMClient::IsConfigured()) {
         MCPChatUI::AppendMessage("ai", "Chat ready. Model: " + LLMClient::GetConfig().model);
     } else {
-        MCPChatUI::AppendMessage("ai", "No API key. Edit mcp_llm_config.json in the plugins folder.");
+        MCPChatUI::AppendMessage("ai",
+            "No API key configured. Edit %LOCALAPPDATA%\\3dsmax-mcp\\mcp_config.ini "
+            "[llm] section, then /reload.");
     }
 }
 
@@ -73,16 +75,8 @@ DWORD MCPBridgeGUP::Start() {
     pipe_server_ = std::make_unique<PipeServer>(this);
     pipe_server_->Start();
 
-    // Init LLM client — reads config from plugin directory
-    std::string pluginDir;
-    wchar_t dllPath[MAX_PATH];
-    GetModuleFileNameW(hInstance, dllPath, MAX_PATH);
-    std::wstring wpath(dllPath);
-    size_t lastSlash = wpath.find_last_of(L'\\');
-    if (lastSlash != std::wstring::npos) {
-        pluginDir = HandlerHelpers::WideToUtf8(wpath.substr(0, lastSlash).c_str());
-    }
-    LLMClient::Init(pluginDir);
+    // Init LLM client — reads %LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini [llm]
+    LLMClient::Init();
 
     Interface* ip = GetCOREInterface();
     if (ip) {

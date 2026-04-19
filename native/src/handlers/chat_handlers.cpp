@@ -2,7 +2,7 @@
 #include "mcp_bridge/handler_helpers.h"
 #include "mcp_bridge/bridge_gup.h"
 #include "mcp_bridge/chat_ui.h"
-#include "mcp_bridge/claude_client.h"
+#include "mcp_bridge/llm_client.h"
 
 #include <thread>
 #include <mutex>
@@ -15,26 +15,12 @@ static std::mutex g_convMutex;
 static std::vector<LLMClient::Message> g_conversation;
 static std::atomic<bool> g_processing{false};
 
-static std::string g_systemPrompt =
-    "You are an AI assistant embedded inside Autodesk 3ds Max. "
-    "You have access to tools that can read and modify the scene. "
-    "Be concise. When the user asks to do something, use the tools. "
-    "When they ask a question, inspect the scene first if needed. "
-    "Do not explain tools — just use them and report results.\n\n";
-
 // ── Process a user message in background ────────────────────────
 void ProcessChatMessage(const std::string& text, MCPBridgeGUP* gup) {
     // Handle slash commands locally
     if (text == "/reload" || text == "/refresh") {
-        std::string pluginDir;
-        wchar_t dllPath[MAX_PATH];
-        GetModuleFileNameW(nullptr, dllPath, MAX_PATH);
-        std::wstring wpath(dllPath);
-        auto lastSlash = wpath.find_last_of(L'\\');
-        if (lastSlash != std::wstring::npos)
-            pluginDir = HandlerHelpers::WideToUtf8(wpath.substr(0, lastSlash).c_str());
-        LLMClient::Init(pluginDir);
-        auto& cfg = LLMClient::GetConfig();
+        LLMClient::Init();
+        const auto& cfg = LLMClient::GetConfig();
         MCPChatUI::AppendMessage("ai", "Config reloaded. Model: " + cfg.model + " | Base: " + cfg.baseUrl);
         return;
     }
@@ -63,18 +49,16 @@ void ProcessChatMessage(const std::string& text, MCPBridgeGUP* gup) {
             g_conversation.push_back({"user", text, "", nullptr});
         }
 
-        // Build system prompt with scene context
-        std::string systemWithContext;
+        // System prompt: runtime preamble + cached SKILL.md + current scene snapshot
+        std::string systemPrompt;
         try {
-            std::string context = LLMClient::BuildSceneContext(gup);
-            systemWithContext = g_systemPrompt + context;
+            systemPrompt = LLMClient::BuildSystemPrompt(gup);
         } catch (...) {
-            systemWithContext = g_systemPrompt;
+            systemPrompt = "You are an AI assistant inside 3ds Max.";
         }
 
-        // Prepare messages with system prompt
         std::vector<LLMClient::Message> messages;
-        messages.push_back({"system", systemWithContext, "", nullptr});
+        messages.push_back({"system", systemPrompt, "", nullptr});
         {
             std::lock_guard<std::mutex> lock(g_convMutex);
             messages.insert(messages.end(), g_conversation.begin(), g_conversation.end());
@@ -145,9 +129,11 @@ void ProcessChatMessage(const std::string& text, MCPBridgeGUP* gup) {
                         toolResult = std::string("{\"error\":\"") + e.what() + "\"}";
                     }
 
-                    // Truncate large results for display
+                    // Show truncated tool result in UI
                     if (toolResult.size() > 200) {
-                        MCPChatUI::AppendMessage("tool", tc.name + " -> " + toolResult.substr(0, 150) + "...");
+                        MCPChatUI::AppendMessage("tool", tc.name + " -> " + toolResult.substr(0, 180) + "...");
+                    } else {
+                        MCPChatUI::AppendMessage("tool", tc.name + " -> " + toolResult);
                     }
 
                     // Add tool result to conversation
@@ -210,8 +196,9 @@ std::string NativeHandlers::ChatUI(const std::string& params, MCPBridgeGUP* gup)
                 MCPChatUI::AppendMessage("ai", "Chat ready. Model: " + LLMClient::GetConfig().model);
             } else {
                 MCPChatUI::AppendMessage("ai",
-                    "No API key configured. Create mcp_llm_config.json in the plugins folder:\n"
-                    "{\"apiKey\": \"your-key\", \"baseUrl\": \"https://api.minimaxi.chat\", \"model\": \"MiniMax-M1-80k\"}");
+                    "No API key configured. Edit %LOCALAPPDATA%\\3dsmax-mcp\\mcp_config.ini:\n\n"
+                    "[llm]\napi_key = sk-or-...\nbase_url = https://openrouter.ai/api/v1\nmodel = anthropic/claude-sonnet-4.6\n\n"
+                    "Then type /reload to pick up the changes.");
             }
 
             json result;
@@ -226,17 +213,11 @@ std::string NativeHandlers::ChatUI(const std::string& params, MCPBridgeGUP* gup)
             return json{{"visible", false}}.dump();
         }
 
-        if (action == "configure") {
-            auto& cfg = LLMClient::GetConfig();
-            if (p.contains("apiKey")) cfg.apiKey = p["apiKey"].get<std::string>();
-            if (p.contains("baseUrl")) cfg.baseUrl = p["baseUrl"].get<std::string>();
-            if (p.contains("model")) cfg.model = p["model"].get<std::string>();
-            if (p.contains("maxTokens")) cfg.maxTokens = p["maxTokens"].get<int>();
-            if (p.contains("temperature")) cfg.temperature = p["temperature"].get<float>();
-            LLMClient::SaveConfig();
-
+        if (action == "reload") {
+            LLMClient::Init();
+            const auto& cfg = LLMClient::GetConfig();
             json result;
-            result["configured"] = true;
+            result["configured"] = LLMClient::IsConfigured();
             result["model"] = cfg.model;
             result["baseUrl"] = cfg.baseUrl;
             return result.dump();
