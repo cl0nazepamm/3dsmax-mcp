@@ -239,6 +239,8 @@ If you catch yourself writing MAXScript that a tool already handles, stop and us
 - **`(getDir #temp)`** is Max temp, not OS temp
 - **.NET strings**: convert to MAXScript strings before using string methods
 - `assign_controller`/`wire_params` track paths may fail with display-style tokens like `[#Transform][#Position][#Z Position]`; normalize to lowercase underscore form like `[#transform][#position][#z_position]`.
+- The legacy TCP fallback listener runs on a WinForms UI timer — keep idle polling coarse (around 200-250ms) and only temporarily tighten after a request; a constant 50ms tick is annoyingly chatty on Max's main thread.
+- From MAXScript, detect the native bridge via the hidden `MCPBridgeExecutor` window and skip/stop the TCP fallback; do not probe the named pipe itself just to decide whether fallback should run.
 
 ### UberBitmap + Shell Material Workflow
 - `create_shell_material` builds a Shell Material wrapping Arnold (render) + glTF (export)

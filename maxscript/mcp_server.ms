@@ -22,6 +22,23 @@ struct MCPServerStruct
 	port = 8765,
 	safeMode = true,
 	protocolVersion = 2,
+	idlePollIntervalMs = 250,
+	activePollIntervalMs = 50,
+	activePollTicksRemaining = 0,
+	activePollTicksAfterRequest = 10,
+
+	fn nativeBridgeAvailable =
+	(
+		try
+		(
+			local hwnds = windows.getChildHWND 0 "MCPBridgeExecutor"
+			hwnds != undefined and hwnds.count > 0
+		)
+		catch
+		(
+			false
+		)
+	),
 
 	-- Load safe_mode from shared config: %LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini
 	fn loadSafeMode =
@@ -325,18 +342,53 @@ struct MCPServerStruct
 		)
 	),
 
+	fn setPollInterval intervalMs =
+	(
+		if timer != undefined and timer.Interval != intervalMs do timer.Interval = intervalMs
+	),
+
+	fn armActivePolling =
+	(
+		activePollTicksRemaining = activePollTicksAfterRequest
+		setPollInterval activePollIntervalMs
+	),
+
+	fn decayPolling =
+	(
+		if activePollTicksRemaining > 0 then
+		(
+			activePollTicksRemaining -= 1
+			if activePollTicksRemaining <= 0 do setPollInterval idlePollIntervalMs
+		)
+		else
+		(
+			setPollInterval idlePollIntervalMs
+		)
+	),
+
 	-- Timer tick: check for pending connections
 	fn onTick sender args =
 	(
 		if MCP_Server == undefined or not MCP_Server.isRunning then return()
+		if MCP_Server.nativeBridgeAvailable() then
+		(
+			format "MCP: Native bridge detected; stopping TCP fallback\n"
+			MCP_Server.stop()
+			return()
+		)
 
 		try
 		(
 			-- Check if there's a pending connection (non-blocking)
 			if MCP_Server.listener.Pending() then
 			(
+				MCP_Server.armActivePolling()
 				client = MCP_Server.listener.AcceptTcpClient()
 				MCP_Server.handleClient client
+			)
+			else
+			(
+				MCP_Server.decayPolling()
 			)
 		)
 		catch
@@ -350,6 +402,12 @@ struct MCPServerStruct
 	(
 		if not isRunning then
 		(
+			if nativeBridgeAvailable() then
+			(
+				format "MCP: Native bridge detected; TCP fallback not started\n"
+				return()
+			)
+
 			try
 			(
 				-- Create TCP listener
@@ -359,7 +417,7 @@ struct MCPServerStruct
 
 				-- Create timer to poll for connections
 				timer = dotNetObject "System.Windows.Forms.Timer"
-				timer.Interval = 50  -- 50ms polling
+				timer.Interval = idlePollIntervalMs  -- idle TCP fallback should stay quiet
 				dotNet.setLifetimeControl timer #dotnet
 
 				dotNet.addEventHandler timer "Tick" onTick
