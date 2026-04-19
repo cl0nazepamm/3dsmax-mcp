@@ -131,6 +131,14 @@ def first_doc_line(func: ast.FunctionDef) -> str:
 # send/reload/clear handlers and recurse).
 SKIP_CMD_TYPES = {"native:chat_ui"}
 
+# Tools whose cmd_type is "maxscript" generate their MaxScript body inside
+# the Python function (f-strings over the kwargs). The C++ standalone chat
+# can't run that Python — it would only forward the JSON args as if they
+# were raw MaxScript, which they aren't. Exclude them from the chat's
+# registry; the LLM can still call execute_maxscript and write its own.
+# `execute_maxscript` itself is a first-class catch-all and always kept.
+INCLUDE_MAXSCRIPT_NAMES = {"execute_maxscript"}
+
 
 def extract_tools(path: Path) -> list[dict]:
     source = path.read_text(encoding="utf-8")
@@ -150,6 +158,9 @@ def extract_tools(path: Path) -> list[dict]:
             # Python-only tool (manifest, identify, etc.) — skip
             continue
         if cmd_type in SKIP_CMD_TYPES:
+            continue
+        if cmd_type == "maxscript" and node.name not in INCLUDE_MAXSCRIPT_NAMES:
+            # Python-side MaxScript wrapper — its body can't run standalone.
             continue
         tools.append({
             "name": node.name,
