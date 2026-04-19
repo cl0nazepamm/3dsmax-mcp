@@ -126,6 +126,12 @@ def first_doc_line(func: ast.FunctionDef) -> str:
     return first[:300]
 
 
+# Tools that route through native:chat_ui are for external MCP drivers; the
+# in-Max chat itself must not expose them (would let the model call its own
+# send/reload/clear handlers and recurse).
+SKIP_CMD_TYPES = {"native:chat_ui"}
+
+
 def extract_tools(path: Path) -> list[dict]:
     source = path.read_text(encoding="utf-8")
     try:
@@ -142,6 +148,8 @@ def extract_tools(path: Path) -> list[dict]:
         cmd_type = find_cmd_type(node, source)
         if not cmd_type:
             # Python-only tool (manifest, identify, etc.) — skip
+            continue
+        if cmd_type in SKIP_CMD_TYPES:
             continue
         tools.append({
             "name": node.name,
