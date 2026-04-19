@@ -53,6 +53,9 @@ set(SOURCES
     src/handlers/render_handlers.cpp
     src/handlers/state_sets_handlers.cpp
     src/handlers/discovery_handlers.cpp
+    src/handlers/chat_handlers.cpp
+    src/chat_ui.cpp
+    src/llm_client.cpp
 )
 
 add_library(mcp_bridge SHARED ${SOURCES})

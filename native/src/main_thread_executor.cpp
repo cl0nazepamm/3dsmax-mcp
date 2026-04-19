@@ -17,11 +17,11 @@ void MainThreadExecutor::Initialize() {
     wndclass_atom_ = RegisterClassEx(&wc);
     if (!wndclass_atom_) return;
 
-    // Create hidden message-only window
+    // Create hidden window — NOT HWND_MESSAGE so FindWindow/getChildHWND can find it
     hwnd_ = CreateWindowEx(
         0, L"MCPBridgeExecutor", L"MCPBridgeExecutor",
         0, 0, 0, 0, 0,
-        HWND_MESSAGE,  // message-only window, not visible
+        nullptr,
         nullptr, GetModuleHandle(nullptr), nullptr
     );
 }
@@ -80,6 +80,13 @@ std::string MainThreadExecutor::ExecuteSync(
 
 LRESULT CALLBACK MainThreadExecutor::WndProc(
     HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+
+    // WM_MCP_EXECUTE + 1 with wParam=1: show chat window
+    if (msg == WM_MCP_EXECUTE + 1 && wp == 1) {
+        extern void ShowChat();
+        ShowChat();
+        return 0;
+    }
 
     if (msg == WM_MCP_EXECUTE) {
         auto* raw = reinterpret_cast<std::shared_ptr<WorkItem>*>(lp);

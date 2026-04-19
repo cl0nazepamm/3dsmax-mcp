@@ -462,6 +462,9 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::InvokeInterface(command, gup);
         } else if (cmd_type == "native:run_macroscript") {
             result = NativeHandlers::RunMacroscript(command, gup);
+        // Chat UI (v0.6.0)
+        } else if (cmd_type == "native:chat_ui") {
+            result = NativeHandlers::ChatUI(command, gup);
         } else {
             throw std::runtime_error("Unknown command type: " + cmd_type);
         }

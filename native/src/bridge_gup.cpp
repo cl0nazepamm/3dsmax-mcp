@@ -1,5 +1,9 @@
 #include "mcp_bridge/bridge_gup.h"
+#include "mcp_bridge/chat_ui.h"
+#include "mcp_bridge/claude_client.h"
+#include "mcp_bridge/handler_helpers.h"
 #include <maxapi.h>
+#include <notify.h>
 
 // ── ClassDesc2 ──────────────────────────────────────────────────
 class MCPBridgeClassDesc : public ClassDesc2 {
@@ -18,16 +22,68 @@ public:
 static MCPBridgeClassDesc mcpBridgeDesc;
 ClassDesc2* GetMCPBridgeDesc() { return &mcpBridgeDesc; }
 
+// ── Register macroscripts after Max is fully loaded ─────────────
+static MCPBridgeGUP* g_gupInstance = nullptr;
+
+void ShowChat() {
+    if (!g_gupInstance) return;
+
+    extern void ProcessChatMessage(const std::string& text, MCPBridgeGUP* gup);
+    extern void ProcessChatAction(const std::string& action, const std::string& detail, MCPBridgeGUP* gup);
+
+    MCPChatUI::SetMessageCallback([](const std::string& text) {
+        ProcessChatMessage(text, g_gupInstance);
+    });
+    MCPChatUI::SetActionCallback([](const std::string& action, const std::string& detail) {
+        ProcessChatAction(action, detail, g_gupInstance);
+    });
+
+    MCPChatUI::Show(g_gupInstance);
+
+    if (LLMClient::IsConfigured()) {
+        MCPChatUI::AppendMessage("ai", "Chat ready. Model: " + LLMClient::GetConfig().model);
+    } else {
+        MCPChatUI::AppendMessage("ai", "No API key. Edit mcp_llm_config.json in the plugins folder.");
+    }
+}
+
+static void OnSystemStartupDone(void* param, NotifyInfo* info) {
+    if (!g_gupInstance) return;
+    UnRegisterNotification(OnSystemStartupDone, nullptr, NOTIFY_SYSTEM_STARTUP);
+
+    // Register a global MAXScript struct with functions that call our C++ directly
+    // via the hidden executor window's WM_USER message
+    // The trick: we post WM_USER+0x4D43 with a special lParam to trigger ShowChat
+    HandlerHelpers::RunMAXScript(
+        "macroScript MCP_Chat category:\"MCP\" tooltip:\"Open MCP AI Chat\" buttonText:\"MCP Chat\" "
+        "( on execute do ( "
+        "  local hwnds = windows.getChildHWND 0 \"MCPBridgeExecutor\"; "
+        "  if hwnds != undefined and hwnds.count > 0 do ( "
+        "    windows.sendMessage hwnds[1] 0x5144 1 0 "
+        "  ) "
+        ") )"
+    );
+}
+
 // ── GUP implementation ──────────────────────────────────────────
 DWORD MCPBridgeGUP::Start() {
-    // Initialize main thread executor (must happen on main thread)
+    g_gupInstance = this;
     executor_.Initialize();
 
-    // Start pipe server on background thread
     pipe_server_ = std::make_unique<PipeServer>(this);
     pipe_server_->Start();
 
-    // Log to MAXScript Listener
+    // Init LLM client — reads config from plugin directory
+    std::string pluginDir;
+    wchar_t dllPath[MAX_PATH];
+    GetModuleFileNameW(hInstance, dllPath, MAX_PATH);
+    std::wstring wpath(dllPath);
+    size_t lastSlash = wpath.find_last_of(L'\\');
+    if (lastSlash != std::wstring::npos) {
+        pluginDir = HandlerHelpers::WideToUtf8(wpath.substr(0, lastSlash).c_str());
+    }
+    LLMClient::Init(pluginDir);
+
     Interface* ip = GetCOREInterface();
     if (ip) {
         LogSys* log = ip->Log();
@@ -35,13 +91,22 @@ DWORD MCPBridgeGUP::Start() {
             log->LogEntry(SYSLOG_INFO, NO_DIALOG,
                 _T("MCP Bridge"),
                 _T("MCP Bridge: Native pipe server started on \\\\.\\pipe\\3dsmax-mcp"));
+            if (LLMClient::IsConfigured()) {
+                std::wstring model = HandlerHelpers::Utf8ToWide(LLMClient::GetConfig().model);
+                std::wstring msg = L"MCP Bridge: Standalone chat ready (" + model + L")";
+                log->LogEntry(SYSLOG_INFO, NO_DIALOG, _T("MCP Bridge"), msg.c_str());
+            }
         }
     }
+
+    // Register macroscripts after Max is fully loaded
+    RegisterNotification(OnSystemStartupDone, nullptr, NOTIFY_SYSTEM_STARTUP);
 
     return GUPRESULT_KEEP;
 }
 
 void MCPBridgeGUP::Stop() {
+    MCPChatUI::Destroy();
     if (pipe_server_) {
         pipe_server_->Stop();
         pipe_server_.reset();
