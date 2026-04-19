@@ -135,7 +135,8 @@ To disable, set `safe_mode = false` and restart 3ds Max.
 Run an AI chat entirely inside 3ds Max — no external MCP client required. The native bridge ships with a Win32 chat window, an OpenAI-compatible LLM client, and direct access to the full tool surface.
 
 - **Launch:** Customize UI → MCP category → **MCP Chat** macroscript
-- **Config:** `%LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini` — `[llm]` section (`api_key`, `base_url`, `model`). Default target is OpenRouter. Env-var fallback: `OPENROUTER_API_KEY`, `LLM_API_KEY`, `OPENAI_API_KEY`.
+- **API key:** `%LOCALAPPDATA%\3dsmax-mcp\.env` — `OPENROUTER_API_KEY=...` (also accepts `LLM_API_KEY` / `OPENAI_API_KEY`). Real env vars override the file. `deploy.bat` seeds `.env.example` on first install.
+- **Settings:** `%LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini` `[llm]` — non-secret knobs only (`base_url`, `model`, `max_tokens`, `temperature`). Default target is OpenRouter + `anthropic/claude-sonnet-4.6`.
 - **Tools:** all ~88 tools from `src/tools/*.py` are auto-registered (generated at build time by `scripts/gen_tool_registry.py`), plus `execute_maxscript` as a catch-all.
 - **Security:** the existing `[mcp] safe_mode` filter applies — `execute_maxscript` calls from the chat hit the same keyword blocklist as every other path.
 - **Skill-aware:** the v0.6.0 deploy copies `SKILL.md` to `%LOCALAPPDATA%\3dsmax-mcp\skill\` and the chat loads it into the system prompt.

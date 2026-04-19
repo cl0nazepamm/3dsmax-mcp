@@ -43,9 +43,9 @@ void ShowChat() {
     if (LLMClient::IsConfigured()) {
         MCPChatUI::AppendMessage("ai", "Chat ready. Model: " + LLMClient::GetConfig().model);
     } else {
-        MCPChatUI::AppendMessage("ai",
-            "No API key configured. Edit %LOCALAPPDATA%\\3dsmax-mcp\\mcp_config.ini "
-            "[llm] section, then /reload.");
+        MCPChatUI::AppendMessage("system",
+            "No API key. Edit %LOCALAPPDATA%\\3dsmax-mcp\\.env (add OPENROUTER_API_KEY), "
+            "then /reload.");
     }
 }
 

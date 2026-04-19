@@ -188,12 +188,13 @@ static void DoAction(const std::string& action) {
     if (g_onAction) g_onAction(action, detail);
 }
 
-static void OpenConfigFile() {
+static void OpenConfigFolder() {
     char localAppData[MAX_PATH];
     if (FAILED(SHGetFolderPathA(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, localAppData)))
         return;
-    std::string path = std::string(localAppData) + "\\3dsmax-mcp\\mcp_config.ini";
-    ShellExecuteA(nullptr, "open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    std::string dir = std::string(localAppData) + "\\3dsmax-mcp";
+    // Open the folder so the user can edit .env or mcp_config.ini
+    ShellExecuteA(nullptr, "open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 // ── Input box keyboard handling ─────────────────────────────────
@@ -315,7 +316,7 @@ static LRESULT CALLBACK ChatWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             0, 0, 0, 0, hWnd, (HMENU)(INT_PTR)ID_CAPTURE, g_hInst, nullptr);
         SendMessageW(g_captureBtn, WM_SETFONT, (WPARAM)g_font, TRUE);
 
-        g_configBtn = CreateWindowW(L"BUTTON", L"Open Config",
+        g_configBtn = CreateWindowW(L"BUTTON", L"Config Folder",
             WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             0, 0, 0, 0, hWnd, (HMENU)(INT_PTR)ID_CONFIG, g_hInst, nullptr);
         SendMessageW(g_configBtn, WM_SETFONT, (WPARAM)g_font, TRUE);
@@ -359,7 +360,7 @@ static LRESULT CALLBACK ChatWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         if (id == ID_SEND)    { DoSend(); return 0; }
         if (id == ID_ANALYZE) { DoAction("analyze_selection"); return 0; }
         if (id == ID_CAPTURE) { DoAction("capture"); return 0; }
-        if (id == ID_CONFIG)  { OpenConfigFile(); return 0; }
+        if (id == ID_CONFIG)  { OpenConfigFolder(); return 0; }
         return 0;
     }
 

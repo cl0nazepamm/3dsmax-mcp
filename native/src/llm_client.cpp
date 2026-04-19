@@ -43,6 +43,11 @@ static std::string SkillMdPath() {
     return dir.empty() ? "" : (dir + "\\skill\\SKILL.md");
 }
 
+static std::string DotEnvPath() {
+    auto dir = LocalAppDataDir();
+    return dir.empty() ? "" : (dir + "\\.env");
+}
+
 // ── INI read helper ─────────────────────────────────────────────
 static std::string ReadIni(const std::string& ini, const char* section,
                            const char* key, const char* defaultVal) {
@@ -62,8 +67,69 @@ static std::string ReadEnv(const char* name) {
     return out;
 }
 
-// ── Init from INI + env ─────────────────────────────────────────
+// ── .env loader ─────────────────────────────────────────────────
+// Minimal dotenv parser: `KEY=value` per line, `#` comments, `export KEY=value`
+// accepted, surrounding single/double quotes stripped. Sets process-level env
+// vars so the existing ReadEnv fallback picks them up. Does NOT overwrite vars
+// already set in the real environment — real env wins (lets CI/one-off shells
+// override committed .env safely).
+static void LoadDotEnv() {
+    std::string path = DotEnvPath();
+    if (path.empty()) return;
+
+    std::ifstream f(path);
+    if (!f.is_open()) return;
+
+    std::string line;
+    while (std::getline(f, line)) {
+        // Trim leading whitespace
+        size_t start = line.find_first_not_of(" \t\r\n");
+        if (start == std::string::npos) continue;
+        line.erase(0, start);
+
+        // Skip comments and blank lines
+        if (line.empty() || line[0] == '#') continue;
+
+        // Strip optional `export ` prefix
+        if (line.rfind("export ", 0) == 0) line.erase(0, 7);
+
+        // Split on first '='
+        size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+
+        std::string key = line.substr(0, eq);
+        std::string val = line.substr(eq + 1);
+
+        // Trim key whitespace
+        while (!key.empty() && (key.back() == ' ' || key.back() == '\t')) key.pop_back();
+        if (key.empty()) continue;
+
+        // Trim value whitespace + optional surrounding quotes + trailing CR
+        while (!val.empty() && (val.back() == ' ' || val.back() == '\t' ||
+                                val.back() == '\r' || val.back() == '\n')) {
+            val.pop_back();
+        }
+        while (!val.empty() && (val.front() == ' ' || val.front() == '\t')) val.erase(0, 1);
+        if (val.size() >= 2 &&
+            ((val.front() == '"'  && val.back() == '"') ||
+             (val.front() == '\'' && val.back() == '\''))) {
+            val = val.substr(1, val.size() - 2);
+        }
+
+        // Don't overwrite vars already present in the real environment
+        if (!ReadEnv(key.c_str()).empty()) continue;
+
+        SetEnvironmentVariableA(key.c_str(), val.c_str());
+    }
+}
+
+// ── Init: .env → INI → env vars ─────────────────────────────────
 void LLMClient::Init() {
+    // Load .env first so the env-var fallback below can pick up keys placed
+    // there. Real env vars (set via setx / shell) still win — LoadDotEnv skips
+    // names already defined.
+    LoadDotEnv();
+
     std::string ini = ConfigIniPath();
 
     g_config.apiKey     = ReadIni(ini, "llm", "api_key",     "");
@@ -74,7 +140,7 @@ void LLMClient::Init() {
     std::string temp    = ReadIni(ini, "llm", "temperature", "0.7");
     try { g_config.temperature = std::stof(temp); } catch (...) { g_config.temperature = 0.7f; }
 
-    // Env-var fallback for api_key
+    // Env-var fallback for api_key (populated by .env, setx, or shell)
     if (g_config.apiKey.empty()) g_config.apiKey = ReadEnv("OPENROUTER_API_KEY");
     if (g_config.apiKey.empty()) g_config.apiKey = ReadEnv("LLM_API_KEY");
     if (g_config.apiKey.empty()) g_config.apiKey = ReadEnv("OPENAI_API_KEY");
@@ -195,7 +261,7 @@ LLMClient::Response LLMClient::Chat(
     Response resp;
 
     if (!IsConfigured()) {
-        resp.error = "LLM not configured. Set api_key in %LOCALAPPDATA%\\3dsmax-mcp\\mcp_config.ini [llm] section or OPENROUTER_API_KEY env var.";
+        resp.error = "LLM not configured. Put OPENROUTER_API_KEY in %LOCALAPPDATA%\\3dsmax-mcp\\.env or set it as an env var, then /reload.";
         return resp;
     }
 

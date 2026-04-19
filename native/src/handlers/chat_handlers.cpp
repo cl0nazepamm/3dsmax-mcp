@@ -206,10 +206,10 @@ std::string NativeHandlers::ChatUI(const std::string& params, MCPBridgeGUP* gup)
             if (LLMClient::IsConfigured()) {
                 MCPChatUI::AppendMessage("ai", "Chat ready. Model: " + LLMClient::GetConfig().model);
             } else {
-                MCPChatUI::AppendMessage("ai",
-                    "No API key configured. Edit %LOCALAPPDATA%\\3dsmax-mcp\\mcp_config.ini:\n\n"
-                    "[llm]\napi_key = sk-or-...\nbase_url = https://openrouter.ai/api/v1\nmodel = anthropic/claude-sonnet-4.6\n\n"
-                    "Then type /reload to pick up the changes.");
+                MCPChatUI::AppendMessage("system",
+                    "No API key found. Edit %LOCALAPPDATA%\\3dsmax-mcp\\.env:\n\n"
+                    "    OPENROUTER_API_KEY=sk-or-...\n\n"
+                    "Then type /reload (or Ctrl+R). Model + base_url are in mcp_config.ini.");
             }
 
             json result;

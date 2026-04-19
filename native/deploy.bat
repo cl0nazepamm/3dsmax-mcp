@@ -8,6 +8,9 @@ set CONFIG_SRC=%~dp0..\mcp_config.ini
 set CONFIG_DIR=%LOCALAPPDATA%\3dsmax-mcp
 set CONFIG_DST=%CONFIG_DIR%\mcp_config.ini
 
+set ENV_SRC=%~dp0..\.env.example
+set ENV_DST=%CONFIG_DIR%\.env
+
 set SKILL_SRC=%~dp0..\skills\3dsmax-mcp-dev\SKILL.md
 set SKILL_DIR=%CONFIG_DIR%\skill
 set SKILL_DST=%SKILL_DIR%\SKILL.md
@@ -22,7 +25,7 @@ if not exist "%PLUGIN_SRC%" (
 if not exist "%CONFIG_DIR%" mkdir "%CONFIG_DIR%"
 if not exist "%SKILL_DIR%"  mkdir "%SKILL_DIR%"
 
-:: Config template: only copy if user doesn't already have one (preserve api_key)
+:: Config template: only copy if user doesn't already have one
 if not exist "%CONFIG_DST%" (
     copy /Y "%CONFIG_SRC%" "%CONFIG_DST%" >nul
     echo Installed config template: %CONFIG_DST%
@@ -30,10 +33,19 @@ if not exist "%CONFIG_DST%" (
     echo Preserving existing config: %CONFIG_DST%
 )
 
+:: .env template: only copy if user doesn't already have one (preserve api_key)
+if not exist "%ENV_DST%" (
+    copy /Y "%ENV_SRC%" "%ENV_DST%" >nul
+    echo Installed .env template:   %ENV_DST%
+    echo   ^> edit this file and add your OPENROUTER_API_KEY
+) else (
+    echo Preserving existing .env:  %ENV_DST%
+)
+
 :: Skill file: always overwrite — it's the source of truth for chat system prompt
 copy /Y "%SKILL_SRC%" "%SKILL_DST%" >nul
 if %ERRORLEVEL% EQU 0 (
-    echo Deployed skill:         %SKILL_DST%
+    echo Deployed skill:            %SKILL_DST%
 )
 
 :: Plugin: requires admin
