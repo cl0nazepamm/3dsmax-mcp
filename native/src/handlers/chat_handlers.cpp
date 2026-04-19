@@ -31,10 +31,17 @@ void ProcessChatMessage(const std::string& text, MCPBridgeGUP* gup) {
         return;
     }
     if (text == "/help") {
-        MCPChatUI::AppendMessage("ai",
-            "/reload - Reload config (switch model without restart)\n"
-            "/clear - Clear conversation history\n"
-            "/help - Show this help");
+        MCPChatUI::AppendMessage("system",
+            "Slash commands:\n"
+            "  /reload  — re-read mcp_config.ini [llm] (model/key change without restart)\n"
+            "  /clear   — drop conversation history (Ctrl+L)\n"
+            "  /help    — this message\n\n"
+            "Keyboard:\n"
+            "  Enter        — send\n"
+            "  Shift+Enter  — newline\n"
+            "  Ctrl+Enter   — newline\n"
+            "  Ctrl+L       — /clear\n"
+            "  Ctrl+R       — /reload");
         return;
     }
 
@@ -74,7 +81,7 @@ void ProcessChatMessage(const std::string& text, MCPBridgeGUP* gup) {
             auto response = LLMClient::Chat(messages, tools);
 
             if (!response.ok) {
-                MCPChatUI::AppendMessage("ai", "Error: " + response.error);
+                MCPChatUI::AppendMessage("error", response.error);
                 break;
             }
 
@@ -129,11 +136,15 @@ void ProcessChatMessage(const std::string& text, MCPBridgeGUP* gup) {
                         toolResult = std::string("{\"error\":\"") + e.what() + "\"}";
                     }
 
-                    // Show truncated tool result in UI
-                    if (toolResult.size() > 200) {
-                        MCPChatUI::AppendMessage("tool", tc.name + " -> " + toolResult.substr(0, 180) + "...");
+                    // Show tool result in UI — cap at 600 chars to keep history readable,
+                    // but the LLM always sees the full result through `messages`.
+                    const size_t DISPLAY_CAP = 600;
+                    if (toolResult.size() > DISPLAY_CAP) {
+                        MCPChatUI::AppendMessage("tool",
+                            tc.name + "  " + toolResult.substr(0, DISPLAY_CAP) +
+                            "  …(+" + std::to_string(toolResult.size() - DISPLAY_CAP) + " chars)");
                     } else {
-                        MCPChatUI::AppendMessage("tool", tc.name + " -> " + toolResult);
+                        MCPChatUI::AppendMessage("tool", tc.name + "  " + toolResult);
                     }
 
                     // Add tool result to conversation
