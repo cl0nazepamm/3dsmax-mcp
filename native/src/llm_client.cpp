@@ -56,15 +56,14 @@ static std::string ReadIni(const std::string& ini, const char* section,
     return std::string(buf);
 }
 
+// Read from the Win32 process env (not the CRT cache). SetEnvironmentVariableA
+// — which LoadDotEnv() uses — updates this table; _dupenv_s/getenv do NOT see
+// those writes because the CRT snapshots the env at process start.
 static std::string ReadEnv(const char* name) {
-    char* val = nullptr;
-    size_t len = 0;
-    std::string out;
-    if (_dupenv_s(&val, &len, name) == 0 && val) {
-        out = val;
-        free(val);
-    }
-    return out;
+    char buf[4096];
+    DWORD n = GetEnvironmentVariableA(name, buf, sizeof(buf));
+    if (n == 0 || n >= sizeof(buf)) return {};
+    return std::string(buf, n);
 }
 
 // ── .env loader ─────────────────────────────────────────────────
