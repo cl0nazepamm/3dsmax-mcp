@@ -107,6 +107,16 @@ When enabled (default), these commands are blocked:
 
 To disable, set `safe_mode = false` and restart 3ds Max.
 
+### Scope — read this
+
+`safe_mode` is an **accident preventer**, not a sandbox. It's a case-insensitive substring blocklist, so a determined author (or a sufficiently clever LLM) can bypass it with string concatenation, DotNet reflection, etc. It catches the obvious shapes — LLM hallucinates `deleteFile` → rejected — not an adversarial MaxScript author.
+
+What it **doesn't** cover:
+- Native C++ handlers run unfiltered: `delete_objects`, `manage_scene` (reset/new/open), `render_scene`, `merge_from_file`, `write_osl_shader`, `capture_*` (disk writes). If the LLM hallucinates them they run.
+- The `\\.\pipe\3dsmax-mcp` named pipe uses the default ACL — any process running as your user can open it and send commands. Fine on a single-user dev machine; if you need multi-user isolation, gate on `GetNamedPipeClientProcessId`.
+
+The v0.6.0 chat window runs your configured LLM with the full native tool surface. Treat it like you'd treat any local agent that can edit your scene: don't point it at scenes you wouldn't double-click, and keep your API key in `.env` not a shared drive.
+
 ## Tools
 
 110 tools across scene management, objects, materials, modifiers, controllers, wiring, viewport capture, file access, plugin introspection, tyFlow, Forest Pack, RailClone, Data Channel, and more.
