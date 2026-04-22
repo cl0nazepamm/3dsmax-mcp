@@ -152,10 +152,6 @@ Run an AI chat entirely inside 3ds Max — no external MCP client required. The 
 - **Skill-aware:** the v0.6.0 deploy copies `SKILL.md` to `%LOCALAPPDATA%\3dsmax-mcp\skill\` and the chat loads it into the system prompt.
 - **Slash commands:** `/reload`, `/clear`, `/help`.
 
-## v0.5.2 Notice
-
-Deleted the procedural placement tools (kept floor plan — will update that to be actually useful) and removed verified workflows. The native bridge already handles verification and the verified tools were causing crashes.
-
 ## Building from source (native bridge)
 
 Only needed if you want to modify the C++ plugin.

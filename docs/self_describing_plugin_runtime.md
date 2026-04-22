@@ -7,7 +7,6 @@ This document defines the implementation plan for a generic plugin-introspection
 Goal:
 - let the LLM discover plugin surfaces naturally
 - let it inspect classes, instances, properties, methods, and relationships
-- let it act safely through a small verified workflow layer
 - avoid building one wrapper per parameter or mirroring the full 3ds Max UI
 
 This system must work for:
@@ -42,31 +41,21 @@ The LLM should learn from the running host:
 - actual instances
 - actual installed plugins
 
-### 3. Recipes only for high-value workflows
+### 3. Verify mutations with runtime introspection
 
-Use verified wrappers only where:
-- the task is common
-- the creation path is fragile
-- the structure is deeply nested
-- failure is expensive
+After any mutation, re-read state via `introspect_instance`, `get_scene_delta`,
+or a tool-specific readback. Prefer post-hoc verification over composed
+"before/after" wrapper handlers — wrappers duplicate data and drift as
+plugins evolve.
 
-### 4. Verification is mandatory
-
-Every non-trivial plugin workflow should return:
-- action result
-- before state or summary
-- after state or summary
-- warnings
-- structured failure details
-
-### 5. Keep token cost low
+### 4. Keep token cost low
 
 Discovery must start with compact summaries.
 Deep dumps should be opt-in.
 
 ## High-Level Architecture
 
-The system has four layers.
+The system has three layers.
 
 ### Layer A: Plugin Discovery
 
@@ -102,14 +91,6 @@ Answer:
 Primary output:
 - resource-backed manifests
 - optional cached JSON
-
-### Layer D: Verified Workflows
-
-Answer:
-- how do we perform common plugin workflows safely?
-
-Primary output:
-- a small plugin-specific recipe layer
 
 ## Proposed Tool Surface
 
@@ -383,26 +364,6 @@ Success criteria:
 - LLM can load plugin manifest as a resource
 - manifest contains enough structure to support planning without deep rediscovery every turn
 
-## Phase 4: Verified Plugin Recipes
-
-Deliver:
-- a minimal recipe set for the first target plugin
-
-Do not start broad.
-Start with tyFlow.
-
-Suggested first tyFlow recipes:
-- create basic flow
-- add event
-- bind source objects
-- bind distribution surface
-- set scale randomness
-- set rotation randomness
-- verify event/operator structure
-
-Success criteria:
-- LLM can build a simple useful tyFlow setup with low retries
-
 ## tyFlow First-Class Target
 
 tyFlow should be the first real plugin target because:
@@ -428,7 +389,7 @@ tyFlow should be the first real plugin target because:
   - safe starting recipes
 
 #### Step 4
-- add only a small set of verified recipes
+- expose only a small set of curated helpers when introspection alone is not enough
 
 ## Heuristics for “Natural” Learning
 
@@ -440,7 +401,6 @@ The LLM should be able to build understanding in this order:
 4. `inspect_plugin_class("tyFlow")`
 5. `get_plugin_manifest("tyFlow")`
 6. `inspect_plugin_instance(...)` if a live object exists
-7. verified recipe if needed
 
 This lets the LLM learn the plugin surface instead of depending on prebuilt wrappers alone.
 
@@ -523,7 +483,7 @@ Keep shapes stable and compact.
     }
   },
   "recipes": [
-    {"name": "basic_scatter", "verified": true}
+    {"name": "basic_scatter"}
   ],
   "warnings": []
 }
@@ -532,7 +492,7 @@ Keep shapes stable and compact.
 ## Contributor Rules
 
 - Add generic introspection before plugin-specific recipes.
-- Add verified workflows only for repeated, high-value tasks.
+- Add curated helpers only when introspection + raw handlers aren't enough.
 - Keep manifests separate from orchestration.
 - Keep runtime-generated data and curated overlays clearly distinguishable.
 - Mark inferred information explicitly.
@@ -547,6 +507,5 @@ Implement in this order:
 3. manifest schema and `get_plugin_manifest`
 4. tyFlow manifest overlay
 5. `inspect_plugin_instance`
-6. first tyFlow verified recipe
 
 That is the smallest slice that proves the architecture without overcommitting.
