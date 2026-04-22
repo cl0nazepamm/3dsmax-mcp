@@ -316,8 +316,6 @@ std::string CommandDispatcher::Dispatch(
         // Phase 2: Modifier operations
         } else if (cmd_type == "native:add_modifier") {
             result = NativeHandlers::AddModifier(command, gup);
-        } else if (cmd_type == "native:add_modifier_verified") {
-            result = NativeHandlers::AddModifierVerified(command, gup);
         } else if (cmd_type == "native:remove_modifier") {
             result = NativeHandlers::RemoveModifier(command, gup);
         } else if (cmd_type == "native:set_modifier_state") {
@@ -373,8 +371,6 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::SetMaterialProperty(command, gup);
         } else if (cmd_type == "native:set_material_properties") {
             result = NativeHandlers::SetMaterialProperties(command, gup);
-        } else if (cmd_type == "native:set_material_verified") {
-            result = NativeHandlers::SetMaterialVerified(command, gup);
         } else if (cmd_type == "native:create_shell_material") {
             result = NativeHandlers::CreateShellMaterial(command, gup);
         // Plugin enumeration

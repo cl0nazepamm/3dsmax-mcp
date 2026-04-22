@@ -35,14 +35,6 @@ static int FindModifierIndex(INode* node, const std::string& modName) {
     return -1;
 }
 
-static json ParseJsonOrRaw(const std::string& raw, const char* raw_key = "raw") {
-    json parsed = json::parse(raw, nullptr, false);
-    if (!parsed.is_discarded()) return parsed;
-    json fallback;
-    fallback[raw_key] = raw;
-    return fallback;
-}
-
 // ── native:add_modifier (Pure SDK) ──────────────────────────
 std::string NativeHandlers::AddModifier(const std::string& params, MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([&params]() -> std::string {
@@ -117,64 +109,6 @@ std::string NativeHandlers::AddModifier(const std::string& params, MCPBridgeGUP*
         ip->RedrawViews(t);
         return "Added " + WideToUtf8(mod->ClassName().data()) + " to " + WideToUtf8(node->GetName());
     });
-}
-
-// ── native:add_modifier_verified (composed native workflow) ──
-std::string NativeHandlers::AddModifierVerified(const std::string& params, MCPBridgeGUP* gup) {
-    json p = json::parse(params, nullptr, false);
-    std::string name = p.value("name", "");
-    std::string modifierHint = p.value("modifier", "");
-
-    if (name.empty()) throw std::runtime_error("name is required");
-    if (modifierHint.empty()) throw std::runtime_error("modifier is required");
-
-    std::string addRaw = NativeHandlers::AddModifier(params, gup);
-    std::string objectRaw = NativeHandlers::InspectObject(json{{"name", name}}.dump(), gup);
-    json objectJson = ParseJsonOrRaw(objectRaw);
-
-    std::string hintLower = modifierHint;
-    std::transform(hintLower.begin(), hintLower.end(), hintLower.begin(), ::tolower);
-
-    int modifierIndex = 0;
-    if (objectJson.contains("modifiers") && (objectJson["modifiers"]).type() == json::value_t::array) {
-        const json& mods = objectJson["modifiers"];
-        if (!mods.empty()) modifierIndex = 1;
-        for (size_t i = 0; i < mods.size(); ++i) {
-            if (!mods[i].is_object()) continue;
-            std::string modClass = mods[i].value("class", "");
-            std::string modName = mods[i].value("name", "");
-            std::transform(modClass.begin(), modClass.end(), modClass.begin(), ::tolower);
-            std::transform(modName.begin(), modName.end(), modName.begin(), ::tolower);
-            if (modClass == hintLower || modName == hintLower || modName.find(hintLower) != std::string::npos) {
-                modifierIndex = static_cast<int>(i) + 1;
-                break;
-            }
-        }
-    }
-
-    json modifierJson = nullptr;
-    if (modifierIndex > 0) {
-        std::string modifierRaw = NativeHandlers::InspectProperties(
-            json{
-                {"name", name},
-                {"target", "modifier"},
-                {"modifier_index", modifierIndex},
-            }.dump(),
-            gup
-        );
-        modifierJson = ParseJsonOrRaw(modifierRaw);
-    }
-
-    json result;
-    result["addResult"] = addRaw;
-    result["delta"] = {
-        {"nativeWorkflow", true},
-        {"captured", false},
-        {"reason", "Scene delta is skipped in the native verified modifier workflow."},
-    };
-    result["object"] = objectJson;
-    result["modifier"] = modifierJson;
-    return result.dump();
 }
 
 // ── native:remove_modifier (Pure SDK) ───────────────────────

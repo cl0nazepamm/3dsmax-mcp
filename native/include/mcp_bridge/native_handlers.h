@@ -31,7 +31,6 @@ namespace NativeHandlers {
 
     // Phase 2: Modifier operations
     std::string AddModifier(const std::string& params, MCPBridgeGUP* gup);
-    std::string AddModifierVerified(const std::string& params, MCPBridgeGUP* gup);
     std::string RemoveModifier(const std::string& params, MCPBridgeGUP* gup);
     std::string SetModifierState(const std::string& params, MCPBridgeGUP* gup);
     std::string CollapseModifierStack(const std::string& params, MCPBridgeGUP* gup);
@@ -67,7 +66,6 @@ namespace NativeHandlers {
     std::string AssignMaterial(const std::string& params, MCPBridgeGUP* gup);
     std::string SetMaterialProperty(const std::string& params, MCPBridgeGUP* gup);
     std::string SetMaterialProperties(const std::string& params, MCPBridgeGUP* gup);
-    std::string SetMaterialVerified(const std::string& params, MCPBridgeGUP* gup);
 
     // Shell material creation
     std::string CreateShellMaterial(const std::string& params, MCPBridgeGUP* gup);
