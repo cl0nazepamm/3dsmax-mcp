@@ -1,5 +1,19 @@
 cmake_minimum_required(VERSION 3.20)
-project(mcp_bridge VERSION 1.0.0 LANGUAGES CXX)
+
+# Single source of truth for the package version: pyproject.toml. CMake parses
+# it so the WinHTTP user agent and any other version-stamped strings stay in
+# sync without a second bump site.
+set(MCP_BRIDGE_VERSION "0.0.0")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../pyproject.toml")
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../pyproject.toml" _pyproject)
+    string(REGEX MATCH "version[ \t]*=[ \t]*\"([^\"]+)\"" _ "${_pyproject}")
+    if(CMAKE_MATCH_1)
+        set(MCP_BRIDGE_VERSION "${CMAKE_MATCH_1}")
+    endif()
+endif()
+message(STATUS "mcp_bridge version: ${MCP_BRIDGE_VERSION}")
+
+project(mcp_bridge VERSION ${MCP_BRIDGE_VERSION} LANGUAGES CXX)
 
 # 3ds Max 2027 SDK requires C++20; earlier versions use C++17
 if(MAX_VERSION GREATER_EQUAL 2027)
@@ -115,6 +129,7 @@ target_compile_definitions(mcp_bridge PRIVATE
     _CRT_SECURE_NO_WARNINGS
     MAX_SILENCE_DEPRECATED_MATRIX_BOOL_CTOR
     MAX_SDK_VERSION=${MAX_VERSION}
+    MCP_BRIDGE_VERSION="${MCP_BRIDGE_VERSION}"
 )
 
 # ── Link ─────────────────────────────────────────────────────────

@@ -1,12 +1,25 @@
 #include "mcp_bridge/main_thread_executor.h"
 
+#include <random>
+
 thread_local bool MainThreadExecutor::tl_direct_mode_ = false;
+WPARAM MainThreadExecutor::s_execute_cookie_ = 0;
 
 MainThreadExecutor::~MainThreadExecutor() {
     Shutdown();
 }
 
 void MainThreadExecutor::Initialize() {
+    // Generate a per-process cookie before the window exists. std::random_device
+    // on MSVC is non-deterministic. Reject 0 so we have a single sentinel value
+    // any unauthenticated sender will fail against.
+    if (s_execute_cookie_ == 0) {
+        std::random_device rd;
+        uint64_t c = (static_cast<uint64_t>(rd()) << 32) ^ rd();
+        if (c == 0) c = 0xC001'D00D'C0FFEEULL; // unreachable in practice
+        s_execute_cookie_ = static_cast<WPARAM>(c);
+    }
+
     // Register a hidden window class
     WNDCLASSEX wc = {};
     wc.cbSize = sizeof(WNDCLASSEX);
@@ -18,6 +31,8 @@ void MainThreadExecutor::Initialize() {
     if (!wndclass_atom_) return;
 
     // Create hidden window — NOT HWND_MESSAGE so FindWindow/getChildHWND can find it
+    // (the MCP_Chat macroscript posts +1 to it). Cookie validation in WndProc
+    // prevents the discoverability from becoming a memory-safety primitive.
     hwnd_ = CreateWindowEx(
         0, L"MCPBridgeExecutor", L"MCPBridgeExecutor",
         0, 0, 0, 0, 0,
@@ -56,7 +71,7 @@ std::string MainThreadExecutor::ExecuteSync(
     // prevent shared_ptr from dying before main thread processes it
     auto* raw = new std::shared_ptr<WorkItem>(item);
 
-    if (!PostMessage(hwnd_, WM_MCP_EXECUTE, 0, reinterpret_cast<LPARAM>(raw))) {
+    if (!PostMessage(hwnd_, WM_MCP_EXECUTE, s_execute_cookie_, reinterpret_cast<LPARAM>(raw))) {
         delete raw;
         throw std::runtime_error("Failed to post work to main thread");
     }
@@ -89,6 +104,11 @@ LRESULT CALLBACK MainThreadExecutor::WndProc(
     }
 
     if (msg == WM_MCP_EXECUTE) {
+        // Reject any sender that doesn't know our per-process cookie. lParam
+        // is reinterpret_cast'd as a heap pointer; an attacker-supplied value
+        // would be an arbitrary read/write/free + vtable-call primitive.
+        if (wp != s_execute_cookie_) return 0;
+
         auto* raw = reinterpret_cast<std::shared_ptr<WorkItem>*>(lp);
         auto item = *raw;
         delete raw;

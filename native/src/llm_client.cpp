@@ -165,8 +165,13 @@ void LLMClient::Init() {
     g_config.apiKey     = ReadIni(ini, "llm", "api_key",     "");
     g_config.baseUrl    = ReadIni(ini, "llm", "base_url",    "https://openrouter.ai/api/v1");
     g_config.model      = ReadIni(ini, "llm", "model",       "anthropic/claude-sonnet-4.6");
-    g_config.maxTokens  = std::stoi(ReadIni(ini, "llm", "max_tokens",  "4096"));
     g_apiKeySource      = "none";
+
+    // GetPrivateProfileStringA returns "" (not the default) when the key exists
+    // but the value is empty, so std::stoi/stof would throw on bad/empty input —
+    // catch and fall back to defaults.
+    std::string maxTokensStr = ReadIni(ini, "llm", "max_tokens", "4096");
+    try { g_config.maxTokens = std::stoi(maxTokensStr); } catch (...) { g_config.maxTokens = 4096; }
 
     std::string temp    = ReadIni(ini, "llm", "temperature", "0.7");
     try { g_config.temperature = std::stof(temp); } catch (...) { g_config.temperature = 0.7f; }
@@ -175,20 +180,36 @@ void LLMClient::Init() {
     // local OpenAI-compat proxies are legit). Posting an Authorization: Bearer
     // header to plain http:// on a remote host would leak the API key to anyone
     // on the wire and to anything that can redirect the user's traffic.
+    //
+    // Use WinHttpCrackUrl to extract the parsed host — substring searches on the
+    // raw URL would accept attacker-crafted hosts like "localhost.evil.com" that
+    // start with the local-looking prefix but resolve to a remote IP.
     {
-        auto& u = g_config.baseUrl;
-        bool is_http  = u.rfind("http://",  0) == 0;
-        bool is_https = u.rfind("https://", 0) == 0;
-        bool is_local = is_http && (
-            u.find("://localhost",  0) != std::string::npos ||
-            u.find("://127.0.0.1",  0) != std::string::npos ||
-            u.find("://[::1]",      0) != std::string::npos
-        );
-        if (!is_https && !is_local) {
+        std::wstring wurl = Utf8ToWide(g_config.baseUrl);
+        URL_COMPONENTS uc = {};
+        uc.dwStructSize = sizeof(uc);
+        wchar_t hostBuf[256] = {};
+        uc.lpszHostName = hostBuf;
+        uc.dwHostNameLength = 256;
+
+        bool valid = false;
+        if (WinHttpCrackUrl(wurl.c_str(), 0, 0, &uc) && uc.dwHostNameLength > 0) {
+            std::wstring host(uc.lpszHostName, uc.dwHostNameLength);
+            bool is_https = (uc.nScheme == INTERNET_SCHEME_HTTPS);
+            bool is_http  = (uc.nScheme == INTERNET_SCHEME_HTTP);
+            bool is_local_host =
+                host == L"localhost" ||
+                host == L"127.0.0.1" ||
+                host == L"::1"       ||
+                host == L"[::1]";
+            valid = is_https || (is_http && is_local_host);
+        }
+
+        if (!valid) {
             Interface* ip = GetCOREInterface();
             LogSys* log = ip ? ip->Log() : nullptr;
             if (log) {
-                std::wstring msg = L"MCP Bridge: rejecting base_url '" + Utf8ToWide(u) +
+                std::wstring msg = L"MCP Bridge: rejecting base_url '" + Utf8ToWide(g_config.baseUrl) +
                     L"' — must be https:// (or http://localhost for local LLMs). "
                     L"Falling back to https://openrouter.ai/api/v1.";
                 log->LogEntry(SYSLOG_WARN, NO_DIALOG, _T("MCP Bridge"), msg.c_str());
@@ -270,8 +291,15 @@ static std::string HttpPost(
     bool isHttps = (urlComp.nScheme == INTERNET_SCHEME_HTTPS);
     INTERNET_PORT port = urlComp.nPort;
 
+    // MCP_BRIDGE_VERSION is stamped at compile time from pyproject.toml via
+    // CMakeLists.txt — bump pyproject and the UA follows.
+#ifndef MCP_BRIDGE_VERSION
+#define MCP_BRIDGE_VERSION "0.0.0"
+#endif
+#define MCP_WIDEN_(s) L ## s
+#define MCP_WIDEN(s)  MCP_WIDEN_(s)
     HINTERNET hSession = WinHttpOpen(
-        L"3dsmax-mcp/0.6.0",
+        L"3dsmax-mcp/" MCP_WIDEN(MCP_BRIDGE_VERSION),
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
         WINHTTP_NO_PROXY_NAME,
         WINHTTP_NO_PROXY_BYPASS,

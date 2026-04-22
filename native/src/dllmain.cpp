@@ -1,7 +1,6 @@
 #include <max.h>
 #include <plugapi.h>
 #include "mcp_bridge/bridge_gup.h"
-#include "mcp_bridge/chat_ui.h"
 
 HINSTANCE hInstance = nullptr;
 
@@ -9,7 +8,10 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, ULONG fdwReason, LPVOID) {
     if (fdwReason == DLL_PROCESS_ATTACH) {
         hInstance = hinstDLL;
         DisableThreadLibraryCalls(hinstDLL);
-        MCPChatUI::Init(hinstDLL);
+        // NOTE: do NOT call MCPChatUI::Init() here. It triggers
+        // LoadLibraryW("msftedit.dll") which acquires the loader lock —
+        // calling LoadLibrary from DllMain deadlocks Max at startup.
+        // Chat UI init is deferred to MCPBridgeGUP::Start().
     }
     return TRUE;
 }

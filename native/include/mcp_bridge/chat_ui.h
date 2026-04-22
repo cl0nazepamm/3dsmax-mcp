@@ -16,6 +16,7 @@ namespace MCPChatUI {
     void Hide();
     void Destroy();
     bool IsVisible();
+    void ClearHistory();
 
     // Append text to chat history
     void AppendMessage(const std::string& role, const std::string& text);

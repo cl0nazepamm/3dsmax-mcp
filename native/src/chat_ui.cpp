@@ -62,9 +62,18 @@ static const COLORREF COL_TOOL      = RGB(160, 160, 160);
 static const COLORREF COL_ERR       = RGB(255, 110, 110);
 static const COLORREF COL_DIM       = RGB(150, 150, 155);
 
+static void AppendColoredText(HWND re, const std::wstring& text, COLORREF color, bool bold = false);
+
+static void AppendInitialHint() {
+    if (!g_historyEdit) return;
+    AppendColoredText(g_historyEdit,
+        L"MCP Chat  -  Enter sends, Shift+Enter newline, Ctrl+L clear, Ctrl+R reload, /help for more\r\n\r\n",
+        COL_DIM, false);
+}
+
 // ── Append colored text to RichEdit ─────────────────────────────
 
-static void AppendColoredText(HWND re, const std::wstring& text, COLORREF color, bool bold = false) {
+static void AppendColoredText(HWND re, const std::wstring& text, COLORREF color, bool bold) {
     if (!re) return;
 
     // Move caret to end
@@ -117,9 +126,14 @@ void MCPChatUI::AppendMessage(const std::string& role, const std::string& text) 
     AppendColoredText(g_historyEdit, body + L"\r\n\r\n", color, false);
 }
 
+void MCPChatUI::ClearHistory() {
+    if (!g_historyEdit) return;
+    SetWindowTextW(g_historyEdit, L"");
+}
+
 // ── Status bar ──────────────────────────────────────────────────
 
-static std::string g_baseStatus;  // "model: foo" — rebuilt on /reload
+static std::string g_baseStatus;
 
 static void RebuildBaseStatus() {
     if (LLMClient::IsConfigured()) {
@@ -139,7 +153,7 @@ void MCPChatUI::SetStatus(const std::string& status) {
         }
         return;
     }
-    if (g_baseStatus.empty()) RebuildBaseStatus();
+    RebuildBaseStatus();
     std::string line = g_baseStatus;
     if (!status.empty()) line += "   •   " + status;
     SendMessageW(g_statusBar, SB_SETTEXTW, 0, (LPARAM)Utf8ToWide(line).c_str());
@@ -301,7 +315,7 @@ static LRESULT CALLBACK ChatWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         g_origInputProc = (WNDPROC)SetWindowLongPtrW(
             g_inputEdit, GWLP_WNDPROC, (LONG_PTR)InputEditProc);
 
-        g_sendBtn = CreateWindowW(L"BUTTON", L"Send  ⏎",
+        g_sendBtn = CreateWindowW(L"BUTTON", L"Send",
             WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
             0, 0, 0, 0, hWnd, (HMENU)(INT_PTR)ID_SEND, g_hInst, nullptr);
         SendMessageW(g_sendBtn, WM_SETFONT, (WPARAM)g_font, TRUE);
@@ -330,11 +344,7 @@ static LRESULT CALLBACK ChatWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         MCPChatUI::SetStatus("");  // paint initial
 
         // Initial help hint — only once per window create
-        if (g_historyEdit) {
-            AppendColoredText(g_historyEdit,
-                L"MCP Chat  —  Enter sends, Shift+Enter newline, Ctrl+L clear, Ctrl+R reload, /help for more\r\n\r\n",
-                COL_DIM, false);
-        }
+        AppendInitialHint();
         return 0;
     }
 
@@ -411,10 +421,19 @@ static LRESULT CALLBACK ChatWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
 
 // ── Public API ──────────────────────────────────────────────────
 
+static bool g_classRegistered = false;
+
+// Keep Init() cheap: just remember the DLL hinstance. All real setup
+// (msftedit load, common controls init, window class registration)
+// happens lazily in Show() on first open so Max startup stays fast
+// and nothing chat-related is pulled in unless the user asks for it.
 void MCPChatUI::Init(HINSTANCE hInst) {
     g_hInst = hInst;
+}
 
-    // Load RichEdit 4.1 (msftedit.dll exports RICHEDIT50W window class)
+static void EnsureChatClassRegistered() {
+    if (g_classRegistered) return;
+
     if (!g_richedMod) g_richedMod = LoadLibraryW(L"msftedit.dll");
 
     INITCOMMONCONTROLSEX icc = { sizeof(icc), ICC_BAR_CLASSES | ICC_STANDARD_CLASSES };
@@ -423,11 +442,13 @@ void MCPChatUI::Init(HINSTANCE hInst) {
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = ChatWndProc;
-    wc.hInstance = hInst;
+    wc.hInstance = g_hInst;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = nullptr;   // we paint WM_ERASEBKGND ourselves
     wc.lpszClassName = L"MCPChatWindow";
     RegisterClassExW(&wc);
+
+    g_classRegistered = true;
 }
 
 void MCPChatUI::Show(MCPBridgeGUP* gup) {
@@ -438,6 +459,9 @@ void MCPChatUI::Show(MCPBridgeGUP* gup) {
         if (g_inputEdit) SetFocus(g_inputEdit);
         return;
     }
+
+    // First open: load msftedit + register window class now, not at boot
+    EnsureChatClassRegistered();
 
     HWND maxWnd = GetCOREInterface()->GetMAXHWnd();
     g_chatWnd = CreateWindowExW(
@@ -464,6 +488,7 @@ void MCPChatUI::Destroy() {
         g_chatWnd = nullptr;
     }
     if (g_richedMod) { FreeLibrary(g_richedMod); g_richedMod = nullptr; }
+    g_classRegistered = false;
 }
 
 bool MCPChatUI::IsVisible() {

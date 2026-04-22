@@ -1,7 +1,8 @@
 import json as _json
+import re
 
 from ..server import mcp, client
-from ..coerce import StrList
+from ..coerce import FloatList, StrList
 from src.helpers.maxscript import safe_string
 
 
@@ -157,20 +158,112 @@ _TYPE_DEFAULTS = {
 }
 
 
+def _has_param(params: str, key: str) -> bool:
+    return bool(re.search(rf"(?i)(?<!\S){re.escape(key)}\s*:", params))
+
+
+def _format_param_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return format(value, "g")
+    if isinstance(value, (list, tuple)):
+        return "[" + ",".join(format(v, "g") for v in value) + "]"
+    return str(value)
+
+
+def _merge_create_object_params(
+    type: str,
+    params: str = "",
+    *,
+    pos: FloatList | None = None,
+    length: float | None = None,
+    width: float | None = None,
+    height: float | None = None,
+    depth: float | None = None,
+    radius: float | None = None,
+    radius1: float | None = None,
+    radius2: float | None = None,
+    fillet: float | None = None,
+    capheight: float | None = None,
+) -> str:
+    merged = params.strip()
+
+    def append_param(key: str, value: object) -> None:
+        nonlocal merged
+        if value is None or _has_param(merged, key):
+            return
+        fragment = f"{key}:{_format_param_value(value)}"
+        merged = f"{merged} {fragment}".strip() if merged else fragment
+
+    append_param("pos", pos)
+    append_param("length", length)
+    append_param("width", width)
+    append_param("height", height)
+    append_param("depth", depth)
+    append_param("radius", radius)
+    append_param("radius1", radius1)
+    append_param("radius2", radius2)
+    append_param("fillet", fillet)
+    append_param("capheight", capheight)
+
+    defaults = _TYPE_DEFAULTS.get(type.lower(), "")
+    for token in defaults.split():
+        key, value = token.split(":", 1)
+        append_param(key, value)
+
+    return merged
+
+
 @mcp.tool()
-def create_object(type: str, name: str = "", params: str = "") -> str:
-    """Create a new object in the 3ds Max scene.
+def create_object(
+    type: str,
+    name: str = "",
+    params: str = "",
+    pos: FloatList | None = None,
+    length: float | None = None,
+    width: float | None = None,
+    height: float | None = None,
+    depth: float | None = None,
+    radius: float | None = None,
+    radius1: float | None = None,
+    radius2: float | None = None,
+    fillet: float | None = None,
+    capheight: float | None = None,
+) -> str:
+    """Create a new object in the 3ds Max scene and auto-fill common primitive sizes when omitted.
 
     Args:
         type: The object type (e.g. "Box", "Sphere", "Cylinder", "Plane", "Teapot")
         name: Optional name for the object
         params: Optional MAXScript parameters (e.g. "radius:25 pos:[0,0,50]")
+        pos: Optional world position as [x, y, z]
+        length: Optional length for primitives that use it
+        width: Optional width for primitives that use it
+        height: Optional height for primitives that use it
+        depth: Optional depth for primitives that use it
+        radius: Optional radius for primitives that use it
+        radius1: Optional primary radius for primitives that use it
+        radius2: Optional secondary radius for primitives that use it
+        fillet: Optional fillet for chamfered primitives
+        capheight: Optional cap height for primitives that use it
 
     Returns the name of the created object.
     """
-    # Apply sensible defaults when no params given — SDK defaults are all zeros
-    if not params:
-        params = _TYPE_DEFAULTS.get(type.lower(), "")
+    params = _merge_create_object_params(
+        type,
+        params,
+        pos=pos,
+        length=length,
+        width=width,
+        height=height,
+        depth=depth,
+        radius=radius,
+        radius1=radius1,
+        radius2=radius2,
+        fillet=fillet,
+        capheight=capheight,
+    )
 
     if client.native_available:
         try:

@@ -34,6 +34,13 @@ CONFIG_SRC = ROOT / "mcp_config.ini"
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "3dsmax-mcp"
 CONFIG_DST = CONFIG_DIR / "mcp_config.ini"
 
+# v0.6.0 standalone chat — .env for the API key, SKILL.md for the system prompt.
+ENV_SRC = ROOT / ".env.example"
+ENV_DST = CONFIG_DIR / ".env"
+SKILL_SRC = ROOT / "skills" / "3dsmax-mcp-dev" / "SKILL.md"
+SKILL_DIR = CONFIG_DIR / "skill"
+SKILL_DST = SKILL_DIR / "SKILL.md"
+
 # Common Max install locations (newest first)
 MAX_DIRS = [
     Path(r"C:\Program Files\Autodesk\3ds Max 2027"),
@@ -87,18 +94,36 @@ def copy_elevated(src: Path, dst: Path) -> bool:
 
 
 def deploy_config() -> bool:
-    print(f"\n[1/5] Config -> {CONFIG_DST}")
+    print(f"\n[1/5] User config -> {CONFIG_DIR}")
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    SKILL_DIR.mkdir(parents=True, exist_ok=True)
+
+    # mcp_config.ini — preserve on redeploy so custom [llm] settings + safe_mode stick
     if CONFIG_DST.exists():
-        print("  Already exists (keeping current settings)")
-        return True
-    if CONFIG_SRC.exists():
+        print(f"  mcp_config.ini: preserved (already exists)")
+    elif CONFIG_SRC.exists():
         shutil.copy2(CONFIG_SRC, CONFIG_DST)
-        print("  OK (safe_mode=true)")
-        return True
-    # Write default if source template missing
-    CONFIG_DST.write_text("[mcp]\nsafe_mode = true\n", "utf-8")
-    print("  OK (created default, safe_mode=true)")
+        print(f"  mcp_config.ini: installed template")
+    else:
+        CONFIG_DST.write_text("[mcp]\nsafe_mode = true\n", "utf-8")
+        print(f"  mcp_config.ini: created default (safe_mode=true)")
+
+    # .env — preserve on redeploy so the user's API key survives
+    if ENV_DST.exists():
+        print(f"  .env:           preserved (already exists)")
+    elif ENV_SRC.exists():
+        shutil.copy2(ENV_SRC, ENV_DST)
+        print(f"  .env:           installed template (edit to add OPENROUTER_API_KEY)")
+    else:
+        print(f"  .env:           SKIP (no .env.example in repo)")
+
+    # SKILL.md — always refresh (source of truth for the in-Max chat's system prompt)
+    if SKILL_SRC.exists():
+        shutil.copy2(SKILL_SRC, SKILL_DST)
+        print(f"  skill/SKILL.md: refreshed")
+    else:
+        print(f"  skill/SKILL.md: SKIP (source not found at {SKILL_SRC})")
+
     return True
 
 

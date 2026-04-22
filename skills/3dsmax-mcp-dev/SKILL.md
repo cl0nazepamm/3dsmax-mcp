@@ -1,6 +1,6 @@
 ---
 name: 3dsmax-mcp-dev
-description: Rules, tool choices, and workflow patterns for AI agents working with 3ds Max via MCP. Covers the native C++ bridge, plugin introspection, scene organization, material workflows, and MAXScript pitfalls.
+description: Rules, tool choices, and workflow patterns for AI agents working with 3ds Max via MCP. Covers SDK introspection, scene organization, material workflows, and MAXScript pitfalls.
 ---
 
 # 3dsmax-mcp Skill Guide
@@ -12,7 +12,7 @@ Principles:
 
 ## 1. Deep SDK Introspection (Use First)
 
-When encountering an unfamiliar class, plugin, or object — **use C++ SDK introspection first**. These read the DLL class registry directly. Faster and more complete than MAXScript's `showClass`/`getPropNames`.
+When encountering an unfamiliar class, plugin, or object — **use SDK introspection tools first**. These read the DLL class registry directly. Faster and more complete than MAXScript's `showClass`/`getPropNames`.
 
 **Tool hierarchy:**
 1. **`introspect_class`** — Full API of any class: ParamBlock2 params (names, types, defaults, ranges), FPInterface functions/properties. Works on any class. **Blocked for OSLMap** — use `introspect_osl` instead.
@@ -121,7 +121,6 @@ NOTE: Arnold materials (ai_standard_surface, etc.) are scripted plugins — `dis
 - NEVER assume slot connections — use `map_class_relationships` to see what plugs into what
 - NEVER skip verification — use `get_scene_delta` after mutations to confirm what actually changed
 - When writing MAXScript that targets a specific class, introspect it first to get correct property names
-- When building a C++ native handler, use `introspect_class` to understand the ParamBlock2 layout before writing SetValue calls
 
 ## 3. Default Workflow
 
@@ -130,7 +129,7 @@ NOTE: Arnold materials (ai_standard_surface, etc.) are scripted plugins — `dis
 3. **Mutate** — use a dedicated tool (never `execute_maxscript` if a tool exists)
 4. **Verify** — `get_scene_delta` or re-inspect after mutation
 
-## 4. Scene Organization (Pure C++ SDK)
+## 4. Scene Organization
 
 **Layers** — `manage_layers`:
 - Actions: `list`, `create`, `delete`, `set_current`, `set_properties`, `add_objects`, `select_objects`
@@ -222,11 +221,12 @@ If you catch yourself writing MAXScript that a tool already handles, stop and us
 
 ## 7. MCP Tool Pitfalls
 
-- Fast/small models send `"foo"` instead of `["foo"]` for list params — all tool signatures use coerced types (`StrList`, `FloatList`, `IntList`, `DictList` from `src/coerce.py`) that auto-wrap single values into one-element lists. Any new tool with a `list[T]` param **must** use these types instead of bare `list[]`.
+- List params accept a single value or a list — both `"foo"` and `["foo"]` work.
 - `get_material_slots` with `slot_scope:"all"` + `include_values:true` returns 40+ params on complex materials (Physical, Arnold). Prefer `slot_scope:"map"` (default) unless you need every param.
-- `assign_controller` and `set_controller_props` `params` dict values must work as both strings and numbers — the native handler coerces automatically. Small models may send `{"seed": 42}` (number) or `{"seed": "42"}` (string); both are valid.
-- `list_wireable_params` returns paths with `[#Parameters]` grouping level (e.g. `[#Object (Box)][#Parameters][#height]`). The native `NormalizeSubAnimPath` strips this automatically when passed to `wire_params`/`assign_controller`/`unwire_params`.
-- `get_wired_params` returns paths with `[#name]` format. These paths can be passed directly to `unwire_params` — `NormalizeSubAnimPath` handles both `[name]` and `[#name]` formats.
+- `assign_controller` / `set_controller_props` `params` dict values accept both strings and numbers — both `{"seed": 42}` and `{"seed": "42"}` are valid.
+- In standalone chat mode, always specify primitive sizes explicitly when calling `create_object` — don't rely on defaults filling in for omitted dimensions.
+- `list_wireable_params` returns paths with `[#Parameters]` grouping level (e.g. `[#Object (Box)][#Parameters][#height]`). Pass them through to `wire_params`/`assign_controller`/`unwire_params` as-is — the bracket levels are normalized for you.
+- `get_wired_params` returns paths with `[#name]` format. Pass directly to `unwire_params` — both `[name]` and `[#name]` formats are accepted.
 - `add_controller_target` only works on script, expression, and constraint controllers. Noise/Bezier/other controllers will return a clear error message. Use `assign_controller` with `controller_type:"float_script"` if you need node references.
 
 ## 8. MAXScript Pitfalls
@@ -234,13 +234,11 @@ If you catch yourself writing MAXScript that a tool already handles, stop and us
 - **No parens with keyword args**: `Box width:10` not `Box() width:10`
 - **Case-insensitive** but avoid ambiguous short names
 - **Wrap in try/catch**: `try (...) catch (ex) (ex)` — errors otherwise appear as generic failures
-- **Escape strings**: use `src.helpers.maxscript.safe_string`, use `MCP_Server.escapeJsonString` in MAXScript
+- **Escape strings**: use `MCP_Server.escapeJsonString` when building JSON output in MAXScript
 - **`Noise` vs `Noisemodifier`**: texture map vs modifier
 - **`(getDir #temp)`** is Max temp, not OS temp
 - **.NET strings**: convert to MAXScript strings before using string methods
 - `assign_controller`/`wire_params` track paths may fail with display-style tokens like `[#Transform][#Position][#Z Position]`; normalize to lowercase underscore form like `[#transform][#position][#z_position]`.
-- The legacy TCP fallback listener runs on a WinForms UI timer — keep idle polling coarse (around 200-250ms) and only temporarily tighten after a request; a constant 50ms tick is annoyingly chatty on Max's main thread.
-- From MAXScript, detect the native bridge via the hidden `MCPBridgeExecutor` window and skip/stop the TCP fallback; do not probe the named pipe itself just to decide whether fallback should run.
 
 ### UberBitmap + Shell Material Workflow
 - `create_shell_material` builds a Shell Material wrapping Arnold (render) + glTF (export)
@@ -264,17 +262,7 @@ If you catch yourself writing MAXScript that a tool already handles, stop and us
 - `introspect_class` is blocked for OSLMap (663K+ output) — always use `introspect_osl` instead
 - After creation, wire via `set_material_property`
 
-## 9. C++ SDK Pitfalls
-
-- `is_array()` / `is_string()` / `is_number_*()` / `is_boolean()` macro collision with MAXScript headers — use `.type() == json::value_t::array` / `::string` / `::number_float` / `::number_integer` / `::boolean` instead
-- `Matrix3(1)` deprecated in Max 2026 — use `Matrix3()` default
-- `Modifier::GetName(bool localized)` — use `mod->GetName(false).data()`
-- `ClassDesc::ClassName()` returns `const MCHAR*`, not a string class
-- Arnold/scripted plugins don't register in DllDir under MAXScript names — fall back to `RunMAXScript` for creation
-- `WStr::operator bool` deleted in Max 2026 — use `.data() && .data()[0]` checks
-- Native scene-delta baselines must be scoped per pipe client and cleared on scene reset/fetch; one process-global snapshot leaks across simultaneous agents and unrelated scenes.
-
-## 10. MAXScript Reference Files
+## 9. MAXScript Reference Files
 
 This skill includes bundled MAXScript reference files for writing correct MAXScript. Read the relevant file BEFORE writing MAXScript code for unfamiliar areas.
 
@@ -298,28 +286,7 @@ This skill includes bundled MAXScript reference files for writing correct MAXScr
 Read: skills/3dsmax-mcp-dev/maxscript-materials-textures.md
 ```
 
-## 11. Architecture
-
-```
-Agent <-> FastMCP (Python/stdio) <-> Named Pipe <-> C++ GUP Plugin <-> 3ds Max SDK
-                                  |
-                                  +-> TCP:8765 fallback -> MAXScript listener
-```
-
-- 76 native C++ handlers via named pipe (pure SDK, 86-130x faster)
-- Multi-instance pipe — multiple agents connect simultaneously
-- Safe mode on pipe — blocks DOSCommand, ShellLaunch, deleteFile, python.Execute, createFile
-- ScriptSource::NonEmbedded — .NET calls work through the pipe
-- `client.native_available` routes tools to native or MAXScript path
-- Remaining tools use MAXScript through `ExecuteMAXScriptScript()` in the C++ bridge
-
-### Adding a native handler
-1. Add handler function to relevant `.cpp` in `native/src/handlers/`
-2. Declare in `native_handlers.h`
-3. Route in `command_dispatcher.cpp`
-4. Add source to `CMakeLists.txt`
-5. Update Python tool with `if client.native_available:` + MAXScript fallback
-6. Build → deploy → restart Max
+## 10. Tool & Action Discovery
 
 ### Unwrap UVW Editor
 - The macroscript `OpenUnwrapUI` does NOT open the UV editor window
@@ -327,20 +294,20 @@ Agent <-> FastMCP (Python/stdio) <-> Named Pipe <-> C++ GUP Plugin <-> 3ds Max S
 - Action table "Unwrap UVW" has 228 actions including "Edit UVW's" (id 40005)
 - Use `list_macroscripts` and `list_action_tables` to discover available commands — don't guess names
 
-### System Discovery (native handlers)
-- `list_macroscripts` — walks MacroDir, 4000+ macros, filter by category/pattern
-- `list_action_tables` — walks IActionManager, 100+ tables with all menu/shortcut actions
+### System Discovery
+- `list_macroscripts` — 4000+ macros, filter by category/pattern
+- `list_action_tables` — 100+ tables with all menu/shortcut actions
 - `introspect_interface` — full FPInterface dump (functions, properties, enums with live values)
 - `invoke_interface` — call FPInterface functions + set properties directly, no MAXScript parsing
-- `run_macroscript` — execute macroscripts by category + name via MacroEntry::Execute()
+- `run_macroscript` — execute macroscripts by category + name
 - Use these to discover any plugin's API surface before guessing MAXScript commands
 
-## Standalone Chat Mode (v0.6.0+)
+## Standalone Chat Mode
 
-When this file is loaded as the system prompt by the in-Max chat window (Customize UI → MCP → MCP Chat), you are running **inside** 3ds Max via the C++ bridge — not as an external MCP client.
+When this file is loaded as the system prompt by the in-Max chat window (Customize UI → MCP → MCP Chat), you are running **inside** 3ds Max — not as an external MCP client.
 
-- All ~88 tools listed in `src/tools/*.py` are auto-registered and callable. Schemas come from the Python type hints + docstrings via `scripts/gen_tool_registry.py`.
-- Calls go through the same `CommandDispatcher` as every other client, so `safe_mode` still guards `execute_maxscript`. If a script is rejected you'll get `{"error": "Blocked by safe mode: ..."}` — surface that to the user rather than retrying with obfuscation.
+- All MCP tools are available and callable.
+- `safe_mode` still guards `execute_maxscript`. If a script is rejected you'll get `{"error": "Blocked by safe mode: ..."}` — surface that to the user rather than retrying with obfuscation.
 - Don't reference external docs (Linear, Slack, web URLs) from the chat — you can't fetch them. Stick to tools, the scene, and what's in this skill file.
 - The scene snapshot is re-injected into the system prompt each turn, so you have fresh state; you still need to call `get_selection_snapshot` / `inspect_object` / `get_scene_delta` for deep reads or after mutations.
-- Slash commands handled client-side: `/reload` (reread `mcp_config.ini`), `/clear` (drop conversation), `/help`. Don't tell the user to use tool calls for these.
+- Slash commands handled client-side: `/reload` (reread config), `/clear` (drop conversation), `/help`. Don't tell the user to use tool calls for these.

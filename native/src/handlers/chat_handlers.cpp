@@ -18,6 +18,16 @@ static std::mutex g_convMutex;
 static std::vector<LLMClient::Message> g_conversation;
 static std::atomic<bool> g_processing{false};
 
+// ── Detached chat-thread tracking ──────────────────────────────
+// ProcessChatMessage launches std::thread(...).detach() per user message.
+// The thread captures MCPBridgeGUP* and can sit in WinHTTP for up to 180 s.
+// Without a drain on shutdown, MCPBridgeGUP::Stop() deletes the executor
+// while the thread is mid-call → use-after-free. We track in-flight count
+// here and expose WaitForChatTurns() to bridge_gup.cpp Stop().
+static std::atomic<int> g_inFlightTurns{0};
+static std::mutex g_inFlightMutex;
+static std::condition_variable g_inFlightCv;
+
 // Completion callback for `send` action: receives final assistant text,
 // a JSON array of tool calls made during the turn, and an error string
 // (empty on success). Called once per ProcessChatMessage invocation.
@@ -59,8 +69,36 @@ static size_t ConversationLength() {
     return g_conversation.size();
 }
 
+// Walk back to the last UTF-8 lead byte so the cut never falls in the middle
+// of a multi-byte sequence — nlohmann::json::dump() throws type_error.316 on
+// invalid UTF-8 and would brick the conversation history with a single
+// non-ASCII name (CJK, accented Latin, em-dash, smart quotes, etc.).
+static size_t Utf8SafeCut(const std::string& s, size_t cap) {
+    if (cap >= s.size()) return s.size();
+    while (cap > 0 && (static_cast<unsigned char>(s[cap]) & 0xC0) == 0x80) {
+        --cap;
+    }
+    return cap;
+}
+
 static ChatTurnResult RunChatTurn(const std::string& text, MCPBridgeGUP* gup, int timeout_ms = 0) {
     ChatTurnResult turn;
+
+    // Slash commands and full turns share the gate so that /reload (which
+    // overwrites g_config std::string fields) and /clear (which wipes
+    // g_conversation mid-turn, leaving orphan tool messages the API will
+    // reject) cannot race with an in-flight HTTP call.
+    bool expected = false;
+    if (!g_processing.compare_exchange_strong(expected, true)) {
+        throw std::runtime_error("Chat is busy - another turn is in progress.");
+    }
+
+    struct ProcessingReset {
+        ~ProcessingReset() {
+            MCPChatUI::SetStatus("");
+            g_processing = false;
+        }
+    } reset;
 
     // Slash commands — handled inline, no LLM call
     if (text == "/reload" || text == "/refresh") {
@@ -100,18 +138,6 @@ static ChatTurnResult RunChatTurn(const std::string& text, MCPBridgeGUP* gup, in
             "  Ctrl+R       - /reload");
         return turn;
     }
-
-    bool expected = false;
-    if (!g_processing.compare_exchange_strong(expected, true)) {
-        throw std::runtime_error("Chat is busy - another turn is in progress.");
-    }
-
-    struct ProcessingReset {
-        ~ProcessingReset() {
-            MCPChatUI::SetStatus("");
-            g_processing = false;
-        }
-    } reset;
 
     MCPChatUI::SetStatus("thinking...");
 
@@ -204,14 +230,14 @@ static ChatTurnResult RunChatTurn(const std::string& text, MCPBridgeGUP* gup, in
             const size_t DISPLAY_CAP = 600;
             if (toolResult.size() > DISPLAY_CAP) {
                 MCPChatUI::AppendMessage("tool",
-                    tc.name + "  " + toolResult.substr(0, DISPLAY_CAP) +
+                    tc.name + "  " + toolResult.substr(0, Utf8SafeCut(toolResult, DISPLAY_CAP)) +
                     "  ...(+" + std::to_string(toolResult.size() - DISPLAY_CAP) + " chars)");
             } else {
                 MCPChatUI::AppendMessage("tool", tc.name + "  " + toolResult);
             }
 
             std::string truncated = toolResult.size() > 1200
-                ? toolResult.substr(0, 1200) + "..."
+                ? toolResult.substr(0, Utf8SafeCut(toolResult, 1200)) + "..."
                 : toolResult;
             turn.toolCalls.push_back({
                 {"name", tc.name},
@@ -226,7 +252,7 @@ static ChatTurnResult RunChatTurn(const std::string& text, MCPBridgeGUP* gup, in
             // `messages` copy stays untruncated.
             const size_t HISTORY_CAP = 4000;
             std::string historyResult = toolResult.size() > HISTORY_CAP
-                ? toolResult.substr(0, HISTORY_CAP) +
+                ? toolResult.substr(0, Utf8SafeCut(toolResult, HISTORY_CAP)) +
                   "\n...[truncated for history, " +
                   std::to_string(toolResult.size() - HISTORY_CAP) + " chars omitted]"
                 : toolResult;
@@ -248,7 +274,16 @@ static ChatTurnResult RunChatTurn(const std::string& text, MCPBridgeGUP* gup, in
 void ProcessChatMessage(const std::string& text,
                         MCPBridgeGUP* gup,
                         ChatCompleteCallback onComplete) {
+    g_inFlightTurns.fetch_add(1, std::memory_order_acq_rel);
     std::thread([text, gup, onComplete]() {
+        struct Decrement {
+            ~Decrement() {
+                if (g_inFlightTurns.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                    std::lock_guard<std::mutex> lock(g_inFlightMutex);
+                    g_inFlightCv.notify_all();
+                }
+            }
+        } dec;
         try {
             ChatTurnResult result = RunChatTurn(text, gup);
             if (onComplete) onComplete(result.reply, result.toolCalls, "");
@@ -262,6 +297,16 @@ void ProcessChatMessage(const std::string& text,
             if (onComplete) onComplete("", json::array(), err);
         }
     }).detach();
+}
+
+// Called from MCPBridgeGUP::Stop() before destroying the executor / chat UI.
+// Returns true if all detached chat threads completed within timeout_ms.
+bool WaitForChatTurns(int timeout_ms) {
+    std::unique_lock<std::mutex> lock(g_inFlightMutex);
+    return g_inFlightCv.wait_for(
+        lock,
+        std::chrono::milliseconds(timeout_ms),
+        []{ return g_inFlightTurns.load(std::memory_order_acquire) == 0; });
 }
 
 // Overload so existing extern declarations in bridge_gup.cpp
@@ -363,6 +408,13 @@ std::string NativeHandlers::ChatUI(const std::string& params, MCPBridgeGUP* gup)
         }
 
         if (action == "reload") {
+            // Same gate as RunChatTurn — Init() rewrites g_config string
+            // fields and concurrent HTTP read in LLMClient::Chat is UB.
+            bool expected = false;
+            if (!g_processing.compare_exchange_strong(expected, true)) {
+                throw std::runtime_error("Chat is busy - another turn is in progress.");
+            }
+            struct R { ~R(){ g_processing = false; } } r;
             LLMClient::Init();
             MCPChatUI::SetStatus("");
             const auto& cfg = LLMClient::GetConfig();
@@ -376,6 +428,14 @@ std::string NativeHandlers::ChatUI(const std::string& params, MCPBridgeGUP* gup)
         }
 
         if (action == "clear") {
+            // Gate so we can't wipe the vector between an in-flight turn's
+            // snapshot and its later push of assistant/tool messages —
+            // would leave orphan rows the API rejects.
+            bool expected = false;
+            if (!g_processing.compare_exchange_strong(expected, true)) {
+                throw std::runtime_error("Chat is busy - another turn is in progress.");
+            }
+            struct R { ~R(){ g_processing = false; } } r;
             {
                 std::lock_guard<std::mutex> lock(g_convMutex);
                 g_conversation.clear();

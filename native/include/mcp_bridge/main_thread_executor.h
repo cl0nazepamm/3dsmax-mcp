@@ -54,4 +54,11 @@ private:
 
     static thread_local bool tl_direct_mode_;
     static constexpr UINT WM_MCP_EXECUTE = WM_USER + 0x4D43;
+
+    // Per-process random secret. Sent in wParam alongside every
+    // WM_MCP_EXECUTE so cross-process attackers can't smuggle pointers
+    // for WndProc to reinterpret_cast — same-user processes can enumerate
+    // and PostMessage to top-level windows freely (UIPI doesn't block
+    // WM_USER+ between same-integrity processes).
+    static WPARAM s_execute_cookie_;
 };

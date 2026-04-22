@@ -51,12 +51,17 @@ void Init();
 
 // Read-only accessor (post-Init).
 const Config& GetConfig();
+std::string GetApiKeySource();
+std::string GetApiKeyFingerprint();
 
 // True when api_key + base_url are set.
 bool IsConfigured();
 
 // Send chat completion request (blocking — call from background thread).
-Response Chat(const std::vector<Message>& messages, const json& tools = json::array());
+Response Chat(
+    const std::vector<Message>& messages,
+    const json& tools = json::array(),
+    int timeoutMs = 180000);
 
 // Execute a tool call by routing through CommandDispatcher::Dispatch —
 // inherits safe_mode filter (for execute_maxscript) and main-thread

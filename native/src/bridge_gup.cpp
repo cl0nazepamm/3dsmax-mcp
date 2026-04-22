@@ -72,6 +72,10 @@ DWORD MCPBridgeGUP::Start() {
     g_gupInstance = this;
     executor_.Initialize();
 
+    // Chat UI init deferred out of DllMain — calling LoadLibraryW for
+    // msftedit.dll under the loader lock deadlocks Max startup.
+    MCPChatUI::Init(hInstance);
+
     pipe_server_ = std::make_unique<PipeServer>(this);
     pipe_server_->Start();
 
@@ -100,12 +104,28 @@ DWORD MCPBridgeGUP::Start() {
 }
 
 void MCPBridgeGUP::Stop() {
+    // Drain detached chat threads (ProcessChatMessage launches std::thread.detach()
+    // per user message; they sit in WinHTTP and capture `this`) before tearing
+    // down the executor and chat UI, otherwise the thread resumes into freed
+    // memory. Bounded so a stuck HTTP call doesn't hang Max shutdown forever.
+    extern bool WaitForChatTurns(int timeout_ms);
+    bool drained = WaitForChatTurns(5000);
+    if (!drained) {
+        Interface* ip = GetCOREInterface();
+        LogSys* log = ip ? ip->Log() : nullptr;
+        if (log) {
+            log->LogEntry(SYSLOG_WARN, NO_DIALOG, _T("MCP Bridge"),
+                _T("MCP Bridge: chat thread still in flight at shutdown — proceeding anyway"));
+        }
+    }
+
     MCPChatUI::Destroy();
     if (pipe_server_) {
         pipe_server_->Stop();
         pipe_server_.reset();
     }
     executor_.Shutdown();
+    g_gupInstance = nullptr;
 }
 
 void MCPBridgeGUP::DeleteThis() {

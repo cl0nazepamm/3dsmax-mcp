@@ -6,6 +6,7 @@
 #include <istdplug.h>
 #include <decomp.h>
 #include <set>
+#include <unordered_map>
 
 using json = nlohmann::json;
 using namespace HandlerHelpers;
@@ -315,13 +316,136 @@ static std::vector<std::pair<std::string, std::string>> ParseParamString(const s
     return result;
 }
 
+static std::string ToLowerCopy(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+    return s;
+}
+
+static bool HasParam(const std::vector<std::pair<std::string, std::string>>& params,
+                     const std::string& key) {
+    std::string lkey = ToLowerCopy(key);
+    for (const auto& [paramKey, _] : params) {
+        if (ToLowerCopy(paramKey) == lkey) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void UpsertParam(std::vector<std::pair<std::string, std::string>>& params,
+                        const std::string& key,
+                        const std::string& value) {
+    std::string lkey = ToLowerCopy(key);
+    for (auto& [paramKey, paramValue] : params) {
+        if (ToLowerCopy(paramKey) == lkey) {
+            paramValue = value;
+            return;
+        }
+    }
+    params.push_back({key, value});
+}
+
+static std::string DefaultCreateObjectParams(const std::string& type) {
+    static const std::unordered_map<std::string, std::string> kDefaults = {
+        {"box", "length:25 width:25 height:25"},
+        {"sphere", "radius:25"},
+        {"cylinder", "radius:10 height:25"},
+        {"cone", "radius1:15 radius2:0 height:25"},
+        {"torus", "radius:20 radius2:5"},
+        {"plane", "length:50 width:50"},
+        {"teapot", "radius:15"},
+        {"tube", "radius1:15 radius2:10 height:25"},
+        {"pyramid", "width:25 depth:25 height:25"},
+        {"geosphere", "radius:25"},
+        {"hedra", "radius:15"},
+        {"torusknot", "radius:20 radius2:4"},
+        {"chamferbox", "length:25 width:25 height:25 fillet:2"},
+        {"chamfercyl", "radius:10 height:25 fillet:2"},
+        {"oiltank", "radius:15 height:25 capheight:5"},
+        {"spindle", "radius:15 height:25 capheight:5"},
+        {"capsule", "radius:10 height:25"},
+    };
+    auto it = kDefaults.find(ToLowerCopy(type));
+    return it != kDefaults.end() ? it->second : "";
+}
+
+static std::string JsonValueToParamString(const json& value, bool rawString = false) {
+    switch (value.type()) {
+    case json::value_t::null:
+    case json::value_t::discarded:
+        return {};
+    case json::value_t::string:
+        return rawString ? value.get<std::string>() : value.dump();
+    case json::value_t::object:
+        return {};
+    default:
+        return value.dump();
+    }
+}
+
+static void MergeJsonParams(const json& source,
+                            std::vector<std::pair<std::string, std::string>>& out) {
+    if (source.type() != json::value_t::object) {
+        return;
+    }
+
+    for (auto it = source.begin(); it != source.end(); ++it) {
+        std::string key = it.key();
+        std::string lkey = ToLowerCopy(key);
+        if (lkey == "position") {
+            key = "pos";
+            lkey = "pos";
+        }
+        std::string value = JsonValueToParamString(it.value(), lkey == "pos");
+        if (value.empty()) {
+            continue;
+        }
+        UpsertParam(out, key, value);
+    }
+}
+
+static std::vector<std::pair<std::string, std::string>> BuildCreateObjectParams(
+    const json& payload,
+    const std::string& type) {
+
+    std::vector<std::pair<std::string, std::string>> kvPairs;
+
+    auto paramsIt = payload.find("params");
+    if (paramsIt != payload.end()) {
+        if (paramsIt->type() == json::value_t::string) {
+            kvPairs = ParseParamString(paramsIt->get<std::string>());
+        } else if (paramsIt->type() == json::value_t::object) {
+            MergeJsonParams(*paramsIt, kvPairs);
+        }
+    }
+
+    if (payload.type() == json::value_t::object) {
+        for (auto it = payload.begin(); it != payload.end(); ++it) {
+            std::string lkey = ToLowerCopy(it.key());
+            if (lkey == "type" || lkey == "name" || lkey == "params") {
+                continue;
+            }
+            json wrapper = json::object();
+            wrapper[it.key()] = it.value();
+            MergeJsonParams(wrapper, kvPairs);
+        }
+    }
+
+    for (const auto& [key, value] : ParseParamString(DefaultCreateObjectParams(type))) {
+        if (!HasParam(kvPairs, key)) {
+            kvPairs.push_back({key, value});
+        }
+    }
+
+    return kvPairs;
+}
+
 // ── native:create_object (Pure SDK) ─────────────────────────────
 std::string NativeHandlers::CreateObject(const std::string& params, MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([&params]() -> std::string {
         json p = json::parse(params, nullptr, false);
         std::string type = p.value("type", "");
         std::string name = p.value("name", "");
-        std::string objParams = p.value("params", "");
 
         if (type.empty()) throw std::runtime_error("type is required");
 
@@ -356,9 +480,9 @@ std::string NativeHandlers::CreateObject(const std::string& params, MCPBridgeGUP
         Point3 posOverride(0, 0, 0);
         bool hasPos = false;
         bool anyParamFailed = false;
+        auto kvPairs = BuildCreateObjectParams(p, type);
 
-        if (!objParams.empty()) {
-            auto kvPairs = ParseParamString(objParams);
+        if (!kvPairs.empty()) {
             for (auto& [key, val] : kvPairs) {
                 std::string lkey = key;
                 std::transform(lkey.begin(), lkey.end(), lkey.begin(), ::tolower);

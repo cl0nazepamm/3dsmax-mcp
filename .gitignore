@@ -25,3 +25,9 @@ native/build/
 native/build2027/
 native/generated/
 !native/bin/
+
+# Dev convenience scripts are personal — install.py is the user-facing installer,
+# build.bat/clean.bat stay for devs who want a bare build. Everything else is local.
+dev.bat
+native/dev.bat
+native/deploy.bat
