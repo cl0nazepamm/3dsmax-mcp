@@ -4,17 +4,16 @@
   <img src="images/logo.png" alt="3dsmax-mcp logo" width="200">
 </p>
 
-MCP server that connects AI agents to Autodesk 3ds Max.
-Works with Claude Code, Claude Desktop, Codex, Gemini, and any MCP-compatible client.
+A production oriented MCP server that connects AI agents to Autodesk 3ds Max.
+Works with any MCP-compatible client.
 
-### What's new in 0.5.0
+### Features
 
 - **Native C++ Bridge** — 76 handlers running inside 3ds Max as a GUP plugin, 86-130x faster than MAXScript
 - **One-step installer** — `uv run python install.py` handles everything
-- **Multi-view capture** — pure SDK viewport switching, no MAXScript re-entrancy
+- **Quad-view capture** — Screenshotting is fast and supports multi views.
 - **Controller & wiring tools** — assign controllers, wire parameters, inspect track views
-- **PB1 fallback** — legacy primitives (Capsule, Hedra, etc.) now get correct params
-- **110 tools** across scene, objects, materials, modifiers, controllers, viewport, introspection.
+- **115 tools** across scene, objects, materials, modifiers, controllers, viewport, introspection.
 - **Bundled MAXScript reference** — 10 topic files for agents to write correct MAXScript
 
 ## Architecture
@@ -42,36 +41,6 @@ uv sync
 uv run python install.py
 ```
 
-The installer will:
-- Detect your 3ds Max installation
-- Deploy the native bridge plugin (`.gup`)
-- Install the MAXScript listener (TCP fallback)
-- Build skill files for your agents
-- Register with Claude Code / Codex / Gemini / Claude Desktop
-
-Restart 3ds Max and any running agents after installation.
-
-### Manual registration
-
-If the installer can't find your agent, register manually:
-
-**Claude Code / Codex / Gemini:**
-```powershell
-claude mcp add --scope user 3dsmax-mcp -- uv run --directory "C:\path\to\3dsmax-mcp" 3dsmax-mcp
-```
-
-**Claude Desktop** — add to `%APPDATA%\Claude\claude_desktop_config.json`:
-```json
-{
-  "mcpServers": {
-    "3dsmax-mcp": {
-      "command": "uv",
-      "args": ["run", "--directory", "C:\\path\\to\\3dsmax-mcp", "3dsmax-mcp"]
-    }
-  }
-}
-```
-
 ## Updating
 
 ```powershell
@@ -80,9 +49,11 @@ uv sync
 uv run python install.py
 ```
 
-## Skill file
+## Skill
 
-The skill file teaches agents how to use the tools, what pitfalls to avoid, and how 3ds Max works. Without it, agents will guess wrong on material workflows, controller paths, and plugin APIs. The installer builds and deploys it automatically.
+The skill file teaches agents how to use the tools, what pitfalls to avoid, and how 3ds Max works. Without it, agents will guess wrong on material workflows, controller paths, and plugin APIs. The installer builds and deploys it automatically. 
+
+However Anthropic models seem to REALLY like using maxscript instead of using the native tooling unlike Codex which uses the right tool most of the time.
 
 If you need to rebuild manually:
 ```powershell
@@ -144,7 +115,7 @@ The v0.6.0 chat window runs your configured LLM with the full native tool surfac
 
 Run an AI chat entirely inside 3ds Max — no external MCP client required. The native bridge ships with a Win32 chat window, an OpenAI-compatible LLM client, and direct access to the full tool surface.
 
-- **Launch:** Customize UI → MCP category → **MCP Chat** macroscript
+- **Launch:** You can find chat window in usermacros or search it directly by global search.
 - **API key:** `%LOCALAPPDATA%\3dsmax-mcp\.env` — `OPENROUTER_API_KEY=...` (also accepts `LLM_API_KEY` / `OPENAI_API_KEY`). Real env vars override the file. `deploy.bat` seeds `.env.example` on first install.
 - **Settings:** `%LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini` `[llm]` — non-secret knobs only (`base_url`, `model`, `max_tokens`, `temperature`). Default target is OpenRouter + `anthropic/claude-sonnet-4.6`.
 - **Tools:** all ~88 tools from `src/tools/*.py` are auto-registered (generated at build time by `scripts/gen_tool_registry.py`), plus `execute_maxscript` as a catch-all.
