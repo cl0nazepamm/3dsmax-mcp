@@ -5,12 +5,24 @@ from unittest.mock import patch
 from src.tools import snapshots
 
 
+def _force_fallback():
+    """Make client.send_command raise RuntimeError so get_scene_delta's
+    native path takes its `except RuntimeError: pass` branch and falls
+    through to the Python diff logic these tests exercise."""
+    return patch.object(
+        snapshots.client,
+        "send_command",
+        side_effect=RuntimeError("test: force Python fallback"),
+    )
+
+
 class SceneDeltaTests(unittest.TestCase):
     def test_first_call_captures_baseline(self) -> None:
         state = {
             "Box001": {"c": "Box", "p": [0.0, 0.0, 0.0], "m": "", "n": 0, "h": False},
         }
-        with patch.object(snapshots, "_capture_scene_state", return_value=state):
+        with _force_fallback(), \
+             patch.object(snapshots, "_capture_scene_state", return_value=state):
             snapshots._previous_snapshot = None
             result = json.loads(snapshots.get_scene_delta())
 
@@ -20,7 +32,8 @@ class SceneDeltaTests(unittest.TestCase):
         state = {
             "Sphere001": {"c": "Sphere", "p": [1.0, 2.0, 3.0], "m": "", "n": 0, "h": False},
         }
-        with patch.object(snapshots, "_capture_scene_state", return_value=state):
+        with _force_fallback(), \
+             patch.object(snapshots, "_capture_scene_state", return_value=state):
             snapshots._previous_snapshot = {"Old": {"c": "Box", "p": [0, 0, 0], "m": "", "n": 0, "h": False}}
             result = json.loads(snapshots.get_scene_delta(capture=True))
 
@@ -36,7 +49,8 @@ class SceneDeltaTests(unittest.TestCase):
             "Box002": {"c": "Box", "p": [6.2, 0.0, 0.0], "m": "MatB", "n": 2, "h": True},
             "Sphere001": {"c": "Sphere", "p": [1.0, 1.0, 1.0], "m": "", "n": 0, "h": False},
         }
-        with patch.object(snapshots, "_capture_scene_state", return_value=current):
+        with _force_fallback(), \
+             patch.object(snapshots, "_capture_scene_state", return_value=current):
             snapshots._previous_snapshot = previous
             result = json.loads(snapshots.get_scene_delta())
 
@@ -61,7 +75,8 @@ class SceneDeltaTests(unittest.TestCase):
         current = {
             "Box001": {"c": "Box", "p": [1.03, 2.0, 3.0], "m": "", "n": 0, "h": False},
         }
-        with patch.object(snapshots, "_capture_scene_state", return_value=current):
+        with _force_fallback(), \
+             patch.object(snapshots, "_capture_scene_state", return_value=current):
             snapshots._previous_snapshot = previous
             result = json.loads(snapshots.get_scene_delta())
 
