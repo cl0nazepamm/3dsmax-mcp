@@ -462,12 +462,46 @@ struct MCPServerStruct
 	)
 )
 
--- Auto-create and start
+-- Define helpers; do NOT auto-start.
+--
+-- The TCP fallback's listener runs on a WinForms timer that ticks Max's
+-- main thread. With the native bridge present (the normal case) it just
+-- adds noise; without the bridge it locks Max if anything inside the tick
+-- handler runs long. v0.6.2: opt-in only via the `MCP Start` macroscript
+-- (Customize UI -> MCP -> MCP Start). `MCP Stop` shuts it back down.
 if MCP_Server != undefined and MCP_Server.isRunning then
 (
 	MCP_Server.stop()
 )
 MCP_Server = MCPServerStruct()
 MCP_Server.safeMode = MCP_Server.loadSafeMode()
-format "MCP: safe_mode = %\n" MCP_Server.safeMode
-MCP_Server.start()
+format "MCP: helpers loaded (safe_mode = %, native bridge = %)\n" \
+	MCP_Server.safeMode (MCP_Server.nativeBridgeAvailable())
+
+macroScript MCP_Start category:"MCP" tooltip:"Start MCP TCP fallback (port 8765)" buttonText:"MCP Start"
+(
+	on execute do
+	(
+		if MCP_Server == undefined then
+		(
+			format "MCP: helpers not loaded; run startup\\mcp_autostart.ms first\n"
+		)
+		else if MCP_Server.nativeBridgeAvailable() then
+		(
+			format "MCP: native bridge already serving \\\\.\\pipe\\3dsmax-mcp; TCP fallback not needed\n"
+		)
+		else
+		(
+			MCP_Server.start()
+		)
+	)
+)
+
+macroScript MCP_Stop category:"MCP" tooltip:"Stop MCP TCP fallback" buttonText:"MCP Stop"
+(
+	on execute do
+	(
+		if MCP_Server != undefined and MCP_Server.isRunning then MCP_Server.stop()
+		else format "MCP: TCP fallback not running\n"
+	)
+)
