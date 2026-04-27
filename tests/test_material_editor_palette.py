@@ -175,20 +175,31 @@ class MaterialEditorPaletteTests(unittest.TestCase):
         self.assertIn("outputChannelIndex = 4", maxscript)
         self.assertIn("diffuse(+ao)", maxscript)
 
-    def test_load_texture_folder_to_material_editor_rejects_unknown_pbr_material_class(self) -> None:
+    def test_load_texture_folder_to_material_editor_can_make_vray_pbr_materials(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            tex = Path(tmp) / "wood_basecolor.png"
-            tex.write_bytes(b"fake")
+            root = Path(tmp)
+            for name in ("wood_basecolor.png", "wood_roughness.png", "wood_metalness.png", "wood_normal.png"):
+                (root / name).write_bytes(b"fake")
 
-            with patch("src.tools.material_ops.client.send_command") as send:
+            with patch(
+                "src.tools.material_ops.client.send_command",
+                return_value={"result": "Loaded V-Ray"},
+            ) as send:
                 result = palette_laydown(
                     tmp,
                     slot_content="full_pbr",
                     material_class="VRayMtl",
                 )
 
-        self.assertIn("Unsupported material_class", result)
-        send.assert_not_called()
+        self.assertEqual(result, "Loaded V-Ray")
+        send.assert_called_once()
+        maxscript = send.call_args.args[0]
+        self.assertIn('VRayMtl name:"tex_wood"', maxscript)
+        self.assertIn("texmap_diffuse", maxscript)
+        self.assertIn("texmap_roughness", maxscript)
+        self.assertIn("brdf_useRoughness", maxscript)
+        self.assertIn("texmap_metalness", maxscript)
+        self.assertIn("VRayNormalMap", maxscript)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,8 @@ Covers the full material workflow: creating materials by class, assigning them
 to objects, setting properties, creating texture maps, writing OSL shaders,
 and managing Multi/Sub-Object sub-material slots.
 Works with all material/map types: OpenPBR, Arnold (ai_standard_surface),
-Physical, Standard, OSLMap, Bitmaptexture, ai_bump2d, and any MAXScript-creatable class.
+V-Ray (VRayMtl), Physical, Standard, OSLMap, Bitmaptexture, ai_bump2d,
+and any MAXScript-creatable class.
 """
 
 import json
@@ -147,6 +148,19 @@ _RENDERER_CONFIGS: dict[str, dict] = {
             "specular":      "refl_color_map",
         },
     },
+    "vray": {
+        "material_class": "VRayMtl",
+        "slots": {
+            "diffuse":       "texmap_diffuse",
+            "roughness":     "texmap_roughness",
+            "glossiness":    "texmap_reflectionGlossiness",
+            "metallic":      "texmap_metalness",
+            "opacity":       "texmap_opacity",
+            "emission":      "texmap_self_illumination",
+            "translucency":  "texmap_translucent",
+            "specular":      "texmap_reflection",
+        },
+    },
 }
 
 _PBR_SLOT_CANDIDATES: dict[str, dict[str, list[str]]] = {
@@ -204,6 +218,20 @@ _PBR_SLOT_CANDIDATES: dict[str, dict[str, list[str]]] = {
         "emission":     ["emission_color_map"],
         "translucency": ["refr_color_map"],
         "specular":     ["refl_color_map"],
+    },
+    "vray": {
+        "diffuse":      ["texmap_diffuse", "diffuse_texmap", "diffuseMap"],
+        "ao":           ["texmap_diffuse", "diffuse_texmap", "diffuseMap"],
+        "roughness":    ["texmap_roughness", "roughness_texmap", "texmap_reflectionRoughness", "reflectionRoughness_texmap", "reflection_roughness_texmap"],
+        "glossiness":   ["texmap_reflectionGlossiness", "reflectionGlossiness_texmap", "reflection_glossiness_texmap"],
+        "metallic":     ["texmap_metalness", "metalness_texmap", "texmap_metallic", "metallic_texmap"],
+        "normal":       ["texmap_bump", "bump_texmap", "bumpMap"],
+        "bump":         ["texmap_bump", "bump_texmap", "bumpMap"],
+        "displacement": ["texmap_displacement", "displacement_texmap", "displacementMap"],
+        "opacity":      ["texmap_opacity", "opacity_texmap", "opacityMap"],
+        "emission":     ["texmap_self_illumination", "selfIllumination_texmap", "self_illumination_texmap"],
+        "translucency": ["texmap_translucent", "translucent_texmap", "texmap_translucency"],
+        "specular":     ["texmap_reflection", "reflection_texmap", "reflectionMap"],
     },
 }
 
@@ -359,6 +387,8 @@ def _renderer_from_material_class(material_class: str) -> str | None:
         return "arnold"
     if class_lower in {"redshift", "rs_standard_material", "rsstandardmaterial"} or "redshift" in class_lower:
         return "redshift"
+    if class_lower in {"vray", "v-ray", "vraymtl", "v_ray_mtl", "vray_mtl"} or "vray" in class_lower:
+        return "vray"
     return None
 
 
@@ -386,6 +416,12 @@ def _material_slot_hints(material_class: str) -> dict[str, str]:
             "preferredBitmapClass": "Bitmaptexture",
             "normalHelperClass": "RS_BumpMap",
             "bumpHelperClass": "RS_BumpMap",
+        }
+    if cls in {"vraymtl", "v_ray_mtl", "vray_mtl"}:
+        return {
+            "preferredBitmapClass": "Bitmaptexture",
+            "normalHelperClass": "Normal_Bump",
+            "bumpHelperClass": "Normal_Bump",
         }
     if cls in {"openpbrmaterial", "openpbr_material", "physicalmaterial", "standardmaterial", "gltfmaterial", "maxusdpreviewsurface"}:
         return {
@@ -1661,6 +1697,7 @@ def _build_material_editor_pbr_palette_maxscript(
         "physical": "PhysicalMaterial",
         "arnold": "Arnold ai_standard_surface",
         "redshift": "Redshift RS_Standard_Material",
+        "vray": "V-Ray VRayMtl",
     }[renderer]
 
     lines: list[str] = [
@@ -1766,13 +1803,16 @@ def _build_material_editor_pbr_palette_maxscript(
             lines.append(f'    local {mat_var} = PhysicalMaterial name:"{mat_name}"')
         elif renderer == "arnold":
             lines.append(f'    local {mat_var} = ai_standard_surface name:"{mat_name}"')
-        else:
+        elif renderer == "redshift":
             lines.append(f'    local {mat_var} = RS_Standard_Material name:"{mat_name}"')
+        else:
+            lines.append(f'    local {mat_var} = VRayMtl name:"{mat_name}"')
+            lines.append(f"    try ({mat_var}.brdf_useRoughness = true) catch ()")
 
         lines.extend([
             "    local channelList = \"\"",
             "    local skippedList = \"\"",
-            f'    local specDefault = mcp_setFirstValue {mat_var} #("specular_color", "specularColor", "specular", "refl_color") (color 255 255 255)',
+            f'    local specDefault = mcp_setFirstValue {mat_var} #("specular_color", "specularColor", "specular", "refl_color", "reflection") (color 255 255 255)',
         ])
 
         for channel, fpath in channels.items():
@@ -1851,6 +1891,14 @@ def _build_material_editor_pbr_palette_maxscript(
                     f"    {final_normal}.input_map = {map_vars['normal']}",
                     f"    {final_normal}.inputType = 1",
                 ])
+            elif renderer == "vray":
+                final_normal = f"g{idx}_normal_node"
+                lines.extend([
+                    f'    local {final_normal} = VRayNormalMap name:"NormalMap"',
+                    f"    {final_normal}.normal_map = {map_vars['normal']}",
+                ])
+                if "bump" in map_vars:
+                    lines.append(f"    {final_normal}.bump_map = {map_vars['bump']}")
             else:
                 final_normal = f"g{idx}_normal_node"
                 lines.extend([
@@ -1874,6 +1922,8 @@ def _build_material_editor_pbr_palette_maxscript(
                     f"    {bump_node}.input_map = {map_vars['bump']}",
                     f"    {bump_node}.inputType = 0",
                 ])
+            elif renderer == "vray":
+                bump_node = map_vars["bump"]
             else:
                 bump_node = f"g{idx}_bump_node"
                 lines.extend([
@@ -1938,8 +1988,8 @@ def _palette_laydown_impl(
     places raw Bitmaptexture maps directly into the palette slots. slot_content
     values like "pbr_material" or "full_pbr" group texture sets by filename and
     create one fully wired PBR material per slot. For grouped mode, material_class
-    may be OpenPBRMaterial, PhysicalMaterial, ai_standard_surface, or
-    RS_Standard_Material; OpenPBR is the default.
+    may be OpenPBRMaterial, PhysicalMaterial, ai_standard_surface,
+    RS_Standard_Material, or VRayMtl; OpenPBR is the default.
     """
     start_slot = max(1, min(24, int(start_slot)))
     max_slots = max(1, min(24 - start_slot + 1, int(max_slots)))
@@ -1965,7 +2015,7 @@ def _palette_laydown_impl(
     if slot_content == "pbr_material" and renderer is None:
         return (
             f"Unsupported material_class for grouped PBR palette: {material_class}. "
-            "Use OpenPBRMaterial, PhysicalMaterial, ai_standard_surface, or RS_Standard_Material."
+            "Use OpenPBRMaterial, PhysicalMaterial, ai_standard_surface, RS_Standard_Material, or VRayMtl."
         )
 
     files = _scan_material_editor_palette_files(texture_folder, recursive)
