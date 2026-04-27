@@ -5,8 +5,10 @@ Detects 3ds Max, deploys the native bridge, installs MAXScript listener,
 builds skills, and registers with AI agents.
 
 Run:  uv run python install.py
+Skip skill install: uv run python install.py --skip-skill
 """
 
+import argparse
 import json
 import os
 import shutil
@@ -93,10 +95,9 @@ def copy_elevated(src: Path, dst: Path) -> bool:
         return dst.exists()
 
 
-def deploy_config() -> bool:
+def deploy_config(skip_skill: bool = False) -> bool:
     print(f"\n[1/5] User config -> {CONFIG_DIR}")
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    SKILL_DIR.mkdir(parents=True, exist_ok=True)
 
     # mcp_config.ini — preserve on redeploy so custom [llm] settings + safe_mode stick
     if CONFIG_DST.exists():
@@ -118,7 +119,10 @@ def deploy_config() -> bool:
         print(f"  .env:           SKIP (no .env.example in repo)")
 
     # SKILL.md — always refresh (source of truth for the in-Max chat's system prompt)
-    if SKILL_SRC.exists():
+    if skip_skill:
+        print(f"  skill/SKILL.md: SKIP (--skip-skill)")
+    elif SKILL_SRC.exists():
+        SKILL_DIR.mkdir(parents=True, exist_ok=True)
         shutil.copy2(SKILL_SRC, SKILL_DST)
         print(f"  skill/SKILL.md: refreshed")
     else:
@@ -176,8 +180,11 @@ def deploy_maxscript(max_dir: Path) -> bool:
     return ok
 
 
-def build_skills() -> bool:
+def build_skills(skip_skill: bool = False) -> bool:
     print(f"\n[4/5] Building skill files")
+    if skip_skill:
+        print("  SKIP (--skip-skill)")
+        return True
     print("  Where should skills be installed?")
     print("    1) Project only")
     print("    2) Global only (default)")
@@ -252,7 +259,20 @@ def register_agents() -> bool:
     return True
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Install 3dsmax-mcp")
+    parser.add_argument(
+        "--skip-skill",
+        "--skip-skills",
+        action="store_true",
+        help="Skip copying SKILL.md to the chat config and skip build_skill.py.",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+
     print("=" * 60)
     print("  3dsmax-mcp installer")
     print("=" * 60)
@@ -274,7 +294,7 @@ def main():
             max_dir = None
 
     # Deploy
-    deploy_config()
+    deploy_config(skip_skill=args.skip_skill)
     if max_dir:
         deploy_native_bridge(max_dir)
         deploy_maxscript(max_dir)
@@ -282,7 +302,7 @@ def main():
         print("\n[2/5] SKIP: no Max installation")
         print("[3/5] SKIP: no Max installation")
 
-    build_skills()
+    build_skills(skip_skill=args.skip_skill)
     register_agents()
 
     # Summary

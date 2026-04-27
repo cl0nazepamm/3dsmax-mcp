@@ -49,6 +49,11 @@ uv sync
 uv run python install.py
 ```
 
+To install without copying or building the agent skill files:
+```powershell
+uv run python install.py --skip-skill
+```
+
 ## MCP Tool Profile
 
 The external MCP server defaults to a compact core profile to reduce tool-list
