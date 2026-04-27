@@ -4,11 +4,7 @@ from ..server import mcp, client
 
 @mcp.tool()
 def get_materials() -> str:
-    """List all materials assigned to objects in the current 3ds Max scene.
-
-    Returns a formatted list with each material's name, class, and which
-    objects it is assigned to.
-    """
+    """List all materials assigned to objects in the current 3ds Max scene."""
     if client.native_available:
         try:
             response = client.send_command(_json.dumps({}), cmd_type="native:get_materials")

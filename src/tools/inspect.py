@@ -12,18 +12,7 @@ from src.helpers.maxscript import safe_string
 
 @mcp.tool()
 def inspect_object(name: str) -> str:
-    """Get comprehensive properties of an object for exploration.
-
-    Use this as the FIRST step when you need to understand an object —
-    gives you everything at a glance: class, transform, hierarchy, modifiers,
-    material, mesh stats, bounding box, render flags, and instance status.
-    Prefer this over get_object_properties for a richer overview.
-
-    Args:
-        name: The object name (e.g. "Box001")
-
-    Returns detailed JSON property dump.
-    """
+    """Get comprehensive properties of an object for exploration."""
     if client.native_available:
         try:
             payload = _json.dumps({"name": name})
@@ -139,27 +128,7 @@ def inspect_properties(
     target: str = "object",
     modifier_index: int = 0,
 ) -> str:
-    """Deep-inspect all properties of an object, modifier, base object, or material.
-
-    Use this BEFORE setting any property via set_object_property or execute_maxscript —
-    it tells you the exact property names, current values, and declared types
-    (e.g. "worldUnits", "texturemap", "percent") so you never guess wrong.
-    Use target="baseobject" for parametric params (Box length/width/height),
-    target="modifier" to see modifier params, target="material" for material slots.
-
-    Args:
-        name: The object name (e.g. "Box001")
-        target: What to inspect:
-            - "object" — the node itself
-            - "baseobject" — the base parametric object (e.g. Box params)
-            - "modifier" — a specific modifier (use modifier_index)
-            - "material" — the assigned material
-        modifier_index: 1-based modifier index (only used when target="modifier")
-
-    Returns:
-        JSON with all properties, their current values, runtime types,
-        and declared types.
-    """
+    """Deep-inspect all properties of an object, modifier, base object, or material."""
     if client.native_available:
         try:
             payload = {"name": name, "target": target, "modifier_index": modifier_index}
@@ -266,19 +235,7 @@ def inspect_properties(
 
 @mcp.tool()
 def inspect_modifier_properties(name: str, modifier_index: int) -> str:
-    """Inspect all properties of a specific modifier on an object.
-
-    Shortcut for inspect_properties with target="modifier".
-    Use this when you need to know what parameters a modifier exposes
-    before changing them (e.g. check TurboSmooth has "iterations" not "subdivisions").
-
-    Args:
-        name: The object name (e.g. "Box001")
-        modifier_index: 1-based index in the modifier stack.
-
-    Returns:
-        JSON with all modifier properties, values, and types.
-    """
+    """Inspect all properties of a specific modifier on an object."""
     return inspect_properties(name, target="modifier", modifier_index=modifier_index)
 
 
@@ -289,23 +246,7 @@ def introspect_osl(
     osl_file: str = "",
     sub_material_index: int = 0,
 ) -> str:
-    """Inspect the API surface of any material, texturemap, or modifier class.
-
-    Returns classOf, superClassOf, all properties with types, interfaces with
-    methods, and output channels. Lightweight MAXScript reflection — bounded
-    output, no 600K blowups.
-
-    Use this instead of introspect_class when you need a quick property/interface
-    dump for materials, texturemaps, or OSLMaps.
-
-    Args:
-        class_name: Class to inspect (e.g. "OSLMap", "PhysicalMaterial",
-                    "Bitmaptexture", "TurboSmooth"). Creates a temp instance.
-        name: Object name — inspects its material instead of creating temp.
-        osl_file: For OSLMap: .osl filename (e.g. "UberBitmap2") or full path.
-                  Short names resolve to (getDir #maxRoot)/OSL/<name>.osl
-        sub_material_index: Sub-material slot (1-based). 0 = top material.
-    """
+    """Inspect the API surface of any material, texturemap, or modifier class."""
     if not class_name and not name:
         return '{"error":"Provide class_name or name"}'
 

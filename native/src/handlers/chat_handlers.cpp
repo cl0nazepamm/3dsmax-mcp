@@ -165,9 +165,10 @@ static ChatTurnResult RunChatTurn(const std::string& text, MCPBridgeGUP* gup, in
         messages.insert(messages.end(), g_conversation.begin(), g_conversation.end());
     }
 
+    const auto& cfg = LLMClient::GetConfig();
     json tools = LLMClient::GetToolDefinitions();
 
-    int maxLoops = 5;
+    int maxLoops = cfg.maxToolLoops;
     for (int loop = 0; loop < maxLoops; loop++) {
         MCPChatUI::SetStatus("calling API...");
         auto response = LLMClient::Chat(messages, tools, RemainingTimeoutMs(deadline, timeout_ms));
@@ -227,7 +228,7 @@ static ChatTurnResult RunChatTurn(const std::string& text, MCPBridgeGUP* gup, in
 
             ThrowIfTimedOut(deadline, timeout_ms);
 
-            const size_t DISPLAY_CAP = 600;
+            const size_t DISPLAY_CAP = (size_t)cfg.maxDisplayToolChars;
             if (toolResult.size() > DISPLAY_CAP) {
                 MCPChatUI::AppendMessage("tool",
                     tc.name + "  " + toolResult.substr(0, Utf8SafeCut(toolResult, DISPLAY_CAP)) +
@@ -236,8 +237,9 @@ static ChatTurnResult RunChatTurn(const std::string& text, MCPBridgeGUP* gup, in
                 MCPChatUI::AppendMessage("tool", tc.name + "  " + toolResult);
             }
 
-            std::string truncated = toolResult.size() > 1200
-                ? toolResult.substr(0, Utf8SafeCut(toolResult, 1200)) + "..."
+            const size_t SUMMARY_CAP = (size_t)cfg.maxToolSummaryChars;
+            std::string truncated = toolResult.size() > SUMMARY_CAP
+                ? toolResult.substr(0, Utf8SafeCut(toolResult, SUMMARY_CAP)) + "..."
                 : toolResult;
             turn.toolCalls.push_back({
                 {"name", tc.name},
@@ -245,19 +247,23 @@ static ChatTurnResult RunChatTurn(const std::string& text, MCPBridgeGUP* gup, in
                 {"result", truncated}
             });
 
-            // The LLM gets the FULL tool result for this turn so it can reason
-            // over everything. But storing full results in g_conversation forever
-            // blows context on every subsequent turn — an introspect_instance
-            // dump can be 20–50k chars. Cap the *historical* copy; the live
-            // `messages` copy stays untruncated.
-            const size_t HISTORY_CAP = 4000;
+            // The live turn gets a larger configurable cap; historical copies
+            // are tighter so one deep introspection cannot bloat every later turn.
+            const size_t LIVE_CAP = (size_t)cfg.maxToolResultChars;
+            std::string liveResult = toolResult.size() > LIVE_CAP
+                ? toolResult.substr(0, Utf8SafeCut(toolResult, LIVE_CAP)) +
+                  "\n...[truncated for live turn, " +
+                  std::to_string(toolResult.size() - LIVE_CAP) + " chars omitted]"
+                : toolResult;
+
+            const size_t HISTORY_CAP = (size_t)cfg.maxHistoryToolChars;
             std::string historyResult = toolResult.size() > HISTORY_CAP
                 ? toolResult.substr(0, Utf8SafeCut(toolResult, HISTORY_CAP)) +
                   "\n...[truncated for history, " +
                   std::to_string(toolResult.size() - HISTORY_CAP) + " chars omitted]"
                 : toolResult;
 
-            LLMClient::Message liveToolMessage{"tool", toolResult,    tc.id, nullptr};
+            LLMClient::Message liveToolMessage{"tool", liveResult,    tc.id, nullptr};
             LLMClient::Message histToolMessage{"tool", historyResult, tc.id, nullptr};
             {
                 std::lock_guard<std::mutex> lock(g_convMutex);
@@ -347,6 +353,8 @@ static std::string HandleSend(const json& p, MCPBridgeGUP* gup) {
         result["reply"] = turn.reply;
         result["toolCalls"] = turn.toolCalls;
         result["model"] = LLMClient::GetConfig().model;
+        result["toolProfile"] = LLMClient::GetConfig().toolProfile;
+        result["promptMode"] = LLMClient::GetConfig().promptMode;
         result["apiKeySource"] = LLMClient::GetApiKeySource();
         result["apiKeyFingerprint"] = LLMClient::GetApiKeyFingerprint();
         return result.dump();
@@ -422,6 +430,9 @@ std::string NativeHandlers::ChatUI(const std::string& params, MCPBridgeGUP* gup)
             result["configured"] = LLMClient::IsConfigured();
             result["model"] = cfg.model;
             result["baseUrl"] = cfg.baseUrl;
+            result["toolProfile"] = cfg.toolProfile;
+            result["promptMode"] = cfg.promptMode;
+            result["includeSceneSnapshot"] = cfg.includeSceneSnapshot;
             result["apiKeySource"] = LLMClient::GetApiKeySource();
             result["apiKeyFingerprint"] = LLMClient::GetApiKeyFingerprint();
             return result.dump();
@@ -450,6 +461,9 @@ std::string NativeHandlers::ChatUI(const std::string& params, MCPBridgeGUP* gup)
         result["configured"] = LLMClient::IsConfigured();
         result["model"] = LLMClient::GetConfig().model;
         result["baseUrl"] = LLMClient::GetConfig().baseUrl;
+        result["toolProfile"] = LLMClient::GetConfig().toolProfile;
+        result["promptMode"] = LLMClient::GetConfig().promptMode;
+        result["includeSceneSnapshot"] = LLMClient::GetConfig().includeSceneSnapshot;
         result["processing"] = g_processing.load();
         result["conversationLength"] = ConversationLength();
         result["apiKeySource"] = LLMClient::GetApiKeySource();

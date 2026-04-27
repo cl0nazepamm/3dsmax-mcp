@@ -7,14 +7,7 @@ from src.helpers.maxscript import safe_string
 
 @mcp.tool()
 def set_parent(children: StrList, parent: str = "") -> str:
-    """Parent or unparent objects in the 3ds Max scene.
-
-    Args:
-        children: List of object names to parent.
-        parent: Parent object name. Empty string = unparent (set to scene root).
-
-    Returns confirmation summary.
-    """
+    """Parent or unparent objects in the 3ds Max scene."""
     if client.native_available:
         payload = _json.dumps({"children": children, "parent": parent})
         response = client.send_command(payload, cmd_type="native:set_parent")
@@ -70,13 +63,7 @@ def set_parent(children: StrList, parent: str = "") -> str:
 
 @mcp.tool()
 def get_hierarchy(name: str) -> str:
-    """Get the hierarchy tree of an object (recursive children).
-
-    Args:
-        name: The root object name.
-
-    Returns JSON tree with name, class, and children for each node.
-    """
+    """Get the hierarchy tree of an object (recursive children)."""
     if client.native_available:
         try:
             params = _json.dumps({"name": name})

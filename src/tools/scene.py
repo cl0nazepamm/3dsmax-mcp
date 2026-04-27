@@ -12,18 +12,7 @@ def get_scene_info(
     offset: int = 0,
     roots_only: bool = False,
 ) -> str:
-    """Get a list of all objects in the current 3ds Max scene.
-
-    Returns a formatted list with each object's name, class, position, and visibility.
-
-    Args:
-        class_name: Filter by class name (e.g. "Box", "Sphere", "Dummy").
-        pattern: Wildcard name filter (e.g. "Wall*", "*Light*").
-        layer: Filter by layer name.
-        limit: Max objects to return (default 100, cap).
-        offset: Pagination offset.
-        roots_only: Only top-level objects (no parent).
-    """
+    """Get a list of all objects in the current 3ds Max scene."""
     if client.native_available:
         try:
             params = {}
@@ -148,11 +137,7 @@ def get_scene_info(
 
 @mcp.tool()
 def get_selection() -> str:
-    """Get information about the currently selected objects in 3ds Max.
-
-    Returns a formatted list with each selected object's name, class,
-    position, and wireframe color.
-    """
+    """Get information about the currently selected objects in 3ds Max."""
     if client.native_available:
         try:
             response = client.send_command("", cmd_type="native:selection")

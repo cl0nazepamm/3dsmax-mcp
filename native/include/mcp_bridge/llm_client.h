@@ -22,6 +22,16 @@ struct Config {
     std::string model;      // e.g. "anthropic/claude-sonnet-4.6"
     int maxTokens = 4096;
     float temperature = 0.7f;
+    std::string promptMode = "compact"; // compact, full, none
+    std::string toolProfile = "core";   // core, full
+    bool includeSceneSnapshot = true;
+    int maxSceneRoots = 25;
+    int maxPromptChars = 12000;
+    int maxToolResultChars = 12000;
+    int maxHistoryToolChars = 1800;
+    int maxToolSummaryChars = 600;
+    int maxDisplayToolChars = 600;
+    int maxToolLoops = 4;
 };
 
 struct Message {

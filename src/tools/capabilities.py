@@ -3,11 +3,7 @@ from ..server import mcp, client
 
 @mcp.tool()
 def get_plugin_capabilities() -> str:
-    """Get 3ds Max version, available renderers, installed plugins, and class counts.
-
-    Use this as a first call to understand what the current Max environment supports.
-    Low-token compact output.
-    """
+    """Get 3ds Max version, available renderers, installed plugins, and class counts."""
     maxscript = r"""(
         local esc = MCP_Server.escapeJsonString
 

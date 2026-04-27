@@ -11,15 +11,7 @@ def clone_objects(
     mode: str = "copy",
     offset: Optional[FloatList] = None,
 ) -> str:
-    """Clone (copy/instance/reference) objects in the scene.
-
-    Args:
-        names: List of object names to clone.
-        mode: "copy" (default), "instance", or "reference".
-        offset: [x,y,z] position offset for clones. Default [0,0,0].
-
-    Returns list of new clone names.
-    """
+    """Clone (copy/instance/reference) objects in the scene."""
     if client.native_available:
         try:
             params: dict = {"names": names, "mode": mode}

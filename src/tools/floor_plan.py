@@ -305,29 +305,7 @@ def build_floor_plan(
     doors: DictList = [],
     options: dict[str, Any] | None = None,
 ) -> str:
-    """Build a 2D floor plan from grid-based room definitions.
-
-    Creates a SplineShape with wall segments and optional room labels.
-    Rooms are defined by grid cells; walls auto-detected at boundaries;
-    doors cut gaps in wall segments.
-
-    Args:
-        location: Centre point [x, y, z]. Z=0 means ground level.
-        cell_size: Grid cell size in cm (default 100 = 1 meter per cell).
-        rooms: List of room definitions. Each: {"name": str, "cells": [[col,row], ...]}.
-        doors: List of door specs. Each: {"between": ["RoomA", "RoomB"|null], "position": 0-1, "width": cm}.
-        options: Optional overrides:
-            name_prefix (str, default "FP"),
-            show_labels (bool, default true),
-            label_size (float, default 20),
-            extrude_height (float) — add Extrude modifier for 3D walls,
-            wall_thickness (float) — add Shell modifier,
-            wall_color ([r,g,b]) — wirecolor for wall spline,
-            label_color ([r,g,b]) — wirecolor for text labels.
-
-    Returns:
-        JSON with created objects and organiser dummy name.
-    """
+    """Build a 2D floor plan from grid-based room definitions."""
     opts = options or {}
     prefix = opts.get("name_prefix", "FP")
     show_labels = opts.get("show_labels", True)

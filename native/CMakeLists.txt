@@ -46,7 +46,7 @@ endif()
 
 # ── Generated chat tool registry ─────────────────────────────────
 # scripts/gen_tool_registry.py walks src/tools/*.py and emits
-# native/generated/chat_tool_registry.inc — the chat tool surface for v0.6.0.
+# native/generated/chat_tool_registry.inc — the chat tool surface for v0.7.0.
 # If Python or the script is unavailable, llm_client.cpp falls back to a
 # hand-coded registry so chat still works.
 set(TOOL_REGISTRY_INC "${CMAKE_CURRENT_SOURCE_DIR}/generated/chat_tool_registry.inc")

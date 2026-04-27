@@ -12,8 +12,8 @@ Works with any MCP-compatible client.
 - **Native C++ Bridge** — 76 handlers running inside 3ds Max as a GUP plugin, 86-130x faster than MAXScript
 - **One-step installer** — `uv run python install.py` handles everything
 - **Quad-view capture** — Screenshotting is fast and supports multi views.
-- **Controller & wiring tools** — assign controllers, wire parameters, inspect track views
-- **115 tools** across scene, objects, materials, modifiers, controllers, viewport, introspection.
+- **Compact default tool surface** — core MCP profile exposes common scene/object/material/inspection tools; full profile keeps specialty tools available
+- **116 tools in full profile** across scene, objects, materials, modifiers, controllers, viewport, introspection.
 - **Bundled MAXScript reference** — 10 topic files for agents to write correct MAXScript
 
 ## Architecture
@@ -47,6 +47,18 @@ uv run python install.py
 git pull
 uv sync
 uv run python install.py
+```
+
+## MCP Tool Profile
+
+The external MCP server defaults to a compact core profile to reduce tool-list
+tokens in clients. Controller tools are included in core. Use the full profile
+only when you need specialty modules such as Data Channel, effects, floor-plan
+generation, tyFlow, RailClone, wire params, or standalone-chat driver tools.
+
+```powershell
+$env:MCP_TOOL_PROFILE = "full"
+python -m src.server
 ```
 
 ## Skill
@@ -86,18 +98,18 @@ What it **doesn't** cover:
 - Native C++ handlers run unfiltered: `delete_objects`, `manage_scene` (reset/new/open), `render_scene`, `merge_from_file`, `write_osl_shader`, `capture_*` (disk writes). If the LLM hallucinates them they run.
 - The `\\.\pipe\3dsmax-mcp` named pipe uses the default ACL — any process running as your user can open it and send commands. Fine on a single-user dev machine; if you need multi-user isolation, gate on `GetNamedPipeClientProcessId`.
 
-The v0.6.0 chat window runs your configured LLM with the full native tool surface. Treat it like you'd treat any local agent that can edit your scene: don't point it at scenes you wouldn't double-click, and keep your API key in `.env` not a shared drive.
+The v0.7.0 chat window runs your configured LLM with direct scene-editing tools. Treat it like you'd treat any local agent that can edit your scene: don't point it at scenes you wouldn't double-click, and keep your API key in `.env` not a shared drive.
 
 ## Tools
 
-110 tools across scene management, objects, materials, modifiers, controllers, wiring, viewport capture, file access, plugin introspection, tyFlow, Forest Pack, RailClone, Data Channel, and more.
+Default core profile: 79 tools with concise descriptions. Full profile: 116 tools across scene management, objects, materials, modifiers, controllers, wiring, viewport capture, file access, plugin introspection, tyFlow, Forest Pack, RailClone, Data Channel, and more.
 
 | Category | Tools | Transport |
 |----------|-------|-----------|
 | Scene reads | `get_scene_info`, `get_selection`, `get_scene_snapshot`, `get_selection_snapshot`, `get_scene_delta`, `get_hierarchy` | C++ |
 | Objects | `create_object`, `delete_objects`, `transform_object`, `clone_objects`, `select_objects`, `set_object_property`, `set_visibility`, `set_parent` | C++/Hybrid |
 | Inspection | `inspect_object`, `inspect_properties`, `introspect_class`, `introspect_instance`, `walk_references`, `learn_scene_patterns`, `map_class_relationships` | C++ |
-| Materials | `assign_material`, `set_material_properties`, `get_material_slots`, `create_texture_map`, `write_osl_shader`, `create_shell_material`, `replace_material` | Hybrid |
+| Materials | `assign_material`, `set_material_properties`, `get_material_slots`, `create_texture_map`, `palette_laydown`, `write_osl_shader`, `create_shell_material`, `replace_material` | Hybrid |
 | Modifiers | `add_modifier`, `remove_modifier`, `set_modifier_state`, `collapse_modifier_stack`, `batch_modify` | Hybrid |
 | Controllers | `assign_controller`, `inspect_controller`, `inspect_track_view`, `set_controller_props`, `add_controller_target` | Hybrid |
 | Wiring | `wire_params`, `unwire_params`, `get_wired_params`, `list_wireable_params` | Hybrid |
@@ -111,16 +123,17 @@ The v0.6.0 chat window runs your configured LLM with the full native tool surfac
 | Data Channel | `add_data_channel`, `inspect_data_channel`, `set_data_channel_operator` | MAXScript |
 | Scripting | `execute_maxscript` | Pipe |
 
-## v0.6.0 — Standalone Chat Mode
+## v0.7.0 — Standalone Chat Mode
 
-Run an AI chat entirely inside 3ds Max — no external MCP client required. The native bridge ships with a Win32 chat window, an OpenAI-compatible LLM client, and direct access to the full tool surface.
+Run an AI chat entirely inside 3ds Max — no external MCP client required. The native bridge ships with a Win32 chat window, an OpenAI-compatible LLM client, and direct access to scene tools.
 
 - **Launch:** You can find chat window in usermacros or search it directly by global search.
 - **API key:** `%LOCALAPPDATA%\3dsmax-mcp\.env` — `OPENROUTER_API_KEY=...` (also accepts `LLM_API_KEY` / `OPENAI_API_KEY`). Real env vars override the file. `deploy.bat` seeds `.env.example` on first install.
-- **Settings:** `%LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini` `[llm]` — non-secret knobs only (`base_url`, `model`, `max_tokens`, `temperature`). Default target is OpenRouter + `anthropic/claude-sonnet-4.6`.
-- **Tools:** all ~88 tools from `src/tools/*.py` are auto-registered (generated at build time by `scripts/gen_tool_registry.py`), plus `execute_maxscript` as a catch-all.
+- **Settings:** `%LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini` `[llm]` — non-secret knobs only (`base_url`, `model`, `max_tokens`, `temperature`, plus token controls below). Default target is OpenRouter + `anthropic/claude-sonnet-4.6`.
+- **Token controls:** external MCP defaults to `MCP_TOOL_PROFILE=core` plus concise tool descriptions. Standalone chat defaults to `prompt_mode=compact`, `tool_profile=core`, `include_scene_snapshot=true`, `max_scene_roots=25`, `max_prompt_chars=12000`, `max_tool_result_chars=12000`, `max_history_tool_chars=1800`, `max_tool_summary_chars=600`, `max_display_tool_chars=600`, `max_tool_loops=4`. Use `MCP_TOOL_PROFILE=full`, `prompt_mode=full`, or `tool_profile=full` only when you need the full specialty surface.
+- **Tools:** native tools from `src/tools/*.py` are auto-registered (generated at build time by `scripts/gen_tool_registry.py`), plus `execute_maxscript` as a catch-all. The default chat schema exposes the compact core profile; the full registry remains available with `tool_profile=full`.
 - **Security:** the existing `[mcp] safe_mode` filter applies — `execute_maxscript` calls from the chat hit the same keyword blocklist as every other path.
-- **Skill-aware:** the v0.6.0 deploy copies `SKILL.md` to `%LOCALAPPDATA%\3dsmax-mcp\skill\` and the chat loads it into the system prompt.
+- **Skill-aware:** the v0.7.0 deploy copies `SKILL.md` to `%LOCALAPPDATA%\3dsmax-mcp\skill\`. The chat uses a compact rule summary by default; set `prompt_mode=full` to inject the deployed `SKILL.md`.
 - **Slash commands:** `/reload`, `/clear`, `/help`.
 
 ## Building from source (native bridge)

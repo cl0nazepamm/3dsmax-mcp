@@ -21,39 +21,7 @@ def list_wireable_params(
     max_ms: int = 5000,
     max_fanout: int = 200,
 ) -> str:
-    """Discover sub-anim parameters on an object that can be wired.
-
-    Walks the sub-anim tree to find leaf parameters with controllers
-    (wireable). The walk is bounded on visits, results, time, and per-node
-    fan-out so it stays responsive on rigs (Skin/biped/CAT), Multi/Sub
-    materials, and particle systems where a naive walk would explore
-    100k+ animatables.
-
-    Args:
-        name: Object name (e.g. "Box001").
-        filter: Optional case-insensitive substring to filter param names
-                (e.g. "radius", "position", "bend"). Always pass this
-                when you know what you're looking for — it's the cheapest
-                way to keep the call fast.
-        depth: Max recursion depth (default 3, max 5).
-        max_visits: Hard cap on Animatables visited (default 20000).
-        max_results: Hard cap on returned entries (default 500).
-        max_ms: Wall-clock time budget in ms (default 5000).
-        max_fanout: Per-node child cap — protects against bone tables
-                    and Multi/Sub material slots (default 200).
-
-    Returns:
-        JSON array of {path, value, type, is_wireable} entries.
-        If any cap trips, the LAST entry has path="__truncated__" and
-        type="warning" with a `value` describing which cap and how to
-        refine the query. Existing array consumers stay valid.
-
-    Example paths returned:
-        "baseObject[#radius]" — sphere radius
-        "baseObject[#length]" — box length
-        "modifiers[#Bend][#angle]" — bend modifier angle
-        "position.controller[#X_Position]" — X position track
-    """
+    """Discover sub-anim parameters on an object that can be wired."""
     if client.native_available:
         payload = _json.dumps({
             "name": name,
@@ -137,33 +105,7 @@ def wire_params(
     two_way: bool = False,
     reverse_expression: Optional[str] = None,
 ) -> str:
-    """Connect parameters between objects with a wire expression.
-
-    Creates a wire so that changes to the source parameter automatically
-    drive the target parameter via the given expression.
-
-    IMPORTANT: source_param and target_param MUST be exact paths from
-    list_wireable_params output. Do NOT invent paths like
-    "[#Object (Cylinder)][#Parameters][#height]" — they will fail.
-    Call list_wireable_params first to get valid paths.
-
-    Args:
-        source_object: Source object name (e.g. "Box001").
-        source_param: Sub-anim path on source — MUST come from list_wireable_params
-                      (e.g. "[#Object (Cylinder)][#height]").
-        target_object: Target object name (e.g. "Sphere001").
-        target_param: Sub-anim path on target (e.g. "baseObject[#radius]").
-        expression: MAXScript expression driving the target value.
-                    Use the source param's leaf name as the variable
-                    (e.g. "length / 2" if source is baseObject[#length]).
-        two_way: If true, creates bidirectional wire (default false).
-        reverse_expression: Required when two_way=True. Expression driving
-                           the source from target changes
-                           (e.g. "radius * 2").
-
-    Returns:
-        Confirmation with wired path details.
-    """
+    """Connect parameters between objects with a wire expression."""
     if client.native_available:
         payload = {
             "source_object": source_object,
@@ -216,19 +158,7 @@ def wire_params(
 
 @mcp.tool()
 def get_wired_params(name: str) -> str:
-    """Show existing wire connections on an object.
-
-    Recursively walks sub-anims looking for Wire controller classes
-    (Float_Wire, Point3_Wire, Position_Wire, etc.) and reports their
-    connections and expressions.
-
-    Args:
-        name: Object name (e.g. "Sphere001").
-
-    Returns:
-        JSON array of {param_path, controller_class, num_wires, expressions}
-        for each wired parameter.
-    """
+    """Show existing wire connections on an object."""
     if client.native_available:
         payload = _json.dumps({"name": name})
         response = client.send_command(payload, cmd_type="native:get_wired_params")
@@ -298,19 +228,7 @@ def unwire_params(
     object_name: str,
     param_path: str,
 ) -> str:
-    """Disconnect a wired parameter.
-
-    Removes the wire connection from the specified parameter, replacing
-    the Wire controller with a standard controller.
-
-    Args:
-        object_name: Object name (e.g. "Sphere001").
-        param_path: Sub-anim path to unwire, as shown by get_wired_params
-                    (e.g. "baseObject[#radius]").
-
-    Returns:
-        Confirmation that the wire was removed.
-    """
+    """Disconnect a wired parameter."""
     if client.native_available:
         payload = _json.dumps({"object_name": object_name, "param_path": param_path})
         response = client.send_command(payload, cmd_type="native:unwire_params")

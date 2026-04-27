@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "3dsmax-mcp"
-version = "0.6.2"
+version = "0.7.0"
 description = "3dsmax MCP server"
 requires-python = ">=3.10"
 dependencies = [

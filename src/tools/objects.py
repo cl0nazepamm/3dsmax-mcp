@@ -8,13 +8,7 @@ from src.helpers.maxscript import safe_string
 
 @mcp.tool()
 def get_object_properties(name: str) -> str:
-    """Get detailed properties of a named object in the 3ds Max scene.
-
-    Args:
-        name: The object name (e.g. "Box001")
-
-    Returns properties including transform, material, and modifier stack.
-    """
+    """Get detailed properties of a named object in the 3ds Max scene."""
     if client.native_available:
         try:
             params = _json.dumps({"name": name})
@@ -94,19 +88,7 @@ def get_object_properties(name: str) -> str:
 
 @mcp.tool()
 def set_object_property(name: str, property: str, value: str) -> str:
-    """Set a property on a named object in the 3ds Max scene.
-
-    If unsure of exact property names, call get_object_properties or
-    inspect_object first. Property names vary by class (e.g. Cylinder has
-    "radius" not "radius1", Cone has "radius1"/"radius2").
-
-    Args:
-        name: The object name (e.g. "Box001")
-        property: The property to set (e.g. "pos", "wirecolor", "height")
-        value: The value as a MAXScript expression (e.g. "[10,20,30]", "red", "50")
-
-    Returns confirmation or error message.
-    """
+    """Set a property on a named object in the 3ds Max scene."""
     if client.native_available:
         try:
             params = _json.dumps({"name": name, "property": property, "value": value})
@@ -231,25 +213,7 @@ def create_object(
     fillet: float | None = None,
     capheight: float | None = None,
 ) -> str:
-    """Create a new object in the 3ds Max scene and auto-fill common primitive sizes when omitted.
-
-    Args:
-        type: The object type (e.g. "Box", "Sphere", "Cylinder", "Plane", "Teapot")
-        name: Optional name for the object
-        params: Optional MAXScript parameters (e.g. "radius:25 pos:[0,0,50]")
-        pos: Optional world position as [x, y, z]
-        length: Optional length for primitives that use it
-        width: Optional width for primitives that use it
-        height: Optional height for primitives that use it
-        depth: Optional depth for primitives that use it
-        radius: Optional radius for primitives that use it
-        radius1: Optional primary radius for primitives that use it
-        radius2: Optional secondary radius for primitives that use it
-        fillet: Optional fillet for chamfered primitives
-        capheight: Optional cap height for primitives that use it
-
-    Returns the name of the created object.
-    """
+    """Create a new object in the 3ds Max scene and auto-fill common primitive sizes when omitted."""
     params = _merge_create_object_params(
         type,
         params,
@@ -290,13 +254,7 @@ def create_object(
 
 @mcp.tool()
 def delete_objects(names: StrList) -> str:
-    """Delete objects from the 3ds Max scene by name.
-
-    Args:
-        names: List of object names to delete.
-
-    Returns summary of deleted and not found objects.
-    """
+    """Delete objects from the 3ds Max scene by name."""
     if client.native_available:
         try:
             params = _json.dumps({"names": names})

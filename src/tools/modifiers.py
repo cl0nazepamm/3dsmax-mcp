@@ -7,15 +7,7 @@ from src.helpers.maxscript import safe_string
 
 @mcp.tool()
 def add_modifier(name: str, modifier: str, params: str = "") -> str:
-    """Add a modifier to an object.
-
-    Args:
-        name: The object name (e.g. "Box001")
-        modifier: Modifier class name (e.g. "TurboSmooth", "Bend", "Shell", "Edit_Poly")
-        params: Optional MAXScript parameters (e.g. "iterations:2")
-
-    Returns confirmation or error.
-    """
+    """Add a modifier to an object."""
     if client.native_available:
         try:
             payload = _json.dumps({"name": name, "modifier": modifier, "params": params})
@@ -45,14 +37,7 @@ def add_modifier(name: str, modifier: str, params: str = "") -> str:
 
 @mcp.tool()
 def remove_modifier(name: str, modifier: str) -> str:
-    """Remove a modifier from an object by name.
-
-    Args:
-        name: The object name (e.g. "Box001")
-        modifier: The modifier name to remove (e.g. "TurboSmooth 1", "Bend 1")
-
-    Returns confirmation or error.
-    """
+    """Remove a modifier from an object by name."""
     if client.native_available:
         try:
             payload = _json.dumps({"name": name, "modifier": modifier})
@@ -95,27 +80,7 @@ def set_modifier_state(
     enabled_in_views: Optional[bool] = None,
     enabled_in_renders: Optional[bool] = None,
 ) -> str:
-    """Set the enable state of a modifier with viewport/render granularity.
-
-    Use this instead of execute_maxscript when you need to toggle modifiers
-    on/off — e.g. disable TurboSmooth in viewport for performance but keep
-    it for render, or temporarily disable a Bend to see the base shape.
-
-    3ds Max modifiers have three independent enable flags:
-    - enabled: master on/off
-    - enabledInViews: active in viewport only
-    - enabledInRenders: active in renders only
-
-    Args:
-        name: The object name.
-        modifier_name: Modifier name to find (e.g. "TurboSmooth 1"). Ignored if modifier_index is set.
-        modifier_index: 1-based modifier stack index. Takes priority over modifier_name.
-        enabled: Set master enabled state.
-        enabled_in_views: Set viewport-only enabled state.
-        enabled_in_renders: Set render-only enabled state.
-
-    Returns confirmation.
-    """
+    """Set the enable state of a modifier with viewport/render granularity."""
     if client.native_available:
         try:
             payload = {"name": name, "modifier_name": modifier_name, "modifier_index": modifier_index}
@@ -179,19 +144,7 @@ def collapse_modifier_stack(
     name: str,
     to_index: int = 0,
 ) -> str:
-    """Collapse the modifier stack on an object.
-
-    Use this to bake modifiers into the mesh — e.g. before boolean operations,
-    exporting, or when the parametric stack is no longer needed. Converts to
-    Editable Mesh/Poly.
-
-    Args:
-        name: The object name.
-        to_index: If 0, collapses the entire stack. Otherwise, collapses
-                  down to the specified 1-based modifier index.
-
-    Returns confirmation.
-    """
+    """Collapse the modifier stack on an object."""
     if client.native_available:
         try:
             payload = _json.dumps({"name": name, "to_index": to_index})
@@ -231,17 +184,7 @@ def collapse_modifier_stack(
 
 @mcp.tool()
 def make_modifier_unique(name: str, modifier_index: int) -> str:
-    """Make an instanced modifier unique (de-instance it).
-
-    Use this when multiple objects share the same modifier instance and you
-    need to change one without affecting the others.
-
-    Args:
-        name: The object name.
-        modifier_index: 1-based modifier stack index.
-
-    Returns confirmation.
-    """
+    """Make an instanced modifier unique (de-instance it)."""
     if client.native_available:
         try:
             payload = _json.dumps({"name": name, "modifier_index": modifier_index})
@@ -277,21 +220,7 @@ def batch_modify(
     names: Optional[StrList] = None,
     selection_only: bool = False,
 ) -> str:
-    """Batch-set a property on all modifiers of a given class across multiple objects.
-
-    Use this for scene-wide modifier changes — e.g. "set all TurboSmooth
-    iterations to 0" or "disable all Bend modifiers". Much faster and safer
-    than looping via execute_maxscript. Wraps in disableSceneRedraw and undo.
-
-    Args:
-        modifier_class: Class name to match (e.g. "TurboSmooth", "Bend").
-        property_name: Property to set (e.g. "iterations", "angle").
-        property_value: Value as MAXScript expression (e.g. "3", "45.0", "true").
-        names: Optional list of specific object names. If empty, uses all or selection.
-        selection_only: If True and names is empty, only process selected objects.
-
-    Returns count of modified modifiers.
-    """
+    """Batch-set a property on all modifiers of a given class across multiple objects."""
     if client.native_available:
         try:
             payload = {

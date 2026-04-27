@@ -1,4 +1,4 @@
-"""External MCP access to the in-Max standalone chat (v0.6.0+).
+"""External MCP access to the in-Max standalone chat (v0.7.0+).
 
 These tools let an MCP client (Claude Desktop, Cursor, another Claude Code
 session) drive the chat window the bridge hosts inside 3ds Max — useful for
@@ -38,24 +38,7 @@ def _parse_chat_result(response: dict) -> str:
 
 @mcp.tool()
 def send_to_chat(message: str, timeout_ms: int = 180000, silent: bool = False) -> str:
-    """Send a message to the in-Max standalone chat and block until the turn
-    completes.
-
-    The chat's configured LLM sees the full system prompt (SKILL.md + scene
-    snapshot), the full native tool registry, and may run multiple tool
-    iterations. Returns the final assistant text plus a summary of any tool
-    calls made during the turn.
-
-    Requires the standalone chat to be configured (api_key in .env). If the
-    chat is busy with another turn, this errors immediately rather than
-    queuing.
-
-    Args:
-        message: What to say.
-        timeout_ms: Per-turn timeout (ms). Default 180000 (3 min) — tool loops
-            up to 5 iterations can take a while.
-        silent: If true, skip echoing the user prompt in the chat UI history.
-    """
+    """Send a message to the in-Max standalone chat and block until the turn"""
     payload = _json.dumps({
         "action": "send",
         "message": message,
@@ -66,7 +49,10 @@ def send_to_chat(message: str, timeout_ms: int = 180000, silent: bool = False) -
     # in-flight turn and the next call hits "Chat is busy" while the C++ side
     # finishes silently.
     pipe_timeout = max(timeout_ms / 1000.0 + 5.0, DEFAULT_TIMEOUT)
-    response = client.send_command(payload, cmd_type="native:chat_ui", timeout=pipe_timeout)
+    if pipe_timeout > DEFAULT_TIMEOUT:
+        response = client.send_command(payload, cmd_type="native:chat_ui", timeout=pipe_timeout)
+    else:
+        response = client.send_command(payload, cmd_type="native:chat_ui")
     return _parse_chat_result(response)
 
 
@@ -80,8 +66,7 @@ def chat_status() -> str:
 
 @mcp.tool()
 def chat_reload() -> str:
-    """Re-read %LOCALAPPDATA%\\3dsmax-mcp\\.env and mcp_config.ini without
-    restarting Max. Use after editing the API key or switching model slugs."""
+    """Re-read local chat config and environment without restarting Max."""
     payload = _json.dumps({"action": "reload"})
     response = client.send_command(payload, cmd_type="native:chat_ui")
     return _parse_chat_result(response)

@@ -13,17 +13,7 @@ def transform_object(
     scale: Optional[FloatList] = None,
     coordinate_system: str = "world",
 ) -> str:
-    """Move, rotate, and/or scale an object by the given offsets.
-
-    Args:
-        name: The object name (e.g. "Box001")
-        move: [x,y,z] translation offset (relative)
-        rotate: [x,y,z] rotation in degrees
-        scale: [x,y,z] scale factors, or a single-element list for uniform scale
-        coordinate_system: "world" (default) or "local"
-
-    Returns confirmation of applied transforms.
-    """
+    """Move, rotate, and/or scale an object by the given offsets."""
     if client.native_available:
         try:
             params: dict = {"name": name}

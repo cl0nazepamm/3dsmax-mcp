@@ -18,20 +18,7 @@ def replace_material(
     target_material: str,
     preview: bool = False,
 ) -> str:
-    """Replace one material with another across all objects that use it.
-
-    Finds every object whose material name matches *target_material* and
-    reassigns it to the material named *source_material*.  The source
-    material must already exist on at least one object in the scene.
-
-    Args:
-        source_material: Name of the material to apply (must exist in scene).
-        target_material: Name of the material to replace / remove.
-        preview: If True, only list affected objects without making changes.
-
-    Returns:
-        JSON with affected object names, count, and status.
-    """
+    """Replace one material with another across all objects that use it."""
     if client.native_available:
         payload = _json.dumps({"source_material": source_material, "target_material": target_material, "preview": preview})
         response = client.send_command(payload, cmd_type="native:replace_material")
@@ -113,20 +100,7 @@ def batch_replace_materials(
     replacements: DictList,
     preview: bool = False,
 ) -> str:
-    """Replace multiple materials in a single operation.
-
-    Each entry maps a source material (to keep) to a target material
-    (to replace).  Useful for unifying several split assignments at once.
-
-    Args:
-        replacements: List of dicts, each with:
-            - "source": name of the material to apply
-            - "target": name of the material to replace
-        preview: If True, only list affected objects without making changes.
-
-    Returns:
-        JSON with per-replacement results and an overall summary.
-    """
+    """Replace multiple materials in a single operation."""
     if client.native_available:
         payload = _json.dumps({"replacements": list(replacements), "preview": preview})
         response = client.send_command(payload, cmd_type="native:batch_replace_materials")

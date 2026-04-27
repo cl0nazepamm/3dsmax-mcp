@@ -9,14 +9,7 @@ _previous_snapshot: dict | None = None
 
 @mcp.tool()
 def get_scene_snapshot(max_roots: int = 50) -> str:
-    """Compact scene overview in one call: object counts by class, materials summary,
-    modifier summary, layers, hidden/frozen counts, and top-level root names.
-
-    Use this as the first inspection call to cheaply understand a scene.
-
-    Args:
-        max_roots: Max root object names to include (default 50).
-    """
+    """Compact scene overview in one call: object counts by class, materials summary,"""
     if client.native_available:
         try:
             params = {}
@@ -127,14 +120,7 @@ def get_scene_snapshot(max_roots: int = 50) -> str:
 
 @mcp.tool()
 def get_selection_snapshot(max_items: int = 50) -> str:
-    """Compact info for each selected object: name, class, parent, material,
-    modifier list, position, and bounding box.
-
-    Use after get_scene_snapshot to inspect what's selected without a deep inspection call.
-
-    Args:
-        max_items: Max objects to return (default 50).
-    """
+    """Compact info for each selected object: name, class, parent, material,"""
     if client.native_available:
         try:
             params = {}
@@ -249,14 +235,7 @@ def _diff_objects(prev: dict, curr: dict) -> dict:
 
 @mcp.tool()
 def get_scene_delta(capture: bool = False) -> str:
-    """Track what changed in the scene since the last snapshot.
-
-    First call (or capture=True): captures baseline, returns object count.
-    Subsequent calls: returns added/removed/modified objects since baseline, then updates it.
-
-    Args:
-        capture: Force a fresh baseline capture without returning a delta.
-    """
+    """Track what changed in the scene since the last snapshot."""
     if client.native_available:
         try:
             params = {}

@@ -61,97 +61,7 @@ def add_data_channel(
     order: Optional[IntList] = None,
     display: bool = True,
 ) -> str:
-    """Add a Data Channel modifier with a complete operator graph.
-
-    The Data Channel modifier is 3ds Max's node-based data processing system
-    (like Houdini VOPs) that lives in the modifier stack. It chains operators
-    that read mesh data, process it, and write to channels.
-
-    IMPORTANT: The object MUST be an Editable Mesh/Poly (use convertToMesh
-    or convertToPoly first).
-
-    Args:
-        name: The object name (e.g. "Sphere001").
-        operators: List of operator definitions. Each dict has:
-            - "type" (str): Operator type name. Available types:
-              INPUT:  "vertex_input", "face_input", "edge_input", "xyz_space",
-                      "component_space", "curvature", "velocity", "node_influence",
-                      "tension_deform", "distort", "maxscript", "expression_float",
-                      "expression_point3"
-              PROCESS: "vector", "scale", "clamp", "invert", "normalize", "curve",
-                       "smooth", "decay", "point3_to_float", "convert_subobject",
-                       "geo_quantize", "color_space"
-              OUTPUT: "vertex_output", "face_output", "edge_output"
-              COMPOSITE: "transform_elements", "color_elements", "delta_mush"
-            - "blend" (int, optional): Blend mode for this operator.
-              0=Replace, 1=Add, 2=Subtract, 3=Multiply, 4=Divide,
-              5=DotProduct, 6=CrossProduct. Default is Replace for
-              input operators and Add for others.
-            - "params" (dict, optional): Operator properties to set. Keys:
-              vertex_input:  input (0=Position, 100=Selection, 101=AvgNormal,
-                            102=MapCh1, 103=MapCh2, 1=SoftSel/VData),
-                            xyz (0=XYZ, 1=X, 2=Y, 3=Z)
-              vertex_output: output (0=Position, 1=VertColor, 2=MapChannel,
-                            3=Normals, 4=Selection, 5=VertCrease, 6=VData),
-                            channelNum (int), replace (0=Replace, 1=Add,
-                            2=Subtract, 3=Multiply)
-              face_input:    input (0=Selection, 1=MatID, 2=SmoothGroup,
-                            3=Area, 4=Normal, 5=Planarity)
-              face_output:   output (0=Selection, 1=MatID, 2=SmoothGroup),
-                            type (0=Replace, 1=Add, 2=Sub, 3=Mul)
-              edge_input:    input (0=Selection, 1=CreaseWeights, 2=EdgeAngle)
-              edge_output:   output (0=Selection, 1=CreaseWeights),
-                            type (0=Replace, 1=Add, 2=Sub, 3=Mul)
-              vector:        space (0=Add, 1=Subtract, 2=DotProduct, 3=CrossProduct,
-                            4=Multiply), dir (0=World, 1=Local, 2=Custom),
-                            x/y/z (floats), node (str, object name)
-              xyz_space:     space (0=Local, 1=World, 2=Node),
-                            normalize (bool), min/max (float)
-              component_space: component (0=X, 1=Y, 2=Z),
-                              space (0=Local, 1=World), normalize (bool)
-              scale:         scale (float)
-              clamp:         clampMin/clampMax (float)
-              normalize:     normalizeMin/normalizeMax (float),
-                            rangeOverride (bool), rangeMin/rangeMax (float)
-              invert:        invert (bool)
-              smooth:        iteration (int), smoothAmount (float)
-              decay:         decay (float), Samples (int), smooth (bool)
-              point3_to_float: floatType (0=Length, 1=X, 2=Y, 3=Z)
-              geo_quantize:  mode (0=ByVertex, 1=ByElement, 2=ByObject)
-              transform_elements: inputChannel (0=Stack, 1=SoftSel, 2=VColorLum,
-                            3=VColorXYZ, 4=None),
-                            transformType (0=Position, 1=Rotation, 2=Scale%,
-                            3=ScaleUniform), XEnable/YEnable/ZEnable (bool),
-                            xoffset1/yoffset1/zoffset1 (float, min values),
-                            xoffset2/yoffset2/zoffset2 (float, max values),
-                            randomize (bool), seed (int), phase (float)
-              color_elements: inputOption (0=VertColors, 1=Map, 2=SoftSel,
-                            3=FromStack), colorOption (0=Face, 1=Element),
-                            randomize (bool), color1/color2 (str, "color R G B")
-              curvature:     (uses defaults — curvature values auto-computed)
-              velocity:      timeoffset (int), worldSpace (bool)
-              node_influence: node (str), minRange/maxRange (float),
-                            minValue/maxValue (float), mode (0=Vertex, 1=Element)
-              distort:       strength (float), map (str, MAXScript map expression)
-              maxscript:     script (str), elementtype (0=Verts, 1=Faces),
-                            DataType (0=Float, 1=Point3)
-              delta_mush:    strength (float), iterations (int)
-        order: Processing order as list of 0-based operator indices.
-               Only include operators that are ACTIVE in the pipeline.
-               If not specified, all operators execute in definition order.
-        display: Enable viewport display (default True).
-
-    Returns:
-        JSON summary of the created Data Channel modifier and operators.
-
-    Example — Select vertices by slope (facing up):
-        operators=[
-            {"type": "vertex_input", "params": {"input": 101}},
-            {"type": "vector", "params": {"space": 2, "dir": 2, "z": 1.0}},
-            {"type": "clamp", "params": {"clampMin": 0.0, "clampMax": 1.0}},
-            {"type": "vertex_output", "params": {"output": 4}}
-        ]
-    """
+    """Add a Data Channel modifier with a complete operator graph."""
     safe = safe_string(name)
 
     # Build MAXScript to add DC modifier and configure operators
@@ -224,19 +134,7 @@ def inspect_data_channel(
     name: str,
     modifier_index: int = 1,
 ) -> str:
-    """Inspect a Data Channel modifier's operator graph.
-
-    Returns the full operator chain with all parameters, processing order,
-    and enabled states. Use this to understand existing DC setups or
-    verify a setup you just created.
-
-    Args:
-        name: The object name.
-        modifier_index: 1-based modifier stack index (default 1 = top).
-
-    Returns:
-        JSON with complete operator graph details.
-    """
+    """Inspect a Data Channel modifier's operator graph."""
     safe = safe_string(name)
     maxscript = f"""(
     local obj = getNodeByName "{safe}"
@@ -306,21 +204,7 @@ def set_data_channel_operator(
     params: dict,
     modifier_index: int = 1,
 ) -> str:
-    """Set properties on a specific operator in a Data Channel modifier.
-
-    Use this to modify an existing Data Channel operator without rebuilding
-    the entire graph. Useful for tweaking parameters after creation.
-
-    Args:
-        name: The object name.
-        operator_index: 1-based index of the operator to modify.
-        params: Dict of property names to values. See add_data_channel
-                for available properties per operator type.
-        modifier_index: 1-based modifier stack index (default 1).
-
-    Returns:
-        Confirmation with the updated operator state.
-    """
+    """Set properties on a specific operator in a Data Channel modifier."""
     safe = safe_string(name)
 
     lines = [
@@ -363,42 +247,7 @@ def add_dc_script_operator(
     output_to: str = "selection",
     modifier_index: int = 0,
 ) -> str:
-    """Add a Data Channel modifier with a MAXScript operator for custom per-vertex/face logic.
-
-    The Script Operator is the most powerful DC operator — it lets you write
-    arbitrary MAXScript that processes every vertex or face. Perfect for
-    effects that can't be achieved with built-in operators.
-
-    The script must define:
-        on Process theNode theMesh elementType outputType outputArray do (...)
-
-    Args:
-        theNode: The scene node being processed.
-        theMesh: PolyMesh copy to analyze (use polyop.* functions).
-        elementType: 1=Vertices, 2=Faces (set by the engine).
-        outputType: 1=Floats, 2=Point3s (set by the engine).
-        outputArray: Array to fill with per-vertex/face values.
-
-    Args:
-        name: The object name.
-        script: The MAXScript code for the Process function. You can provide
-                just the body or the full "on Process..." definition.
-                If the body-only form is used, it will be wrapped automatically.
-        element_type: What to process: 0=Vertices, 1=Faces.
-        data_type: Output data type: 0=Float, 1=Point3.
-        output_to: Where to output. One of:
-            "selection" — vertex/face selection weight (default)
-            "position" — vertex position
-            "vertex_color" — vertex color channel
-            "map_channel" — map channel (UV)
-            "normals" — vertex normals
-            "mat_id" — face material ID (faces only)
-        modifier_index: If > 0, add the script operator to an existing DC
-                       modifier at this stack index instead of creating new.
-
-    Returns:
-        Confirmation with created modifier info.
-    """
+    """Add a Data Channel modifier with a MAXScript operator for custom per-vertex/face logic."""
     safe = safe_string(name)
 
     # Wrap script if needed
@@ -482,13 +331,7 @@ def add_dc_script_operator(
 
 @mcp.tool()
 def list_dc_presets() -> str:
-    """List all available Data Channel modifier presets.
-
-    Presets are saved DC operator graphs that can be loaded onto any object.
-
-    Returns:
-        JSON list of preset names.
-    """
+    """List all available Data Channel modifier presets."""
     maxscript = """(
     local b = Box name:"__dc_temp__" length:1 width:1 height:1
     convertToMesh b
@@ -518,17 +361,7 @@ def load_dc_preset(
     name: str,
     preset_name: str,
 ) -> str:
-    """Load a Data Channel modifier preset onto an object.
-
-    Adds a Data Channel modifier and loads the named preset graph.
-
-    Args:
-        name: The object name.
-        preset_name: Name of the preset to load.
-
-    Returns:
-        Confirmation.
-    """
+    """Load a Data Channel modifier preset onto an object."""
     safe = safe_string(name)
     safe_preset = safe_string(preset_name)
     maxscript = f"""(

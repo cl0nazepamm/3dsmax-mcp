@@ -34,7 +34,7 @@ CONFIG_SRC = ROOT / "mcp_config.ini"
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "3dsmax-mcp"
 CONFIG_DST = CONFIG_DIR / "mcp_config.ini"
 
-# v0.6.0 standalone chat — .env for the API key, SKILL.md for the system prompt.
+# v0.7.0 standalone chat — .env for the API key, SKILL.md for the system prompt.
 ENV_SRC = ROOT / ".env.example"
 ENV_DST = CONFIG_DIR / ".env"
 SKILL_SRC = ROOT / "skills" / "3dsmax-mcp-dev" / "SKILL.md"

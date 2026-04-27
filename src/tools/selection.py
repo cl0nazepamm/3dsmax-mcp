@@ -12,18 +12,7 @@ def select_objects(
     class_name: str = "",
     all: bool = False,
 ) -> str:
-    """Select objects in the 3ds Max scene.
-
-    At least one parameter must be provided. Selection is cleared first.
-
-    Args:
-        names: List of specific object names to select.
-        pattern: Wildcard pattern (e.g. "Wall*", "*Light*").
-        class_name: Select by class name (e.g. "Box", "SpotLight").
-        all: If true, select all objects.
-
-    Returns count and names of selected objects.
-    """
+    """Select objects in the 3ds Max scene."""
     if client.native_available:
         try:
             params: dict = {}

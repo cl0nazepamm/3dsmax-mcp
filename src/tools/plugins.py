@@ -1121,10 +1121,7 @@ def get_plugin_manifest(plugin_name: str) -> str:
 
 @mcp.tool()
 def refresh_plugin_manifest(plugin_name: str) -> str:
-    """Refresh and return the plugin manifest.
-
-    This currently rebuilds the manifest from live runtime data on every call.
-    """
+    """Refresh and return the plugin manifest."""
     manifest = _build_manifest(plugin_name)
     manifest["refreshed"] = True
     return json.dumps(manifest)
@@ -1168,19 +1165,7 @@ def discover_plugin_classes(
     pattern: str = "",
     limit: int = 500,
 ) -> str:
-    """Enumerate ALL registered classes in 3ds Max's DLL directory via native C++ SDK.
-
-    Scans every loaded plugin DLL and returns class metadata. Much faster and
-    more complete than MAXScript's showClass — covers classes that MAXScript
-    cannot see.
-
-    Args:
-        superclass: Filter by superclass: "geometry", "modifier", "material",
-                    "texturemap", "helper", "light", "camera", "shape", "spacewarp".
-                    Empty = all superclasses.
-        pattern: Wildcard name filter (e.g. "Forest*", "*Vray*"). Empty = all.
-        limit: Max classes to return (default 500).
-    """
+    """Enumerate ALL registered classes in 3ds Max's DLL directory via native C++ SDK."""
     payload = {}
     if superclass:
         payload["superclass"] = superclass
@@ -1199,25 +1184,7 @@ def discover_plugin_classes(
 def introspect_class(
     class_name: str,
 ) -> str:
-    """Deep C++ SDK introspection of a class — returns the COMPLETE API surface.
-
-    Enumerates all ParamBlock2 parameters (names, types, defaults, ranges,
-    animatable flags) and all FPInterface functions and properties directly
-    from the class descriptor. Works on ANY class — built-in or third-party plugin.
-
-    This goes deeper than inspect_plugin_class (MAXScript reflection). Use it
-    when you need parameter defaults, ranges, function signatures, or when
-    MAXScript reflection is incomplete.
-
-    Requires the native C++ bridge plugin.
-
-    For OSLMap / OSL classes, use introspect_osl instead — OSLMap has dynamic
-    params that produce unbounded output through the C++ path.
-
-    Args:
-        class_name: The class to introspect (e.g. "TurboSmooth", "Forest_Pro",
-                    "PhysicalMaterial", "tyFlow").
-    """
+    """Deep C++ SDK introspection of a class — returns the COMPLETE API surface."""
     blocked = {"oslmap", "osl_map", "osl"}
     if class_name.strip().lower() in blocked:
         return json.dumps({"error": f"OSLMap has dynamic params that produce unbounded output. Use introspect_osl instead.", "redirect": "introspect_osl"})
@@ -1232,22 +1199,7 @@ def introspect_instance(
     include_subanims: bool = False,
     subanim_depth: int = 3,
 ) -> str:
-    """Deep C++ SDK introspection of a live scene object with actual values.
-
-    Reads all ParamBlock2 parameters with their CURRENT values, all FPInterface
-    methods and properties, the modifier stack with per-modifier params, material
-    params, and optionally the full SubAnim tree.
-
-    Goes deeper than inspect_plugin_instance. Use when you need to see parameter
-    values that MAXScript's getPropNames/showProperties cannot reach.
-
-    Requires the native C++ bridge plugin.
-
-    Args:
-        name: The scene object name to inspect.
-        include_subanims: Include the SubAnim hierarchy tree (can be large).
-        subanim_depth: Max depth for SubAnim tree traversal (default 3).
-    """
+    """Deep C++ SDK introspection of a live scene object with actual values."""
     payload = {"name": name}
     if include_subanims:
         payload["include_subanims"] = True

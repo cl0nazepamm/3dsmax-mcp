@@ -86,11 +86,7 @@ def _capture_fullscreen_to_file(capture_path: str, max_width: int = 0, max_heigh
 
 @mcp.tool()
 def capture_viewport() -> Image:
-    """Capture the current 3ds Max viewport and return it as an image.
-
-    Returns the viewport screenshot as a PNG image that can be displayed
-    directly in the chat.
-    """
+    """Capture the current 3ds Max viewport and return it as an image."""
     if client.native_available:
         response = client.send_command(json.dumps({}), cmd_type="native:capture_viewport")
         data = json.loads(response.get("result", "{}"))
@@ -113,17 +109,7 @@ def capture_screen(
     max_bytes: int = DEFAULT_MAX_BYTES,
     min_width: int = DEFAULT_MIN_WIDTH,
 ) -> Image:
-    """Capture fullscreen only when explicitly enabled.
-
-    Args:
-        enabled: Must be True to allow fullscreen capture.
-        max_width: Maximum output width in pixels. Use 0 to keep full width.
-        max_height: Maximum output height in pixels. Use 0 to keep full height.
-        max_bytes: Soft byte cap for output size (default 1MB). Use 0 to disable.
-        min_width: Smallest auto-resize width used when shrinking to hit max_bytes.
-
-    Returns the screenshot as a JPEG image. Aspect ratio is always preserved.
-    """
+    """Capture fullscreen only when explicitly enabled."""
     if not enabled:
         raise ValueError("capture_screen is disabled by default; set enabled=True to allow fullscreen capture")
 
@@ -166,22 +152,7 @@ def capture_screen(
 def capture_multi_view(
     views: StrList | None = None,
 ) -> Image:
-    """Capture multiple viewport angles and stitch into a single labeled grid image.
-
-    Captures 4 orthographic views in rapid succession without user interaction,
-    stitches them into a 2x2 grid with labels, and returns as one image.
-    Gives AI complete spatial awareness from a single image — saves tokens
-    vs 4 separate capture_viewport calls.
-
-    Each view auto-zooms to scene extents before capture.
-    Original viewport state is restored after capture.
-
-    Args:
-        views: List of view names to capture. Default: ["front", "right", "back", "top"].
-               Options: "front", "back", "left", "right", "top", "bottom", "perspective".
-
-    Returns the stitched grid image as PNG.
-    """
+    """Capture multiple viewport angles and stitch into a single labeled grid image."""
     payload = {}
     if views:
         payload["views"] = views

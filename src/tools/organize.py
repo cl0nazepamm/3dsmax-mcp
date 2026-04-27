@@ -45,43 +45,7 @@ def manage_layers(
     primaryVisibility: bool | None = None,
     secondaryVisibility: bool | None = None,
 ) -> str:
-    """Manage scene layers — create, delete, list, set properties, move objects.
-
-    All operations run through pure C++ SDK (ILayerManager). Requires native bridge.
-
-    Actions:
-        list: List all layers with properties and object counts.
-        create: Create a new layer. Params: name, color, hidden, frozen, renderable, parent.
-        delete: Delete a layer by name (must be empty and not default).
-        set_current: Set the active layer by name.
-        set_properties: Set layer properties. Params: name + any of hidden, frozen,
-                        renderable, color, rename, boxMode, castShadows, rcvShadows.
-        add_objects: Move objects to a layer. Params: layer (target), names or pattern.
-        select_objects: Select all objects on a layer. Params: name.
-
-    Args:
-        action: One of: list, create, delete, set_current, set_properties, add_objects, select_objects.
-        name: Layer name (used by most actions).
-        names: Object names (for add_objects).
-        pattern: Wildcard pattern to match object names (for add_objects). E.g. "Metal_Sigil_*".
-        layer: Target layer name (for add_objects).
-        color: RGB color [r, g, b] 0-255.
-        hidden: Hide the layer.
-        frozen: Freeze the layer.
-        renderable: Make layer renderable.
-        parent: Parent layer name (for create).
-        rename: New name (for set_properties).
-        boxMode: Display objects as boxes.
-        castShadows: Cast shadows.
-        rcvShadows: Receive shadows.
-        xRayMtl: Enable X-Ray material display.
-        backCull: Enable backface culling.
-        allEdges: Show all edges.
-        vertTicks: Show vertex ticks.
-        trajectory: Show trajectories.
-        primaryVisibility: Primary visibility flag.
-        secondaryVisibility: Secondary visibility flag.
-    """
+    """Manage scene layers — create, delete, list, set properties, move objects."""
     # Resolve pattern to names for add_objects
     if action == "add_objects" and pattern and not names:
         names = _resolve_pattern(pattern)
@@ -139,25 +103,7 @@ def manage_groups(
     names: StrList | None = None,
     group: str = "",
 ) -> str:
-    """Manage object groups — create, ungroup, open, close, attach, detach.
-
-    All operations run through pure C++ SDK (Interface::GroupNodes). Requires native bridge.
-
-    Actions:
-        list: List all groups with members.
-        create: Create a new group from objects. Params: names (objects to group), name (optional group name).
-        ungroup: Dissolve a group. Params: name (group head name).
-        open: Open a group for editing. Params: name.
-        close: Close an open group. Params: name.
-        attach: Add objects to existing group. Params: group (target), names (objects to add).
-        detach: Remove objects from their group. Params: names (objects to detach).
-
-    Args:
-        action: One of: list, create, ungroup, open, close, attach, detach.
-        name: Group name (for create, ungroup, open, close).
-        names: Object names (for create, attach, detach).
-        group: Target group name (for attach).
-    """
+    """Manage object groups — create, ungroup, open, close, attach, detach."""
     payload = {"action": action}
     if name:
         payload["name"] = name
@@ -176,22 +122,7 @@ def manage_selection_sets(
     name: str = "",
     names: StrList | None = None,
 ) -> str:
-    """Manage named selection sets — create, delete, list, select, replace.
-
-    All operations run through pure C++ SDK (INamedSelectionSetManager). Requires native bridge.
-
-    Actions:
-        list: List all named selection sets with members.
-        create: Create a new selection set. Params: name (set name), names (object names).
-        delete: Delete a selection set by name.
-        select: Select all objects in a set (replaces current selection).
-        replace: Replace a set's members. Params: name, names (new members).
-
-    Args:
-        action: One of: list, create, delete, select, replace.
-        name: Selection set name.
-        names: Object names (for create, replace).
-    """
+    """Manage named selection sets — create, delete, list, select, replace."""
     payload = {"action": action}
     if name:
         payload["name"] = name

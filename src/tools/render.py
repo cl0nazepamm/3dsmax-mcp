@@ -7,16 +7,7 @@ def render_scene(
     height: int = 1080,
     output_path: str = "",
 ) -> str:
-    """Render the current viewport in 3ds Max.
-
-    Args:
-        width: Render width in pixels (default 1920)
-        height: Render height in pixels (default 1080)
-        output_path: File path to save the render (e.g. "C:/renders/test.png").
-                     If empty, renders to the frame buffer only.
-
-    Returns confirmation with the output path or render status.
-    """
+    """Render the current viewport in 3ds Max."""
     if client.native_available:
         payload = json.dumps({"width": width, "height": height, "output_path": output_path})
         response = client.send_command(payload, cmd_type="native:render_scene", timeout=300)

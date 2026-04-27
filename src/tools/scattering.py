@@ -36,38 +36,7 @@ def scatter_forest_pack(
     viewport_mode: int = 2,
     render_mode: int = 0,
 ) -> str:
-    """Create a Forest Pack scatter object and wire surfaces + source geometry.
-
-    This uses Forest Pack's native parameter arrays (`surflist`, `cobjlist`,
-    `namelist`, `problist`, `geomlist`) so it works in a fully procedural way
-    without opening plugin UIs.
-
-    Args:
-        surfaces: Distribution surface object names.
-        geometry: Source object names to scatter.
-        probabilities: Optional per-source weights. Must match `geometry` count.
-            Defaults to equal weights.
-        density: Forest Pack max density value.
-        seed: Random seed.
-        scale_min: Uniform min scale percent.
-        scale_max: Uniform max scale percent.
-        z_rotation_min: Minimum Z random rotation in degrees.
-        z_rotation_max: Maximum Z random rotation in degrees.
-        source_width_cm: Source width in centimeters (explicit world units).
-        source_height_cm: Source height in centimeters (explicit world units).
-        icon_size_cm: Forest icon size in centimeters (explicit world units).
-        density_units_x_cm: Density map size X in centimeters (explicit world units).
-        density_units_y_cm: Density map size Y in centimeters (explicit world units).
-        facing_mode: Forest facing direction.
-            0 = surface normal (good for sprinkles),
-            1 = up/world-aligned (good for trees).
-        name: Forest object name.
-        viewport_mode: Forest `vmesh` mode (integer enum).
-        render_mode: Forest `rmesh` mode (integer enum).
-
-    Returns:
-        JSON string summary or JSON error payload.
-    """
+    """Create a Forest Pack scatter object and wire surfaces + source geometry."""
     if not surfaces:
         raise ValueError("surfaces must contain at least one object name.")
     if not geometry:

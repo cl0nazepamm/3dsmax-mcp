@@ -4,18 +4,7 @@ from ..server import mcp, client
 
 @mcp.tool()
 def manage_scene(action: str) -> str:
-    """Manage the 3ds Max scene state.
-
-    Args:
-        action: One of:
-            - "hold": Snapshot current state (holdMaxFile)
-            - "fetch": Restore held state (fetchMaxFile quiet:true)
-            - "reset": New empty scene (resetMaxFile #noPrompt)
-            - "save": Save current file
-            - "info": Get scene info (file path, object count, poly count)
-
-    Returns confirmation or scene info.
-    """
+    """Manage the 3ds Max scene state."""
     action = action.lower().strip()
 
     if client.native_available:

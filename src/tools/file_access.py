@@ -15,27 +15,7 @@ def inspect_max_file(
     list_objects: bool = False,
     list_classes: bool = False,
 ) -> str:
-    """Inspect an external .max file without opening it.
-
-    Reads OLE metadata (file size, dates, author, title, comments) directly
-    from the file's structured storage — no scene load required.
-
-    With list_classes=True, reads the binary ClassDirectory3 stream to show
-    every material, modifier, geometry, texture, and controller class used
-    in the file. This is pure OLE reading — no scene load, no main thread.
-
-    With list_objects=True, lists all object names (uses merge-list API,
-    slightly slower).
-
-    Args:
-        file_path: Full path to the .max file.
-        list_objects: If True, also list all object names in the file.
-        list_classes: If True, read the class directory to show all material,
-                      modifier, geometry, and texture classes used in the file.
-
-    Returns:
-        JSON with file metadata and optionally object names and class inventory.
-    """
+    """Inspect an external .max file without opening it."""
     payload = json.dumps({
         "file_path": file_path,
         "list_objects": list_objects,
@@ -52,25 +32,7 @@ def merge_from_file(
     select_merged: bool = True,
     duplicate_action: str = "rename",
 ) -> str:
-    """Merge objects from an external .max file into the current scene.
-
-    Supports selective merging (specific objects by name) or full merge.
-    Uses the SDK's MergeFromFile with configurable duplicate handling.
-
-    Args:
-        file_path: Full path to the .max file to merge from.
-        object_names: Optional list of specific object names to merge.
-                      If empty/None, merges all objects.
-        select_merged: If True, select the merged objects after import.
-        duplicate_action: How to handle duplicate names:
-            - "rename": Auto-rename merged objects (default)
-            - "skip": Don't merge objects with existing names
-            - "merge": Keep both old and new
-            - "delete_old": Replace existing objects
-
-    Returns:
-        JSON with list of merged object names and count.
-    """
+    """Merge objects from an external .max file into the current scene."""
     payload = {
         "file_path": file_path,
         "select_merged": select_merged,
@@ -87,18 +49,7 @@ def batch_file_info(
     file_paths: StrList,
     list_objects: bool = False,
 ) -> str:
-    """Read metadata from multiple .max files in a single call.
-
-    Metadata-only mode runs in parallel threads for maximum speed.
-    With list_objects=True, object listing runs sequentially on the main thread.
-
-    Args:
-        file_paths: List of full paths to .max files.
-        list_objects: If True, also list object names from each file.
-
-    Returns:
-        JSON array with metadata for each file.
-    """
+    """Read metadata from multiple .max files in a single call."""
     payload = json.dumps({
         "file_paths": file_paths,
         "list_objects": list_objects,
@@ -143,28 +94,7 @@ def search_max_files(
     max_matches_per_file: int = 0,
     max_files: int = 0,
 ) -> str:
-    """Search .max files in a folder for objects matching a name pattern.
-
-    Scans every .max file in the folder, lists all objects, and filters
-    by the given wildcard pattern. Designed to handle entire drives —
-    files are scanned in batches and output is token-optimized.
-
-    When pattern is "*", returns a compact summary per file (count only).
-    When pattern is specific, returns matching object names (capped per file).
-    Use inspect_max_file on a specific file to get its full object list.
-
-    Args:
-        folder: Folder path to scan for .max files.
-        pattern: Wildcard pattern to match object names (e.g. "Fridge*",
-                 "*Light*", "CC_Base_*"). Default "*" returns summary only.
-        recursive: If True, scan subfolders too. Default True.
-        max_matches_per_file: Cap matched names per file (0 = auto: 20 for
-                              specific patterns, 0 for summary mode).
-        max_files: Stop after this many files (0 = no limit).
-
-    Returns:
-        JSON with matching objects grouped by file. Compact output by default.
-    """
+    """Search .max files in a folder for objects matching a name pattern."""
     p = Path(folder)
     if not p.is_dir():
         return json.dumps({"error": f"Folder not found: {folder}"})

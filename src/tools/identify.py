@@ -16,24 +16,7 @@ def _sanitize_filename(name: str) -> str:
 
 @mcp.tool()
 def isolate_and_capture_selected() -> str:
-    """Capture isolated viewport screenshots of each selected object (resolves to top-level parents).
-
-    Detects instances (objects sharing the same baseObject) and only captures
-    one representative per instance group — avoiding redundant identification.
-
-    For each unique top-level parent among the selection:
-      - Hides all other objects
-      - Selects it and all its descendants
-      - Zooms extents on the selection
-      - Captures the viewport to a PNG file
-      - Restores visibility
-
-    Returns JSON array:
-      [{"name": "Box001", "image_path": "C:/temp/...", "instances": ["Box001", "Box002", "Box003"]}, ...]
-
-    The "instances" array lists ALL object names that share the same base object.
-    The orchestrator should identify once and rename all instances from that result.
-    """
+    """Capture isolated viewport screenshots of each selected object (resolves to top-level parents)."""
     capture_dir = os.path.join(COMMS_DIR, "identify").replace("\\", "/")
 
     maxscript = f"""(
@@ -141,14 +124,7 @@ def isolate_and_capture_selected() -> str:
 
 @mcp.tool()
 def batch_rename_objects(renames_json: str) -> str:
-    """Rename multiple objects in a single batch operation.
-
-    Args:
-        renames_json: JSON string array of renames, e.g.
-            [{"old_name": "Box001", "new_name": "House"}, ...]
-
-    Returns confirmation summary of renamed objects.
-    """
+    """Rename multiple objects in a single batch operation."""
     renames = json.loads(renames_json)
 
     if client.native_available:

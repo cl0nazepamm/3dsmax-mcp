@@ -11,16 +11,7 @@ def set_visibility(
     pattern: str = "",
     action: str = "hide",
 ) -> str:
-    """Show, hide, freeze, or unfreeze objects.
-
-    Args:
-        names: List of specific object names. Default empty.
-        pattern: Wildcard pattern (e.g. "Light*"). Default empty.
-        action: "hide", "show", "toggle", "freeze", or "unfreeze".
-
-    At least one of names or pattern must be provided.
-    Returns count of affected objects.
-    """
+    """Show, hide, freeze, or unfreeze objects."""
     if client.native_available:
         try:
             params: dict = {"action": action}

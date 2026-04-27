@@ -134,6 +134,6 @@ namespace NativeHandlers {
     std::string InvokeInterface(const std::string& params, MCPBridgeGUP* gup);
     std::string RunMacroscript(const std::string& params, MCPBridgeGUP* gup);
 
-    // Chat UI (v0.6.0)
+    // Chat UI (v0.7.0)
     std::string ChatUI(const std::string& params, MCPBridgeGUP* gup);
 }

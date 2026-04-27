@@ -1,4 +1,6 @@
 import logging
+import os
+from importlib import import_module
 from functools import lru_cache
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
@@ -9,8 +11,67 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 mcp = FastMCP("3dsmax-mcp")
 client = MaxClient()
 
-# Import tool modules to trigger @mcp.tool() registration
-from .tools import execute, scene, objects, materials, render, viewport, identify, transform, hierarchy, modifiers, selection, clone, scene_manage, visibility, inspect, floor_plan, scene_query, effects, material_ops, material_replace, state_sets, data_channel, wire_params, controllers, scattering, capabilities, snapshots, session_context, bridge, plugins, tyflow, railclone, file_access, organize, learning, chat  # noqa: E402, F401
+CORE_TOOL_MODULES = (
+    "execute",
+    "bridge",
+    "capabilities",
+    "session_context",
+    "scene",
+    "snapshots",
+    "scene_query",
+    "scene_manage",
+    "objects",
+    "transform",
+    "hierarchy",
+    "selection",
+    "visibility",
+    "clone",
+    "modifiers",
+    "materials",
+    "material_ops",
+    "palette_laydown",
+    "material_replace",
+    "inspect",
+    "plugins",
+    "organize",
+    "viewport",
+    "identify",
+    "file_access",
+    "learning",
+    "controllers",
+)
+
+SPECIALTY_TOOL_MODULES = (
+    "chat",
+    "data_channel",
+    "effects",
+    "floor_plan",
+    "railclone",
+    "render",
+    "scattering",
+    "state_sets",
+    "tyflow",
+    "wire_params",
+)
+
+
+def _tool_profile() -> str:
+    value = os.environ.get("MCP_TOOL_PROFILE") or os.environ.get("THREEDSMAX_MCP_TOOL_PROFILE") or "core"
+    value = value.strip().lower()
+    return value if value in {"core", "full"} else "core"
+
+
+def _register_tool_modules() -> None:
+    modules = list(CORE_TOOL_MODULES)
+    if _tool_profile() == "full":
+        modules.extend(SPECIALTY_TOOL_MODULES)
+    for name in modules:
+        import_module(f".tools.{name}", package=__package__)
+
+
+# Import tool modules to trigger @mcp.tool() registration. Default is compact;
+# set MCP_TOOL_PROFILE=full to expose specialty tool modules too.
+_register_tool_modules()
 
 
 SKILL_RESOURCE_URI = "resource://3dsmax-mcp/skill"
@@ -60,8 +121,9 @@ def max_assistant() -> str:
         "DO NOT render unless the user asks.\n"
         "Use capture_viewport for fast viewport context.\n"
         f"Reference resource: {SKILL_RESOURCE_URI}\n"
+        "Load the reference resource only when you need detailed project rules or MAXScript examples.\n"
     )
-    return f"{base_rules}\nFull reference:\n\n{_read_skill_file()}"
+    return base_rules
 
 
 def main():

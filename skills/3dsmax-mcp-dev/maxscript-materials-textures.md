@@ -7,7 +7,21 @@
 mat = StandardMaterial name:"MyMat" diffuse:red opacity:80.0
 $Box001.material = mat
 
--- Create and assign Physical Material (3ds Max 2017+)
+-- Preferred neutral PBR target: OpenPBR.
+-- Class spelling differs across Max builds; introspect/discover first.
+opbr = undefined
+try (opbr = OpenPBRMaterial name:"PBR_Mat") catch ()
+if opbr == undefined do try (opbr = OpenPBR_Material name:"PBR_Mat") catch ()
+if opbr == undefined do try (opbr = OpenPBR_Mtl name:"PBR_Mat") catch ()
+if opbr != undefined do (
+    -- Use introspect_class / get_material_slots for exact slot names.
+    try (opbr.base_color = color 200 150 100) catch ()
+    try (opbr.metalness = 0.0) catch ()
+    try (opbr.roughness = 0.3) catch ()
+    $Box001.material = opbr
+)
+
+-- Physical Material is fallback/legacy when OpenPBR is unavailable.
 pmat = PhysicalMaterial name:"PBR_Mat"
 pmat.Base_Color = color 200 150 100
 pmat.metalness = 0.0
@@ -92,7 +106,23 @@ m.mapEnables[2] = true
 m.mapAmounts[2] = 100.0
 ```
 
-## Physical Material Properties (3ds Max 2017+)
+## OpenPBR Preference
+
+Prefer OpenPBR for new neutral PBR materials. Because property/class names can
+vary by 3ds Max version, discover before hardcoding:
+
+```maxscript
+-- In MCP, prefer:
+-- discover_plugin_classes pattern:"*OpenPBR*" superclass:"material"
+-- introspect_class class_name:"OpenPBRMaterial"  -- or discovered name
+-- get_material_slots name:"ObjectWithOpenPBR" slot_scope:"map"
+```
+
+Use PhysicalMaterial only when OpenPBR is unavailable, when converting legacy
+Max scenes that already use PhysicalMaterial, or when the user explicitly asks
+for Physical.
+
+## Physical Material Properties (fallback/legacy)
 
 ```maxscript
 p = PhysicalMaterial()

@@ -3,11 +3,12 @@
 Covers the full material workflow: creating materials by class, assigning them
 to objects, setting properties, creating texture maps, writing OSL shaders,
 and managing Multi/Sub-Object sub-material slots.
-Works with all material/map types: Arnold (ai_standard_surface), Physical,
-Standard, OSLMap, Bitmaptexture, ai_bump2d, and any MAXScript-creatable class.
+Works with all material/map types: OpenPBR, Arnold (ai_standard_surface),
+Physical, Standard, OSLMap, Bitmaptexture, ai_bump2d, and any MAXScript-creatable class.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Optional
 from ..server import mcp, client
@@ -25,23 +26,66 @@ _IMAGE_EXTENSIONS = {
     ".tga", ".hdr", ".bmp", ".dds", ".tx",
 }
 
-# Channel patterns — priority-ordered, longest match wins within each channel.
-# Order within the dict also defines priority (roughness before glossiness).
+# Channel patterns are priority-ordered. They intentionally cover verbose,
+# short-form, and single-letter token styles used by common texture libraries.
 _DEFAULT_CHANNEL_PATTERNS: dict[str, list[str]] = {
-    "diffuse":       ["_basecolor", "_base_color", "_albedo", "_diffuse", "_diff", "_color", "_col"],
-    "ao":            ["_ambientocclusion", "_occlusion", "_ao"],
-    "orm":           ["_occlusionroughnessmetallic", "_orm"],
-    "roughness":     ["_roughness", "_rough"],
-    "glossiness":    ["_glossiness", "_gloss"],
-    "metallic":      ["_metallic", "_metalness", "_metal"],
-    "normal":        ["_normalgl", "_normaldx", "_normal", "_nrm", "_nor"],
-    "bump":          ["_bump", "_bmp", "_height"],
-    "displacement":  ["_displacement", "_displace", "_disp"],
-    "opacity":       ["_opacity", "_alpha", "_transparency"],
-    "emission":      ["_emissive", "_emission", "_emit"],
-    "translucency":  ["_translucency", "_translucent", "_transmission"],
-    "ior":           ["_ior"],
-    "specular":      ["_specular", "_spec", "_reflection", "_refl"],
+    "diffuse":       [
+        "_basecolor", "_base_color", "basecolor", "base color", "_albedo", "albedo",
+        "_diffuse", "diffuse", "_diff", "diff", "_color", "color", "_col", "col",
+        "_rgb", "rgb", "_clr", "clr", "_alb", "alb", "_dif", "dif", "_d",
+    ],
+    "orm":           [
+        "_occlusionroughnessmetallic", "occlusion roughness metallic",
+        "_ambientocclusionroughnessmetallic", "ambient occlusion roughness metallic",
+        "_orm", "orm", "_arm", "arm",
+    ],
+    "ao":            [
+        "_ambientocclusion", "ambient occlusion", "_ambient_occlusion",
+        "_occlusion", "occlusion", "_amb_occ", "amb occ", "_ao", "ao",
+    ],
+    "roughness":     ["_roughness", "roughness", "_rough", "rough", "_rgh", "rgh", "_r"],
+    "glossiness":    [
+        "_glossiness", "glossiness", "_smoothness", "smoothness", "_gloss", "gloss",
+        "_smooth", "smooth", "_gls", "gls", "_g",
+    ],
+    "metallic":      [
+        "_metallic", "metallic", "_metalness", "metalness", "_metal", "metal",
+        "_met", "met", "_mtl", "mtl", "_m",
+    ],
+    "normal":        [
+        "_normalgl", "normalgl", "normal gl", "_normaldx", "normaldx", "normal dx",
+        "_normal", "normal", "_nrm", "nrm", "_nor", "nor", "_n",
+    ],
+    "displacement":  [
+        "_displacement", "displacement", "_displace", "displace", "_height", "height",
+        "_depth", "depth", "_hght", "hght", "_hgt", "hgt", "_disp", "disp", "_dis", "dis", "_h",
+    ],
+    "bump":          ["_bump", "bump", "_bmp", "bmp", "_b"],
+    "opacity":       [
+        "_opacity", "opacity", "_alpha", "alpha", "_alphamasked", "alphamasked",
+        "_opa", "opa", "_alph", "alph", "_o",
+    ],
+    "emission":      [
+        "_emissive", "emissive", "_emission", "emission", "_emisive", "emisive",
+        "_illumination", "illumination", "_illum", "illum", "_emit", "emit",
+        "_light", "light", "_emi", "emi", "_ill", "ill", "_lght", "lght", "_e",
+    ],
+    "translucency":  [
+        "_translucency", "translucency", "_translucent", "translucent",
+        "_transmission", "transmission", "_transparency", "transparency",
+        "_transparancy", "transparancy", "_trans", "trans", "_trns", "trns", "_t",
+    ],
+    "ior":           ["_ior", "ior", "_i"],
+    "specular":      [
+        "_specular", "specular", "_spec", "spec", "_spc", "spc",
+        "_reflection", "reflection", "_reflect", "reflect", "_refl", "refl", "_ref", "ref", "_s",
+    ],
+}
+
+_TEXTURE_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_COMMON_VARIANT_TOKENS = {
+    "2k", "4k", "8k", "16k", "1k", "512", "1024", "2048", "4096", "8192",
+    "png", "jpg", "jpeg", "tif", "tiff", "exr", "tga", "hdr", "bmp", "dds", "tx",
 }
 
 # Color-data maps (sRGB vs Raw / linear)
@@ -76,6 +120,20 @@ _RENDERER_CONFIGS: dict[str, dict] = {
             "specular":      "refl_color_map",
         },
     },
+    "openpbr": {
+        "material_class": "OpenPBRMaterial",
+        "slots": {
+            "diffuse":      ["base_color_map", "baseColor_map", "basecolor_map", "base_map", "diffuse_map"],
+            "roughness":    ["roughness_map", "specular_roughness_map", "base_roughness_map"],
+            "glossiness":   ["roughness_map", "specular_roughness_map", "base_roughness_map"],
+            "metallic":     ["metalness_map", "metallic_map", "base_metalness_map"],
+            "opacity":      ["opacity_map", "cutout_map", "transparency_map"],
+            "emission":     ["emission_color_map", "emit_color_map", "emission_map"],
+            "translucency": ["transmission_color_map", "trans_color_map", "transmission_map"],
+            "specular":     ["specular_color_map", "refl_color_map"],
+            "displacement": ["displacement_map"],
+        },
+    },
     "redshift": {
         "material_class": "RS_Standard_Material",
         "slots": {
@@ -91,6 +149,64 @@ _RENDERER_CONFIGS: dict[str, dict] = {
     },
 }
 
+_PBR_SLOT_CANDIDATES: dict[str, dict[str, list[str]]] = {
+    "openpbr": {
+        "diffuse":      ["base_color_map", "baseColor_map", "basecolor_map", "base_map", "diffuse_map"],
+        "ao":           ["base_color_map", "baseColor_map", "basecolor_map", "base_map", "diffuse_map"],
+        "roughness":    ["roughness_map", "specular_roughness_map", "base_roughness_map"],
+        "glossiness":   ["roughness_map", "specular_roughness_map", "base_roughness_map"],
+        "metallic":     ["metalness_map", "metallic_map", "base_metalness_map"],
+        "normal":       ["bump_map", "normal_map"],
+        "bump":         ["bump_map", "normal_map"],
+        "displacement": ["displacement_map"],
+        "opacity":      ["opacity_map", "cutout_map", "transparency_map"],
+        "emission":     ["emission_color_map", "emit_color_map", "emission_map"],
+        "translucency": ["transmission_color_map", "trans_color_map", "transmission_map"],
+        "specular":     ["specular_color_map", "refl_color_map"],
+    },
+    "physical": {
+        "diffuse":      ["base_color_map"],
+        "ao":           ["base_color_map"],
+        "roughness":    ["roughness_map"],
+        "glossiness":   ["roughness_map"],
+        "metallic":     ["metalness_map"],
+        "normal":       ["bump_map"],
+        "bump":         ["bump_map"],
+        "displacement": ["displacement_map"],
+        "opacity":      ["cutout_map"],
+        "emission":     ["emit_color_map", "emission_map"],
+        "translucency": ["trans_color_map", "transparency_map"],
+        "specular":     ["refl_color_map"],
+    },
+    "arnold": {
+        "diffuse":      ["base_color_shader"],
+        "ao":           ["base_color_shader"],
+        "roughness":    ["specular_roughness_shader"],
+        "glossiness":   ["specular_roughness_shader"],
+        "metallic":     ["metalness_shader"],
+        "normal":       ["normal_shader"],
+        "bump":         ["normal_shader"],
+        "opacity":      ["opacity_shader"],
+        "emission":     ["emission_color_shader"],
+        "translucency": ["transmission_shader"],
+        "specular":     ["specular_color_shader"],
+    },
+    "redshift": {
+        "diffuse":      ["base_color_map"],
+        "ao":           ["base_color_map"],
+        "roughness":    ["refl_roughness_map"],
+        "glossiness":   ["refl_roughness_map"],
+        "metallic":     ["metalness_map"],
+        "normal":       ["bump_input"],
+        "bump":         ["bump_input"],
+        "displacement": ["displacement_input"],
+        "opacity":      ["opacity_color_map"],
+        "emission":     ["emission_color_map"],
+        "translucency": ["refr_color_map"],
+        "specular":     ["refl_color_map"],
+    },
+}
+
 
 def _scan_texture_folder(folder: str) -> list[Path]:
     """Return all image files in *folder* (non-recursive)."""
@@ -98,6 +214,82 @@ def _scan_texture_folder(folder: str) -> list[Path]:
     if not p.is_dir():
         return []
     return [f for f in p.iterdir() if f.is_file() and f.suffix.lower() in _IMAGE_EXTENSIONS]
+
+
+def _texture_tokens(value: str) -> list[str]:
+    """Split a texture stem or alias into normalized name tokens."""
+    return _TEXTURE_TOKEN_RE.findall(value.lower())
+
+
+def _pattern_match_score(
+    stem: str,
+    pattern: str,
+) -> tuple[int, tuple[int, int] | None] | None:
+    """Return a match score and token span for a channel pattern.
+
+    Exact token-sequence matches are preferred. Compact suffix matching exists
+    for filenames like ``woodBaseColor`` but gets a lower score and no span.
+    """
+    tokens = _texture_tokens(stem)
+    pattern_tokens = _texture_tokens(pattern)
+    if not tokens or not pattern_tokens:
+        return None
+
+    pattern_compact = "".join(pattern_tokens)
+    token_count = len(pattern_tokens)
+
+    for start in range(0, len(tokens) - token_count + 1):
+        if tokens[start:start + token_count] != pattern_tokens:
+            continue
+        at_end = start + token_count == len(tokens)
+        # Single-letter aliases are useful, but they should not outrank normal
+        # production naming like basecolor/roughness/metalness.
+        single_letter_penalty = 80 if len(pattern_compact) == 1 else 0
+        score = (token_count * 100) + len(pattern_compact) + (25 if at_end else 0) - single_letter_penalty
+        return score, (start, start + token_count)
+
+    stem_compact = "".join(tokens)
+    if len(pattern_compact) >= 4 and stem_compact.endswith(pattern_compact):
+        return len(pattern_compact), None
+
+    return None
+
+
+def _detect_texture_channel(
+    path: Path,
+    patterns: dict[str, list[str]],
+) -> tuple[str, str, str] | None:
+    """Return ``(channel, material_key, alias)`` for a texture filename."""
+    stem = path.stem
+    tokens = _texture_tokens(stem)
+    best: tuple[int, int, str, tuple[int, int] | None, str] | None = None
+
+    for priority, (channel, aliases) in enumerate(patterns.items()):
+        for alias in aliases:
+            scored = _pattern_match_score(stem, alias)
+            if scored is None:
+                continue
+            score, span = scored
+            candidate = (score, -priority, channel, span, alias)
+            if best is None or candidate > best:
+                best = candidate
+
+    if best is None:
+        return None
+
+    _, _, channel, span, alias = best
+    if span is not None:
+        start, end = span
+        key_tokens = tokens[:start] + tokens[end:]
+    else:
+        key_tokens = tokens
+
+    key_tokens = [token for token in key_tokens if token not in _COMMON_VARIANT_TOKENS]
+    material_key = "_".join(key_tokens).strip("_")
+    if not material_key:
+        material_key = path.parent.name.lower() or path.stem.lower()
+
+    return channel, material_key, alias
 
 
 def _match_textures_to_channels(
@@ -110,29 +302,74 @@ def _match_textures_to_channels(
     Roughness takes priority over glossiness (dict ordering).
     """
     matched: dict[str, Path] = {}
-    claimed: set[Path] = set()
-
-    for channel, suffixes in patterns.items():
-        best_file: Path | None = None
-        best_len = 0
-        for f in files:
-            if f in claimed:
-                continue
-            stem = f.stem.lower()
-            for suffix in suffixes:
-                if stem.endswith(suffix) and len(suffix) > best_len:
-                    best_file = f
-                    best_len = len(suffix)
-        if best_file is not None:
-            matched[channel] = best_file
-            claimed.add(best_file)
+    for f in files:
+        detected = _detect_texture_channel(f, patterns)
+        if detected is None:
+            continue
+        channel, _, _ = detected
+        if channel not in matched:
+            matched[channel] = f
 
     return matched
+
+
+def _group_texture_files_for_pbr(
+    files: list[Path],
+    patterns: dict[str, list[str]],
+) -> tuple[list[dict], list[Path], list[str]]:
+    """Group texture files into material sets using channel name detection."""
+    grouped: dict[str, dict[str, Path]] = {}
+    aliases: dict[str, dict[str, str]] = {}
+    unmatched: list[Path] = []
+    duplicate_notes: list[str] = []
+
+    for path in files:
+        detected = _detect_texture_channel(path, patterns)
+        if detected is None:
+            unmatched.append(path)
+            continue
+
+        channel, material_key, alias = detected
+        channels = grouped.setdefault(material_key, {})
+        aliases.setdefault(material_key, {})
+
+        if channel in channels:
+            duplicate_notes.append(f"{path.name} duplicate {channel} for {material_key}")
+            continue
+
+        channels[channel] = path
+        aliases[material_key][channel] = alias
+
+    groups = [
+        {"name": name, "channels": channels, "aliases": aliases.get(name, {})}
+        for name, channels in grouped.items()
+        if channels
+    ]
+    groups.sort(key=lambda item: item["name"])
+    return groups, unmatched, duplicate_notes
+
+
+def _renderer_from_material_class(material_class: str) -> str | None:
+    class_lower = (material_class or "").strip().lower()
+    if not class_lower or class_lower in {"openpbr", "openpbrmaterial", "openpbr_material", "openpbr_mtl"}:
+        return "openpbr"
+    if class_lower in {"physical", "physicalmaterial", "autodeskphysical"} or "physical" in class_lower:
+        return "physical"
+    if class_lower in {"arnold", "ai_standard_surface", "standard_surface"} or "ai_standard" in class_lower:
+        return "arnold"
+    if class_lower in {"redshift", "rs_standard_material", "rsstandardmaterial"} or "redshift" in class_lower:
+        return "redshift"
+    return None
+
 
 
 def _ms_path(p: Path) -> str:
     """Convert a Path to a MAXScript-safe forward-slash string."""
     return str(p).replace("\\", "/")
+
+
+def _ms_name_array(values: list[str]) -> str:
+    return "#(" + ", ".join(f'"{safe_string(v)}"' for v in values) + ")"
 
 
 def _material_slot_hints(material_class: str) -> dict[str, str]:
@@ -150,7 +387,7 @@ def _material_slot_hints(material_class: str) -> dict[str, str]:
             "normalHelperClass": "RS_BumpMap",
             "bumpHelperClass": "RS_BumpMap",
         }
-    if cls in {"physicalmaterial", "standardmaterial", "gltfmaterial", "maxusdpreviewsurface"}:
+    if cls in {"openpbrmaterial", "openpbr_material", "physicalmaterial", "standardmaterial", "gltfmaterial", "maxusdpreviewsurface"}:
         return {
             "preferredBitmapClass": "Bitmaptexture",
             "normalHelperClass": "Normal_Bump",
@@ -288,7 +525,8 @@ def _build_physical_maxscript(
             if "ao" in matched:
                 ao_fp = _ms_path(matched["ao"])
                 lines.append(f'bm_ao = Bitmaptexture name:"ao" fileName:"{ao_fp}"')
-                lines.append('comp = CompositeTexturemap name:"Diffuse_AO"')
+                lines.append('comp = CompositeTexturemap()')
+                lines.append('comp.name = "Diffuse_AO"')
                 lines.append(f'comp.mapList[1] = {var}')
                 lines.append('comp.mapList[2] = bm_ao')
                 lines.append('comp.blendMode[2] = 5')  # multiply
@@ -347,6 +585,109 @@ def _build_physical_maxscript(
     return "(\n    " + "\n    ".join(lines) + "\n)"
 
 
+def _build_openpbr_maxscript(
+    matched: dict[str, Path],
+    material_name: str,
+    assign_to: list[str] | None,
+) -> str:
+    """Generate MAXScript for OpenPBR material setup with Physical fallback."""
+    lines: list[str] = []
+    safe_mat = safe_string(material_name)
+    lines.extend([
+        "fn mcp_setFirstMap target propNames tex = (",
+        "    for propName in propNames do (",
+        "        try (setProperty target (propName as name) tex; return propName) catch ()",
+        "    )",
+        "    undefined",
+        ")",
+        "fn mcp_createOpenPbrPreferred matName = (",
+        "    local m = undefined",
+        '    try (m = OpenPBRMaterial name:matName) catch ()',
+        '    if m == undefined do try (m = OpenPBR_Material name:matName) catch ()',
+        '    if m == undefined do try (m = OpenPBR_Mtl name:matName) catch ()',
+        '    if m == undefined do try (m = PhysicalMaterial name:matName) catch ()',
+        '    if m == undefined do throw "OpenPBRMaterial/OpenPBR_Material/OpenPBR_Mtl/PhysicalMaterial are unavailable"',
+        "    m",
+        ")",
+        f'mat = mcp_createOpenPbrPreferred "{safe_mat}"',
+        'summary = ((classOf mat) as string)',
+        'if matchPattern summary pattern:"Physical*" do summary += " (fallback; OpenPBR class unavailable)"',
+        'channelList = ""',
+        'skippedList = ""',
+    ])
+
+    slots = _RENDERER_CONFIGS["openpbr"]["slots"]
+
+    def ms_name_array(values: list[str]) -> str:
+        return "#(" + ", ".join(f'"{safe_string(v)}"' for v in values) + ")"
+
+    for channel, fpath in matched.items():
+        var = f"bm_{channel}"
+        fp = _ms_path(fpath)
+        lines.append(f'{var} = Bitmaptexture name:"{channel}" fileName:"{fp}"')
+
+        if channel == "diffuse":
+            if "ao" in matched:
+                ao_fp = _ms_path(matched["ao"])
+                lines.append(f'bm_ao = Bitmaptexture name:"ao" fileName:"{ao_fp}"')
+                lines.append('comp = CompositeTexturemap()')
+                lines.append('comp.name = "Diffuse_AO"')
+                lines.append(f'comp.mapList[1] = {var}')
+                lines.append('comp.mapList[2] = bm_ao')
+                lines.append('comp.blendMode[2] = 5')
+                lines.append(f'slotName = mcp_setFirstMap mat {ms_name_array(slots["diffuse"])} comp')
+                lines.append('if slotName != undefined then channelList += "diffuse(+ao)->" + slotName + ", " else skippedList += "diffuse, "')
+            else:
+                lines.append(f'slotName = mcp_setFirstMap mat {ms_name_array(slots["diffuse"])} {var}')
+                lines.append('if slotName != undefined then channelList += "diffuse->" + slotName + ", " else skippedList += "diffuse, "')
+        elif channel == "ao":
+            continue
+        elif channel == "glossiness":
+            lines.append('inv = Output name:"GlossToRough"')
+            lines.append(f'inv.map1 = {var}')
+            lines.append('inv.output.invert = true')
+            lines.append(f'slotName = mcp_setFirstMap mat {ms_name_array(slots["glossiness"])} inv')
+            lines.append('if slotName != undefined then channelList += "glossiness(inverted)->" + slotName + ", " else skippedList += "glossiness, "')
+        elif channel == "normal":
+            lines.append('nrmBump = Normal_Bump name:"NormalBump"')
+            lines.append(f'nrmBump.normal_map = {var}')
+            if "bump" in matched:
+                bump_fp = _ms_path(matched["bump"])
+                lines.append(f'bm_bump_h = Bitmaptexture name:"bump" fileName:"{bump_fp}"')
+                lines.append('nrmBump.bump_map = bm_bump_h')
+                lines.append('slotName = mcp_setFirstMap mat #("bump_map", "normal_map") nrmBump')
+                lines.append('if slotName != undefined then channelList += "normal(+bump)->" + slotName + ", " else skippedList += "normal, "')
+            else:
+                lines.append('slotName = mcp_setFirstMap mat #("bump_map", "normal_map") nrmBump')
+                lines.append('if slotName != undefined then channelList += "normal->" + slotName + ", " else skippedList += "normal, "')
+        elif channel == "bump":
+            if "normal" not in matched:
+                lines.append('nrmBump = Normal_Bump name:"BumpOnly"')
+                lines.append(f'nrmBump.bump_map = {var}')
+                lines.append('slotName = mcp_setFirstMap mat #("bump_map", "normal_map") nrmBump')
+                lines.append('if slotName != undefined then channelList += "bump->" + slotName + ", " else skippedList += "bump, "')
+        elif channel == "ior":
+            lines.append('skippedList += "ior, "')
+        else:
+            candidates = slots.get(channel)
+            if candidates:
+                lines.append(f'slotName = mcp_setFirstMap mat {ms_name_array(candidates)} {var}')
+                lines.append(f'if slotName != undefined then channelList += "{channel}->" + slotName + ", " else skippedList += "{channel}, "')
+
+    if assign_to:
+        names_arr = "#(" + ", ".join(f'"{safe_string(n)}"' for n in assign_to) + ")"
+        lines.append(f'nameList = {names_arr}')
+        lines.append('assignCount = 0')
+        lines.append('for n in nameList do (obj = getNodeByName n; if obj != undefined then (obj.material = mat; assignCount += 1))')
+        lines.append('summary += " | Assigned to " + (assignCount as string) + " object(s)"')
+
+    lines.append('summary += " | Channels: " + channelList')
+    lines.append('if skippedList != "" do summary += " | Skipped: " + skippedList')
+    lines.append('summary')
+
+    return "(\n    " + "\n    ".join(lines) + "\n)"
+
+
 def _build_redshift_maxscript(
     matched: dict[str, Path],
     material_name: str,
@@ -369,7 +710,8 @@ def _build_redshift_maxscript(
             if "ao" in matched:
                 ao_fp = _ms_path(matched["ao"])
                 lines.append(f'bm_ao = Bitmaptexture name:"ao" fileName:"{ao_fp}"')
-                lines.append('comp = CompositeTexturemap name:"Diffuse_AO"')
+                lines.append('comp = CompositeTexturemap()')
+                lines.append('comp.name = "Diffuse_AO"')
                 lines.append(f'comp.mapList[1] = {var}')
                 lines.append('comp.mapList[2] = bm_ao')
                 lines.append('comp.blendMode[2] = 5')
@@ -441,24 +783,7 @@ def assign_material(
     material_name: str = "",
     params: str = "",
 ) -> str:
-    """Create a material and assign it to one or more objects.
-
-    Use this when the user wants to apply a new material to objects — e.g.
-    "make the body chrome", "give it a glass material", "assign Arnold surface".
-    Creates the material, optionally sets initial parameters, and assigns it.
-    To modify an existing material's properties, use set_material_property instead.
-
-    Args:
-        names: List of object names to assign the material to.
-        material_class: Material class name (e.g. "ai_standard_surface",
-                        "PhysicalMaterial", "StandardMaterial", "Multimaterial").
-        material_name: Optional name for the material. Auto-generated if empty.
-        params: Optional MAXScript parameters for creation
-                (e.g. "base_color:(color 200 50 50) metalness:1.0").
-
-    Returns:
-        Confirmation with material name and assigned object count.
-    """
+    """Create a material and assign it to one or more objects."""
     if client.native_available:
         payload = {
             "names": names,
@@ -506,36 +831,7 @@ def set_material_property(
     value: str,
     sub_material_index: int = 0,
 ) -> str:
-    """Set a property on an object's material (or sub-material).
-
-    Use this to change any material parameter — colors, floats, booleans,
-    texture map slots, or clearing maps. This is the write counterpart to
-    inspect_properties with target="material". Handles all material types
-    including Arnold (ai_standard_surface), Physical, Standard, and
-    Multi/Sub-Object (use sub_material_index to target a sub-material).
-
-    Common patterns:
-    - Set color: property="base_color" value="color 200 50 50"
-    - Set float: property="metalness" value="1.0"
-    - Set bool: property="thin_walled" value="true"
-    - Clear a texture map: property="base_color_shader" value="undefined"
-    - Assign a map by variable: property="specular_color_shader" value="thinFilm"
-      (where thinFilm was created via execute_maxscript)
-
-    Args:
-        name: The object name whose material to modify (e.g. "CC_Base_Body").
-        property: Material property name (e.g. "base_color", "metalness",
-                  "specular_roughness", "coat", "base_color_shader").
-                  Use inspect_properties with target="material" to discover names.
-        value: Value as a MAXScript expression (e.g. "1.0", "color 255 0 0",
-               "true", "undefined").
-        sub_material_index: For Multi/Sub-Object materials, 1-based index of
-                           the sub-material to modify. 0 = modify the top-level
-                           material directly (default).
-
-    Returns:
-        Confirmation with the property name and new value, or error message.
-    """
+    """Set a property on an object's material (or sub-material)."""
     if client.native_available:
         payload = {
             "name": name,
@@ -587,32 +883,7 @@ def set_material_properties(
     properties: dict[str, str],
     sub_material_index: int = 0,
 ) -> str:
-    """Set multiple properties on an object's material in a single call.
-
-    Use this when you need to change several material parameters at once —
-    e.g. setting up a chrome look (metalness, base_color, specular_roughness,
-    coat all in one call). Much more efficient than multiple set_material_property
-    calls. Each property-value pair is a MAXScript expression.
-
-    Common use cases:
-    - Chrome: {"metalness": "1.0", "base_color": "color 200 210 230",
-               "specular_roughness": "0.05", "coat": "0.8"}
-    - Glass: {"transmission": "0.9", "specular_roughness": "0.0",
-              "specular_IOR": "1.5", "thin_walled": "true"}
-    - Clear all maps: {"base_color_shader": "undefined",
-                       "specular_shader": "undefined",
-                       "subsurface_shader": "undefined"}
-
-    Args:
-        name: The object name whose material to modify.
-        properties: Dictionary of property names to MAXScript value expressions.
-                    e.g. {"metalness": "1.0", "base_color": "color 200 50 50"}
-        sub_material_index: For Multi/Sub-Object materials, 1-based index.
-                           0 = top-level material (default).
-
-    Returns:
-        Summary of all properties set and any errors encountered.
-    """
+    """Set multiple properties on an object's material in a single call."""
     if client.native_available:
         payload = {
             "name": name,
@@ -685,27 +956,7 @@ def get_material_slots(
     slot_scope: str = "map",
     max_per_group: int = 15,
 ) -> str:
-    """Get compact material slot/property info without schema caches.
-
-    This is a token-efficient runtime inspector that categorizes material
-    properties into map/color/numeric/bool slots directly from 3ds Max.
-    Use this when an agent needs practical slot names before writing values.
-
-    Prefer slot_scope="map" (default) or "summary" over "all".
-    Using "all" with include_values=True on complex materials (Physical,
-    Arnold) returns 40+ params.
-
-    Args:
-        name: Object name whose material should be inspected.
-        sub_material_index: Multi/Sub slot index (1-based). 0 = top material.
-        include_values: Include truncated readback values for each slot.
-        max_slots: Hard cap on inspected properties to control response size.
-        slot_scope: "map" (default), "summary", or "all".
-        max_per_group: Max returned slots per category.
-
-    Returns:
-        Compact JSON with categorized slot names (and optional values).
-    """
+    """Get compact material slot/property info without schema caches."""
     if client.native_available:
         try:
             payload = json.dumps({
@@ -963,34 +1214,7 @@ def create_texture_map(
     properties: dict[str, str] | None = None,
     global_var: str = "",
 ) -> str:
-    """Create a texture map and store it as a MAXScript global variable.
-
-    Use this when you need to create texture maps (OSLMap, Bitmaptexture,
-    ai_bump2d, tyBitmap, Noise, Checker, etc.) that will be wired into
-    material shader slots via set_material_property. The map is stored as
-    a MAXScript global so it can be referenced by name in later calls.
-
-    Common patterns:
-    - OSL map: map_class="OSLMap", params='', then set OSLPath via properties
-    - Bitmap: map_class="Bitmaptexture", properties={"fileName": '"C:/tex.png"'}
-    - Arnold bump: map_class="ai_bump2d", properties={"bump_height": "0.02"}
-    - Noise: map_class="Noise", properties={"size": "10.0"}
-
-    Args:
-        map_class: Texture map class name (e.g. "OSLMap", "Bitmaptexture",
-                   "ai_bump2d", "tyBitmap", "Noise", "Checker", "Gradient").
-        map_name: Optional display name for the map.
-        params: Optional MAXScript creation parameters.
-        properties: Optional dict of property names to MAXScript values to set
-                    after creation. Useful for OSLMap (set OSLPath first, then
-                    set exposed params in a follow-up call).
-        global_var: MAXScript global variable name to store the map as.
-                    If empty, auto-generated from map_name or map_class.
-                    Use this name in set_material_property value field to wire it.
-
-    Returns:
-        Confirmation with the global variable name to reference this map.
-    """
+    """Create a texture map and store it as a MAXScript global variable."""
     if client.native_available:
         payload = {
             "map_class": map_class,
@@ -1057,21 +1281,7 @@ def set_texture_map_properties(
     global_var: str,
     properties: dict[str, str],
 ) -> str:
-    """Set properties on a texture map stored as a MAXScript global variable.
-
-    Use this after create_texture_map to configure map parameters — especially
-    useful for OSLMap where parameters are only exposed AFTER setting OSLPath.
-    Two-step OSL workflow: (1) create_texture_map with OSLPath, (2) this tool
-    to set the dynamically exposed shader parameters.
-
-    Args:
-        global_var: The global variable name from create_texture_map.
-        properties: Dict of property names to MAXScript value expressions.
-                    e.g. {"IrisSize": "0.4", "PupilColor": "color 1 1 1"}
-
-    Returns:
-        Summary of properties set and any errors.
-    """
+    """Set properties on a texture map stored as a MAXScript global variable."""
     if client.native_available:
         payload = json.dumps({"global_var": global_var, "properties": properties})
         response = client.send_command(payload, cmd_type="native:set_texture_map_properties")
@@ -1123,27 +1333,7 @@ def set_sub_material(
     params: str = "",
     source_index: int = 0,
 ) -> str:
-    """Create or assign a sub-material in a Multi/Sub-Object material slot.
-
-    Use this to populate individual slots of a Multimaterial — e.g. after
-    creating a Multimaterial with assign_material, fill each slot with the
-    correct shader type. Can create a new material at the slot, or copy
-    a reference from another slot (for shared sub-materials like L/R eyes).
-
-    Args:
-        name: Object name that has the Multimaterial assigned.
-        sub_material_index: 1-based slot index to set (e.g. 1, 2, 3, 4).
-        material_class: Material class to create (e.g. "ai_standard_surface",
-                        "PhysicalMaterial"). Leave empty if using source_index.
-        material_name: Optional name for the new sub-material.
-        params: Optional MAXScript creation parameters.
-        source_index: If > 0, copies the reference from this slot index instead
-                      of creating a new material. Useful for shared sub-materials
-                      (e.g. slot 3 = slot 1 for symmetric parts).
-
-    Returns:
-        Confirmation of the sub-material assignment.
-    """
+    """Create or assign a sub-material in a Multi/Sub-Object material slot."""
     if client.native_available:
         payload = {
             "name": name,
@@ -1204,59 +1394,7 @@ def write_osl_shader(
     global_var: str = "",
     properties: dict[str, str] | None = None,
 ) -> str:
-    """Write an OSL shader to disk and create an OSLMap from it.
-
-    Use this for procedural shading — write OSL code, auto-save to 3ds Max's
-    temp/osl_shaders/ directory, create an OSLMap that loads the shader, and
-    store it as a MAXScript global variable ready to wire into materials via
-    set_material_property.
-
-    The shader file is saved to: {3dsMax temp}/osl_shaders/{shader_name}.osl
-    After loading, the OSLMap exposes all shader parameters as properties.
-    Use the optional properties dict to set initial parameter values.
-
-    IMPORTANT — OSL rules for 3ds Max 2026:
-    - The shader function name MUST match shader_name exactly
-    - Use UNIQUE shader_name for each new shader (reusing a name may hit a stale cache)
-    - Property names get lowercased by OSLMap (use lowercase keys in properties dict)
-    - color * float multiplication IS valid (e.g. EdgeColor * Boost)
-    - All outputs must be typed: "output color result = 0" or "output float result = 0"
-    - Annotations [[ ]] are optional but valid: float Power = 3.0 [[ string label = "Power" ]]
-    - Standard OSL globals work: N, I, P, u, v, time, dPdu, dPdv
-    - Common functions: mix(), pow(), abs(), dot(), normalize(), noise(), clamp(), smoothstep()
-
-    Working example:
-        shader_name="FresnelGlow"
-        osl_code='''shader FresnelGlow(
-            color CoreColor = color(0.02, 0.02, 0.05),
-            color EdgeColor = color(0.2, 0.6, 1.0),
-            float Power = 3.0,
-            float Boost = 2.0,
-            output color result = 0
-        )
-        {
-            float d = dot(normalize(N), normalize(I));
-            float f = pow(1.0 - abs(d), Power);
-            result = mix(CoreColor, EdgeColor * Boost, f);
-        }'''
-        properties={"power": "4.0", "boost": "3.0"}
-
-    After creation, wire into a material:
-        set_material_property(name="MyObj", property="base_color_shader", value="FresnelGlow")
-
-    Args:
-        shader_name: Name for the shader file and OSLMap. MUST match the shader
-                     function name in osl_code. Use unique names to avoid cache issues.
-        osl_code: Complete OSL shader source code. Must include the shader
-                  function with typed parameters and output(s).
-        global_var: MAXScript global variable name. If empty, derived from
-                    shader_name. Use this name to reference the map later.
-        properties: Optional dict of shader parameter values to set after
-                    loading. Keys MUST be lowercase (e.g. {"power": "4.0"}).
-
-    Returns:
-        Confirmation with file path, global variable name, and compilation status.
-    """
+    """Write an OSL shader to disk and create an OSLMap from it."""
     if not global_var:
         global_var = "".join(c if c.isalnum() or c == "_" else "_" for c in shader_name)
         if global_var[0].isdigit():
@@ -1340,33 +1478,7 @@ def create_material_from_textures(
     assign_to: StrList | None = None,
     custom_patterns: dict[str, list[str]] | None = None,
 ) -> str:
-    """Create a fully-wired PBR material from a folder of texture maps.
-
-    Point at a folder containing named texture files (e.g. *_basecolor.png,
-    *_roughness.png, *_normal.png) and this tool will auto-detect channels,
-    create the appropriate material for the current renderer, wire all maps
-    with correct color spaces, and optionally assign to objects.
-
-    Supports Arnold (ai_standard_surface), Physical Material, and Redshift.
-    Auto-detects the active renderer if material_class is not specified.
-    Handles compositing (diffuse+AO), inversion (gloss->rough), and
-    intermediate nodes (normal maps, bump2d).
-
-    Args:
-        texture_folder: Path to the folder containing texture files.
-        material_class: Force a specific material class ("ai_standard_surface",
-                        "PhysicalMaterial", "RS_Standard_Material").
-                        If empty, auto-detects from the current renderer.
-        material_name: Name for the created material. If empty, derived from
-                       the folder name.
-        assign_to: Optional list of object names to assign the material to.
-        custom_patterns: Optional dict overriding channel-to-suffix matching.
-                         Keys are channel names (e.g. "diffuse", "roughness"),
-                         values are lists of suffixes (e.g. ["_basecolor", "_albedo"]).
-
-    Returns:
-        Summary of created material, matched channels, and assignment status.
-    """
+    """Create a fully-wired PBR material from a folder of texture maps."""
     # -- Step 1: Scan folder (Python-side) --
     files = _scan_texture_folder(texture_folder)
     if not files:
@@ -1386,7 +1498,9 @@ def create_material_from_textures(
     renderer = ""
     if material_class:
         class_lower = material_class.lower()
-        if "ai_standard" in class_lower or "arnold" in class_lower:
+        if "openpbr" in class_lower or "open_pbr" in class_lower:
+            renderer = "openpbr"
+        elif "ai_standard" in class_lower or "arnold" in class_lower:
             renderer = "arnold"
         elif "physical" in class_lower:
             renderer = "physical"
@@ -1394,25 +1508,20 @@ def create_material_from_textures(
             renderer = "redshift"
         else:
             return (f"Unsupported material_class: {material_class}. "
-                    "Use ai_standard_surface, PhysicalMaterial, or RS_Standard_Material.")
+                    "Use OpenPBRMaterial, ai_standard_surface, PhysicalMaterial, or RS_Standard_Material.")
     else:
-        # Auto-detect from active renderer
-        detect_ms = '(classof renderers.current) as string'
-        resp = client.send_command(detect_ms)
-        renderer_class = resp.get("result", "").strip().lower()
-        if "arnold" in renderer_class:
-            renderer = "arnold"
-        elif "redshift" in renderer_class:
-            renderer = "redshift"
-        else:
-            renderer = "physical"  # safe fallback
+        # OpenPBR is the preferred neutral PBR material. The generated script
+        # falls back to PhysicalMaterial if the local Max build has no OpenPBR class.
+        renderer = "openpbr"
 
     # -- Step 4: Derive material name --
     if not material_name:
         material_name = Path(texture_folder).name
 
     # -- Step 5: Build MAXScript --
-    if renderer == "arnold":
+    if renderer == "openpbr":
+        maxscript = _build_openpbr_maxscript(matched, material_name, assign_to)
+    elif renderer == "arnold":
         maxscript = _build_arnold_maxscript(matched, material_name, assign_to)
     elif renderer == "redshift":
         maxscript = _build_redshift_maxscript(matched, material_name, assign_to)
@@ -1429,6 +1538,473 @@ def create_material_from_textures(
 )"""
 
     # -- Step 6: Send to Max --
+    response = client.send_command(maxscript)
+    return response.get("result", "")
+
+
+def _scan_material_editor_palette_files(folder: str, recursive: bool) -> list[Path]:
+    root = Path(folder)
+    if not root.is_dir():
+        return []
+
+    iterator = root.rglob("*") if recursive else root.iterdir()
+    files = [
+        path for path in iterator
+        if path.is_file() and path.suffix.lower() in _IMAGE_EXTENSIONS
+    ]
+    return sorted(files, key=lambda path: str(path).lower())
+
+
+def _build_material_editor_palette_maxscript(
+    files: list[Path],
+    start_slot: int,
+    open_editor: bool,
+    material_prefix: str,
+    slot_content: str,
+) -> str:
+    lines: list[str] = [
+        "fn mcp_setFirstMap target propNames tex = (",
+        "    for propName in propNames do (",
+        "        try (setProperty target (propName as name) tex; return propName) catch ()",
+        "    )",
+        "    undefined",
+        ")",
+        "fn mcp_setFirstValue target propNames value = (",
+        "    for propName in propNames do (",
+        "        try (setProperty target (propName as name) value; return propName) catch ()",
+        "    )",
+        "    undefined",
+        ")",
+        "fn mcp_createOpenPbrPreferred matName = (",
+        "    local m = undefined",
+        "    try (m = OpenPBRMaterial name:matName) catch ()",
+        "    if m == undefined do try (m = OpenPBR_Material name:matName) catch ()",
+        "    if m == undefined do try (m = OpenPBR_Mtl name:matName) catch ()",
+        "    if m == undefined do try (m = PhysicalMaterial name:matName) catch ()",
+        '    if m == undefined do throw "OpenPBRMaterial/OpenPBR_Material/OpenPBR_Mtl/PhysicalMaterial are unavailable"',
+        "    m",
+        ")",
+        "local loaded = #()",
+        "local classes = #()",
+        "local errors = #()",
+        f"local slotIndex = {start_slot}",
+    ]
+
+    if open_editor:
+        lines.extend([
+            "try (MatEditor.mode = #basic) catch ()",
+            "try (MatEditor.Open()) catch ()",
+        ])
+
+    for idx, fpath in enumerate(files, start=1):
+        path_literal = safe_string(_ms_path(fpath))
+        tex_name = safe_string(fpath.stem)
+        mat_name = safe_string(f"{material_prefix}{fpath.stem}")
+        tex_var = f"tex_{idx}"
+        mat_var = f"mat_{idx}"
+        if slot_content == "bitmap":
+            lines.extend([
+                "try (",
+                f'    local {tex_var} = Bitmaptexture name:"{tex_name}" filename:@"{path_literal}"',
+                f"    try (medit.PutMtlToMtlEditor {tex_var} slotIndex) catch (meditMaterials[slotIndex] = {tex_var})",
+                "    try (medit.SetActiveMtlSlot slotIndex true) catch (activeMeditSlot = slotIndex)",
+                f'    append loaded ((slotIndex as string) + ": {safe_string(fpath.name)} -> " + ((classOf {tex_var}) as string))',
+                f"    appendIfUnique classes ((classOf {tex_var}) as string)",
+                "    slotIndex += 1",
+                f') catch (append errors ("{safe_string(fpath.name)}: " + (getCurrentException())))',
+            ])
+        else:
+            lines.extend([
+                "try (",
+                f'    local {tex_var} = Bitmaptexture name:"{tex_name}" filename:@"{path_literal}"',
+                f'    local {mat_var} = mcp_createOpenPbrPreferred "{mat_name}"',
+                f'    local slotName = mcp_setFirstMap {mat_var} #("base_color_map", "baseColor_map", "basecolor_map", "base_map", "diffuse_map") {tex_var}',
+                f'    if slotName == undefined do try ({mat_var}.base_color_map = {tex_var}; slotName = "base_color_map") catch ()',
+                f'    local specName = mcp_setFirstValue {mat_var} #("specular_color", "specularColor", "specular", "refl_color") (color 0 0 0)',
+                f"    try (medit.PutMtlToMtlEditor {mat_var} slotIndex) catch (meditMaterials[slotIndex] = {mat_var})",
+                "    try (medit.SetActiveMtlSlot slotIndex true) catch (activeMeditSlot = slotIndex)",
+                f'    append loaded ((slotIndex as string) + ": {safe_string(fpath.name)} -> " + ((classOf {mat_var}) as string) + ", spec=" + (specName as string))',
+                f"    appendIfUnique classes ((classOf {mat_var}) as string)",
+                "    slotIndex += 1",
+                f') catch (append errors ("{safe_string(fpath.name)}: " + (getCurrentException())))',
+            ])
+
+    content_label = "bitmap texture map" if slot_content == "bitmap" else "OpenPBR-first texture material"
+    lines.extend([
+        f'local msg = "Loaded " + (loaded.count as string) + " {content_label}(s) into Material Editor slots"',
+        'if loaded.count > 0 do msg += " [" + loaded[1] + " .. " + loaded[loaded.count] + "]"',
+        'if classes.count > 0 do msg += " | Classes: " + (classes as string)',
+        'if errors.count > 0 do (',
+        '    msg += " | Errors: "',
+        '    for i = 1 to errors.count do (',
+        '        if i > 1 do msg += "; "',
+        '        msg += errors[i]',
+        '    )',
+        ')',
+        "msg",
+    ])
+    return "(\n    " + "\n    ".join(lines) + "\n)"
+
+
+def _build_material_editor_pbr_palette_maxscript(
+    groups: list[dict],
+    start_slot: int,
+    open_editor: bool,
+    material_prefix: str,
+    renderer: str,
+    unmatched_count: int = 0,
+    duplicate_count: int = 0,
+) -> str:
+    """Generate MAXScript for one fully wired PBR material per texture set."""
+    renderer_label = {
+        "openpbr": "OpenPBR-first",
+        "physical": "PhysicalMaterial",
+        "arnold": "Arnold ai_standard_surface",
+        "redshift": "Redshift RS_Standard_Material",
+    }[renderer]
+
+    lines: list[str] = [
+        "fn mcp_setFirstMap target propNames tex = (",
+        "    for propName in propNames do (",
+        "        try (setProperty target (propName as name) tex; return propName) catch ()",
+        "    )",
+        "    undefined",
+        ")",
+        "fn mcp_setFirstValue target propNames value = (",
+        "    for propName in propNames do (",
+        "        try (setProperty target (propName as name) value; return propName) catch ()",
+        "    )",
+        "    undefined",
+        ")",
+        "fn mcp_enableMapSlot target slotName = (",
+        "    if slotName != undefined do (",
+        '        try (setProperty target ((slotName + "_on") as name) true) catch ()',
+        '        try (setProperty target ((slotName + "_enable") as name) true) catch ()',
+        "    )",
+        ")",
+        "fn mcp_createOpenPbrPreferred matName = (",
+        "    local m = undefined",
+        "    try (m = OpenPBRMaterial name:matName) catch ()",
+        "    if m == undefined do try (m = OpenPBR_Material name:matName) catch ()",
+        "    if m == undefined do try (m = OpenPBR_Mtl name:matName) catch ()",
+        "    if m == undefined do try (m = PhysicalMaterial name:matName) catch ()",
+        '    if m == undefined do throw "OpenPBRMaterial/OpenPBR_Material/OpenPBR_Mtl/PhysicalMaterial are unavailable"',
+        "    m",
+        ")",
+        "local loaded = #()",
+        "local classes = #()",
+        "local errors = #()",
+        f"local slotIndex = {start_slot}",
+    ]
+
+    if any("orm" in group["channels"] for group in groups):
+        lines.append('local oslPath = (getDir #maxRoot) + "OSL\\\\UberBitmap2.osl"')
+
+    if open_editor:
+        lines.extend([
+            "try (MatEditor.mode = #basic) catch ()",
+            "try (MatEditor.Open()) catch ()",
+        ])
+
+    def add_wire(
+        mat_var: str,
+        slot_var: str,
+        channel_label: str,
+        tex_var: str,
+        candidates: list[str],
+    ) -> None:
+        lines.extend([
+            f"    local {slot_var} = mcp_setFirstMap {mat_var} {_ms_name_array(candidates)} {tex_var}",
+            f"    mcp_enableMapSlot {mat_var} {slot_var}",
+            f'    if {slot_var} != undefined then channelList += "{channel_label}->" + {slot_var} + ", " else skippedList += "{channel_label}, "',
+        ])
+
+    def add_bitmap(var: str, channel: str, fpath: Path) -> None:
+        path_literal = safe_string(_ms_path(fpath))
+        tex_name = safe_string(fpath.stem)
+        if renderer == "arnold":
+            color_space = "sRGB" if channel in _COLOR_CHANNELS else "Raw"
+            lines.append(f'    local {var} = ai_image name:"{tex_name}" filename:@"{path_literal}" color_space:"{color_space}"')
+        else:
+            lines.append(f'    local {var} = Bitmaptexture name:"{tex_name}" filename:@"{path_literal}"')
+
+    def add_orm_split(prefix: str, fpath: Path) -> dict[str, str]:
+        path_literal = safe_string(_ms_path(fpath))
+        tex_name = safe_string(fpath.stem)
+        uber = f"{prefix}_orm"
+        out_r = f"{prefix}_orm_r"
+        out_g = f"{prefix}_orm_g"
+        out_b = f"{prefix}_orm_b"
+        lines.extend([
+            f"    local {uber} = OSLMap()",
+            f'    {uber}.name = "{tex_name}"',
+            f"    {uber}.OSLPath = oslPath",
+            f"    {uber}.OSLAutoUpdate = true",
+            f'    {uber}.filename = @"{path_literal}"',
+            f"    local {out_r} = MultiOutputChannelTexmapToTexmap()",
+            f"    {out_r}.sourceMap = {uber}",
+            f"    {out_r}.outputChannelIndex = {_UBER_OUT_R}",
+            f"    local {out_g} = MultiOutputChannelTexmapToTexmap()",
+            f"    {out_g}.sourceMap = {uber}",
+            f"    {out_g}.outputChannelIndex = {_UBER_OUT_G}",
+            f"    local {out_b} = MultiOutputChannelTexmapToTexmap()",
+            f"    {out_b}.sourceMap = {uber}",
+            f"    {out_b}.outputChannelIndex = {_UBER_OUT_B}",
+        ])
+        return {"ao": out_r, "roughness": out_g, "metallic": out_b}
+
+    for idx, group in enumerate(groups, start=1):
+        mat_name = safe_string(f"{material_prefix}{group['name']}")
+        mat_var = f"mat_{idx}"
+        channels: dict[str, Path] = group["channels"]
+        map_vars: dict[str, str] = {}
+
+        lines.append("try (")
+        if renderer == "openpbr":
+            lines.append(f'    local {mat_var} = mcp_createOpenPbrPreferred "{mat_name}"')
+        elif renderer == "physical":
+            lines.append(f'    local {mat_var} = PhysicalMaterial name:"{mat_name}"')
+        elif renderer == "arnold":
+            lines.append(f'    local {mat_var} = ai_standard_surface name:"{mat_name}"')
+        else:
+            lines.append(f'    local {mat_var} = RS_Standard_Material name:"{mat_name}"')
+
+        lines.extend([
+            "    local channelList = \"\"",
+            "    local skippedList = \"\"",
+            f'    local specDefault = mcp_setFirstValue {mat_var} #("specular_color", "specularColor", "specular", "refl_color") (color 255 255 255)',
+        ])
+
+        for channel, fpath in channels.items():
+            if channel == "orm":
+                for split_channel, split_var in add_orm_split(f"g{idx}", fpath).items():
+                    map_vars.setdefault(split_channel, split_var)
+            else:
+                var = f"g{idx}_{channel}"
+                add_bitmap(var, channel, fpath)
+                map_vars[channel] = var
+
+        ao_var = map_vars.get("ao")
+
+        slots = _PBR_SLOT_CANDIDATES[renderer]
+
+        if "diffuse" in map_vars:
+            diffuse_var = map_vars["diffuse"]
+            if ao_var:
+                if renderer == "arnold":
+                    comp_var = f"g{idx}_diffuse_ao"
+                    lines.extend([
+                        f'    local {comp_var} = ai_multiply name:"Diffuse_AO"',
+                        f"    {comp_var}.input1_shader = {diffuse_var}",
+                        f"    {comp_var}.input2_shader = {ao_var}",
+                    ])
+                else:
+                    comp_var = f"g{idx}_diffuse_ao"
+                    lines.extend([
+                        f"    local {comp_var} = CompositeTexturemap()",
+                        f'    {comp_var}.name = "Diffuse_AO"',
+                        f"    {comp_var}.mapList[1] = {diffuse_var}",
+                        f"    {comp_var}.mapList[2] = {ao_var}",
+                        f"    {comp_var}.blendMode[2] = 5",
+                    ])
+                add_wire(mat_var, f"slot_{idx}_diffuse", "diffuse(+ao)", comp_var, slots["diffuse"])
+            else:
+                add_wire(mat_var, f"slot_{idx}_diffuse", "diffuse", diffuse_var, slots["diffuse"])
+        elif "ao" in map_vars:
+            lines.append('    skippedList += "ao(no diffuse), "')
+
+        if "roughness" in map_vars:
+            add_wire(mat_var, f"slot_{idx}_roughness", "roughness", map_vars["roughness"], slots["roughness"])
+        elif "glossiness" in map_vars:
+            inv_var = f"g{idx}_gloss_to_rough"
+            lines.extend([
+                f'    local {inv_var} = Output name:"GlossToRough"',
+                f"    {inv_var}.map1 = {map_vars['glossiness']}",
+                f"    {inv_var}.output.invert = true",
+            ])
+            add_wire(mat_var, f"slot_{idx}_glossiness", "glossiness(inverted)", inv_var, slots["glossiness"])
+        elif "roughness" in map_vars:
+            add_wire(mat_var, f"slot_{idx}_roughness_orm", "roughness(orm)", map_vars["roughness"], slots["roughness"])
+
+        if "metallic" in map_vars:
+            add_wire(mat_var, f"slot_{idx}_metallic", "metallic", map_vars["metallic"], slots["metallic"])
+
+        if "normal" in map_vars:
+            if renderer == "arnold":
+                normal_node = f"g{idx}_normal_node"
+                final_normal = normal_node
+                lines.extend([
+                    f'    local {normal_node} = ai_normal_map name:"NormalMap" input_shader:{map_vars["normal"]}',
+                ])
+                if "bump" in map_vars:
+                    bump_node = f"g{idx}_normal_bump_node"
+                    lines.extend([
+                        f'    local {bump_node} = ai_bump2d name:"NormalBump"',
+                        f"    {bump_node}.bump_map_shader = {map_vars['bump']}",
+                        f"    {bump_node}.normal_shader = {normal_node}",
+                    ])
+                    final_normal = bump_node
+            elif renderer == "redshift":
+                final_normal = f"g{idx}_normal_node"
+                lines.extend([
+                    f'    local {final_normal} = RS_BumpMap name:"NormalMap"',
+                    f"    {final_normal}.input_map = {map_vars['normal']}",
+                    f"    {final_normal}.inputType = 1",
+                ])
+            else:
+                final_normal = f"g{idx}_normal_node"
+                lines.extend([
+                    f'    local {final_normal} = Normal_Bump name:"NormalBump"',
+                    f"    {final_normal}.normal_map = {map_vars['normal']}",
+                ])
+                if "bump" in map_vars:
+                    lines.append(f"    {final_normal}.bump_map = {map_vars['bump']}")
+            add_wire(mat_var, f"slot_{idx}_normal", "normal", final_normal, slots["normal"])
+        elif "bump" in map_vars:
+            if renderer == "arnold":
+                bump_node = f"g{idx}_bump_node"
+                lines.extend([
+                    f'    local {bump_node} = ai_bump2d name:"Bump"',
+                    f"    {bump_node}.bump_map_shader = {map_vars['bump']}",
+                ])
+            elif renderer == "redshift":
+                bump_node = f"g{idx}_bump_node"
+                lines.extend([
+                    f'    local {bump_node} = RS_BumpMap name:"Bump"',
+                    f"    {bump_node}.input_map = {map_vars['bump']}",
+                    f"    {bump_node}.inputType = 0",
+                ])
+            else:
+                bump_node = f"g{idx}_bump_node"
+                lines.extend([
+                    f'    local {bump_node} = Normal_Bump name:"Bump"',
+                    f"    {bump_node}.bump_map = {map_vars['bump']}",
+                ])
+            add_wire(mat_var, f"slot_{idx}_bump", "bump", bump_node, slots["bump"])
+
+        for channel in ("displacement", "opacity", "emission", "translucency", "specular"):
+            if channel not in map_vars:
+                continue
+            candidates = slots.get(channel)
+            if candidates:
+                add_wire(mat_var, f"slot_{idx}_{channel}", channel, map_vars[channel], candidates)
+            else:
+                lines.append(f'    skippedList += "{channel}, "')
+
+        if "ior" in map_vars:
+            lines.append('    skippedList += "ior(no map slot), "')
+
+        lines.extend([
+            f"    try (medit.PutMtlToMtlEditor {mat_var} slotIndex) catch (meditMaterials[slotIndex] = {mat_var})",
+            "    try (medit.SetActiveMtlSlot slotIndex true) catch (activeMeditSlot = slotIndex)",
+            f'    append loaded ((slotIndex as string) + ": " + {mat_var}.name + " [" + channelList + "]")',
+            f"    appendIfUnique classes ((classOf {mat_var}) as string)",
+            "    slotIndex += 1",
+            f') catch (append errors ("{mat_name}: " + (getCurrentException())))',
+        ])
+
+    lines.extend([
+        f'local msg = "Loaded " + (loaded.count as string) + " grouped PBR material(s) into Material Editor slots using {renderer_label}"',
+        'if loaded.count > 0 do msg += " [" + loaded[1] + " .. " + loaded[loaded.count] + "]"',
+        'if classes.count > 0 do msg += " | Classes: " + (classes as string)',
+        f'if {unmatched_count} > 0 do msg += " | Unmatched image(s) skipped: {unmatched_count}"',
+        f'if {duplicate_count} > 0 do msg += " | Duplicate channel file(s) skipped: {duplicate_count}"',
+        'if errors.count > 0 do (',
+        '    msg += " | Errors: "',
+        '    for i = 1 to errors.count do (',
+        '        if i > 1 do msg += "; "',
+        '        msg += errors[i]',
+        '    )',
+        ')',
+        "msg",
+    ])
+    return "(\n    " + "\n    ".join(lines) + "\n)"
+
+
+def _palette_laydown_impl(
+    texture_folder: str,
+    start_slot: int = 1,
+    max_slots: int = 24,
+    recursive: bool = False,
+    open_editor: bool = True,
+    material_prefix: str = "tex_",
+    slot_content: str = "material",
+    material_class: str = "",
+) -> str:
+    """Load image files from a folder into Compact Material Editor sample slots.
+
+    slot_content="material" creates OpenPBR-first preview materials, wires each
+    bitmap into base color, and sets specular color to black. slot_content="bitmap"
+    places raw Bitmaptexture maps directly into the palette slots. slot_content
+    values like "pbr_material" or "full_pbr" group texture sets by filename and
+    create one fully wired PBR material per slot. For grouped mode, material_class
+    may be OpenPBRMaterial, PhysicalMaterial, ai_standard_surface, or
+    RS_Standard_Material; OpenPBR is the default.
+    """
+    start_slot = max(1, min(24, int(start_slot)))
+    max_slots = max(1, min(24 - start_slot + 1, int(max_slots)))
+    raw_slot_content = (slot_content or "material").strip().lower()
+    if raw_slot_content in {"material", "materials", "openpbr", "openpbr_material"}:
+        slot_content = "material"
+    elif raw_slot_content in {"bitmap", "bitmaps", "map", "maps", "texture", "textures"}:
+        slot_content = "bitmap"
+    elif raw_slot_content in {
+        "pbr", "pbr_material", "pbr_materials", "full_pbr", "full_pbr_material",
+        "grouped", "grouped_material", "grouped_materials", "renderer_material",
+        "renderer_materials",
+    }:
+        slot_content = "pbr_material"
+    else:
+        return (
+            f"Unsupported slot_content: {slot_content}. "
+            "Use 'material' for OpenPBR preview materials, 'bitmap' for raw Bitmaptexture maps, "
+            "or 'pbr_material' for grouped full PBR materials."
+        )
+
+    renderer = _renderer_from_material_class(material_class)
+    if slot_content == "pbr_material" and renderer is None:
+        return (
+            f"Unsupported material_class for grouped PBR palette: {material_class}. "
+            "Use OpenPBRMaterial, PhysicalMaterial, ai_standard_surface, or RS_Standard_Material."
+        )
+
+    files = _scan_material_editor_palette_files(texture_folder, recursive)
+    if not files:
+        return f"No image files found in: {texture_folder}"
+
+    if slot_content == "pbr_material":
+        groups, unmatched, duplicates = _group_texture_files_for_pbr(files, _DEFAULT_CHANNEL_PATTERNS)
+        if not groups:
+            stems = [f.stem for f in files[:10]]
+            return f"No texture sets matched any PBR channel pattern. File stems: {stems}"
+
+        selected_groups = groups[:max_slots]
+        maxscript = f"""(
+    try (
+        {_build_material_editor_pbr_palette_maxscript(
+            selected_groups,
+            start_slot,
+            open_editor,
+            material_prefix,
+            renderer or "openpbr",
+            unmatched_count=len(unmatched),
+            duplicate_count=len(duplicates),
+        )}
+    ) catch (
+        "Error: " + (getCurrentException())
+    )
+)"""
+        response = client.send_command(maxscript)
+        return response.get("result", "")
+
+    selected = files[:max_slots]
+    maxscript = f"""(
+    try (
+        {_build_material_editor_palette_maxscript(selected, start_slot, open_editor, material_prefix, slot_content)}
+    ) catch (
+        "Error: " + (getCurrentException())
+    )
+)"""
     response = client.send_command(maxscript)
     return response.get("result", "")
 
@@ -1588,34 +2164,7 @@ def create_shell_material(
     gltf_material_name: str = "",
     assign_to: StrList | None = None,
 ) -> str:
-    """Create a Shell Material with UberBitmap-based Arnold render slot and glTF export slot.
-
-    Builds a dual-pipeline material: Arnold ai_standard_surface for rendering
-    (originalMaterial, slot 0) and an existing glTF Material for export
-    (bakedMaterial, slot 1).
-
-    The Arnold material uses UberBitmap2 OSL maps with RGB channel splitting
-    via MultiOutputChannelTexmapToTexmap for packed ORM textures:
-    - BaseColor UberBitmap Col(RGB) × ORM R(AO) via ai_multiply → base_color
-    - ORM G → specular_roughness
-    - ORM B → metalness
-    - Optional: Normal UberBitmap → ai_normal_map → ai_bump2d → normal
-
-    Args:
-        shell_name: Name for the Shell Material (e.g. "m_mouse_shell").
-        render_material_name: Name for the Arnold material (e.g. "mouse_real").
-        base_color_path: Path to the BaseColor texture file.
-        orm_path: Path to the OcclusionRoughnessMetallic packed texture file.
-        normal_path: Optional path to the Normal map texture file.
-        gltf_material_name: Name of an existing glTF Material in scene to use
-                            as the baked/export slot. If empty, baked slot is left empty.
-        assign_to: Optional list of object names to assign the shell to.
-                   If empty but gltf_material_name is set, auto-assigns to all
-                   objects currently using that glTF material.
-
-    Returns:
-        JSON with shell_name, render_material, gltf_material, assigned_count, status.
-    """
+    """Create a Shell Material with UberBitmap-based Arnold render slot and glTF export slot."""
     if client.native_available:
         try:
             payload = json.dumps({

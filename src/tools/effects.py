@@ -11,17 +11,7 @@ from ..server import mcp, client
 
 @mcp.tool()
 def get_effects() -> str:
-    """List all atmospheric effects and render effects in the scene.
-
-    Use this when asked about fog, volume effects, lens effects, or any
-    scene-level post-processing. These are NOT per-object — they're global
-    scene effects. Atmospherics include Fog, Volume Fog, Volume Light,
-    Fire Effect, etc. Render effects include Lens Effects, Blur, etc.
-
-    Returns:
-        JSON with atmospheric and render effect lists, including class,
-        active state, and which scene objects reference each effect.
-    """
+    """List all atmospheric effects and render effects in the scene."""
     if client.native_available:
         response = client.send_command("{}", cmd_type="native:get_effects")
         return response.get("result", '{"atmospherics":[],"renderEffects":[]}')
@@ -67,15 +57,7 @@ def toggle_effect(
     effect_type: str = "atmospheric",
     active: bool = True,
 ) -> str:
-    """Enable or disable an atmospheric or render effect by index.
-
-    Args:
-        index: 1-based index of the effect (from get_effects).
-        effect_type: "atmospheric" or "render_effect".
-        active: True to enable, False to disable.
-
-    Returns confirmation.
-    """
+    """Enable or disable an atmospheric or render effect by index."""
     if client.native_available:
         payload = json.dumps({"index": index, "effect_type": effect_type, "active": active})
         response = client.send_command(payload, cmd_type="native:toggle_effect")
@@ -112,14 +94,7 @@ def delete_effect(
     index: int,
     effect_type: str = "atmospheric",
 ) -> str:
-    """Delete an atmospheric or render effect by index.
-
-    Args:
-        index: 1-based index of the effect (from get_effects).
-        effect_type: "atmospheric" or "render_effect".
-
-    Returns confirmation.
-    """
+    """Delete an atmospheric or render effect by index."""
     if client.native_available:
         payload = json.dumps({"index": index, "effect_type": effect_type})
         response = client.send_command(payload, cmd_type="native:delete_effect")

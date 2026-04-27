@@ -12,18 +12,7 @@ def get_session_context(
     max_roots: int = 20,
     max_selection: int = 20,
 ) -> str:
-    """Get compact live context for the current 3ds Max session.
-
-    This is the fastest "where am I?" tool for an AI client. It combines:
-    - bridge status
-    - host/plugin capabilities
-    - compact scene snapshot
-    - compact current selection snapshot
-
-    Args:
-        max_roots: Max top-level root names to include from the scene snapshot.
-        max_selection: Max selected objects to include from the selection snapshot.
-    """
+    """Get compact live context for the current 3ds Max session."""
     from .bridge import get_bridge_status
     from .capabilities import get_plugin_capabilities
     from .snapshots import get_scene_snapshot, get_selection_snapshot

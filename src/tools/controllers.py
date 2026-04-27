@@ -95,50 +95,7 @@ def assign_controller(
     params: Optional[dict] = None,
     layer: bool = False,
 ) -> str:
-    """Create and assign a controller to a sub-anim track.
-
-    Assigns any supported controller type to a track, with optional initial
-    script text, node variables/constraint targets, and property values.
-
-    Use layer=True to add the controller on TOP of the existing one via a
-    list controller (e.g. add noise without losing the current position).
-
-    Args:
-        name: Object name (e.g. "Sphere001").
-        param_path: Sub-anim path from list_wireable_params
-                    (e.g. "[#transform][#position][#z_position]").
-        controller_type: Controller type key. One of:
-            SCRIPT: "float_script", "position_script", "rotation_script",
-                    "scale_script", "point3_script"
-            CONSTRAINTS: "position_constraint", "orientation_constraint",
-                        "lookat_constraint", "path_constraint",
-                        "surface_constraint", "link_constraint",
-                        "attachment_constraint"
-            NOISE: "noise_float", "noise_position", "noise_rotation",
-                   "noise_scale"
-            LIST: "float_list", "position_list", "rotation_list", "scale_list"
-            EXPRESSION: "float_expression", "position_expression"
-            OTHER: "spring"
-        script: Script text for script controllers (full MAXScript supported),
-                or math expression for expression controllers (NO MAXScript,
-                only math with named variables like "x + 10").
-                To reference other objects, use float_script NOT float_expression.
-        variables: List of dicts for node references:
-            - Script controllers: [{"var_name": "ground", "object": "Plane001"}]
-              Creates name-independent node references via ctrl.addNode.
-            - Constraints: [{"object": "Target001", "weight": 50.0}]
-              Adds constraint targets via appendTarget.
-            - Link constraint: [{"object": "Parent001", "frame": 0}]
-              Adds link targets via addTarget.
-        params: Dict of controller properties to set
-                (e.g. {"seed": 42, "frequency": 0.5} for noise).
-        layer: If True, wraps existing controller in a list controller and
-               adds the new controller on top (preserves current value).
-               If the track already has a list controller, just appends.
-
-    Returns:
-        JSON with controller class, object, and param path.
-    """
+    """Create and assign a controller to a sub-anim track."""
     if client.native_available:
         payload = {
             "name": name,
@@ -297,19 +254,7 @@ def inspect_controller(
     name: str,
     param_path: str,
 ) -> str:
-    """Inspect the controller on a specific sub-anim track.
-
-    Returns a rich JSON object with controller class, properties, and
-    type-specific details (script text, node variables, constraint targets,
-    expression text, list sub-controllers).
-
-    Args:
-        name: Object name (e.g. "Sphere001").
-        param_path: Sub-anim path (e.g. "[#transform][#position][#z_position]").
-
-    Returns:
-        JSON with controller details, properties table, and type-specific sections.
-    """
+    """Inspect the controller on a specific sub-anim track."""
     if client.native_available:
         payload = _json.dumps({"name": name, "param_path": param_path})
         response = client.send_command(payload, cmd_type="native:inspect_controller")
@@ -462,22 +407,7 @@ def inspect_track_view(
     filter: Optional[str] = None,
     include_values: bool = True,
 ) -> str:
-    """Inspect an object's controller/track tree in a Track View-style hierarchy.
-
-    This is the browse-first companion to inspect_controller:
-    - walks sub-anims recursively
-    - reports track names, paths, controller classes, and child tracks
-    - optionally includes compact current values
-
-    Args:
-        name: Object name (e.g. "Box001")
-        depth: Max recursion depth (default 4, max 6)
-        filter: Optional case-insensitive substring filter on path/name/controller
-        include_values: Include compact current value strings when true
-
-    Returns:
-        JSON with object info and nested track tree.
-    """
+    """Inspect an object's controller/track tree in a Track View-style hierarchy."""
     if client.native_available:
         payload = _json.dumps({
             "name": name,
@@ -606,25 +536,7 @@ def add_controller_target(
     weight: float = 50.0,
     frame: int = 0,
 ) -> str:
-    """Add a node variable or constraint target to an existing controller.
-
-    Works with script controllers (addNode), constraints (appendTarget),
-    link constraints (addTarget with frame), and expression controllers
-    (addScalarTarget).
-
-    Args:
-        name: Object name with the controller.
-        param_path: Sub-anim path to the controlled track.
-        target_object: Name of the target/reference object to add.
-        var_name: Variable name for script controllers (required for script
-                  controllers, e.g. "ground"). Also used as scalar name for
-                  expression controllers.
-        weight: Weight for constraint targets (default 50.0).
-        frame: Frame number for link constraint targets (default 0).
-
-    Returns:
-        Confirmation message.
-    """
+    """Add a node variable or constraint target to an existing controller."""
     # Always use MAXScript TCP path — ctrl.addNode triggers script re-evaluation
     # which causes re-entrancy inside the native ExecuteSync handler.
     safe_obj = safe_name(name)
@@ -693,29 +605,7 @@ def set_controller_props(
     script: Optional[str] = None,
     params: Optional[dict] = None,
 ) -> str:
-    """Modify script text or properties on an existing controller.
-
-    Use this to update a script controller's code, an expression controller's
-    expression, or set properties (noise seed/frequency, constraint weights, etc.)
-    without replacing the controller.
-
-    IMPORTANT: Float_Expression only supports simple math with named scalar
-    variables (added via add_controller_target). It does NOT support MAXScript
-    or object references like "$Cylinder001.height". If you need MAXScript
-    references to other objects, use float_script controller instead
-    (assign_controller with controller_type="float_script").
-
-    Args:
-        name: Object name.
-        param_path: Sub-anim path to the controlled track.
-        script: New script text for float_script controllers, or new math
-                expression for Float_Expression controllers (e.g. "x + 10",
-                NOT "$obj.height"). Expression controllers call update() after.
-        params: Dict of property names to values to set on the controller.
-
-    Returns:
-        Confirmation message.
-    """
+    """Modify script text or properties on an existing controller."""
     if client.native_available:
         payload = {
             "name": name,
