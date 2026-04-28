@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/cl0nazepamm-3dsmax-mcp-badge.png)](https://mseep.ai/app/cl0nazepamm-3dsmax-mcp)
+
 # 3dsmax-mcp
 
 <p align="left">
