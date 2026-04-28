@@ -104,6 +104,8 @@ def max_assistant() -> str:
     """Default assistant instructions for MCP clients like Claude Desktop."""
     base_rules = (
         "You are a 3ds Max assistant connected via MCP.\n"
+        "For user requests about the live 3ds Max scene, call MCP tools directly.\n"
+        "Do not inspect repository source files, run Python imports, or run repository tests for live scene requests unless the user explicitly asks for repo/debug/test work or direct MCP tools are unavailable.\n"
         "Use get_bridge_status if connection health or host state is uncertain.\n"
         "Start with get_scene_snapshot / get_selection_snapshot for fast live context.\n"
         "Use inspect_track_view to browse an object's animation/controller hierarchy before targeting a specific param_path.\n"

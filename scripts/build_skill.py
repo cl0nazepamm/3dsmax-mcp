@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Build the portable .skill file, sync to local + global skills, and generate AGENTS.md."""
+"""Build the portable .skill file, sync to agent skills, and generate AGENTS.md."""
 
 import argparse
-import re
 import shutil
 import zipfile
 from pathlib import Path
@@ -11,45 +10,59 @@ ROOT = Path(__file__).resolve().parent.parent
 SKILL_DIR = ROOT / "skills" / "3dsmax-mcp-dev"
 SKILL_SRC = SKILL_DIR / "SKILL.md"
 SKILL_OUT = ROOT / "3dsmax-mcp-dev.skill"
-LOCAL_SKILLS_DIR = ROOT / ".claude" / "skills" / "3dsmax-mcp-dev"
 LOCAL_AGENTS_DIR = ROOT / ".agents" / "skills" / "3dsmax-mcp-dev"
 GLOBAL_SKILLS_DIR = Path.home() / ".claude" / "skills" / "3dsmax-mcp-dev"
 GLOBAL_AGENTS_DIR = Path.home() / ".agents" / "skills" / "3dsmax-mcp-dev"
-CLAUDE_MD = ROOT / ".claude" / "CLAUDE.md"
 AGENTS_MD = ROOT / "AGENTS.md"
+
+AGENTS_HEADER = """# 3dsmax-mcp
+
+MCP server for AI agents to control 3ds Max. This file is auto-generated from `scripts/build_skill.py`.
+
+## learn-from-mistakes
+
+When you encounter a bug, unexpected behavior, or discover a MAXScript/3ds Max/MCP pitfall:
+1. Fix the issue
+2. Append the lesson to the relevant section in `skills/3dsmax-mcp-dev/SKILL.md`
+3. One line per lesson — include the pattern or fix
+4. Check for duplicates before adding
+
+## Project Structure
+- `src/server.py` — FastMCP server entry point
+- `src/max_client.py` — TCP socket client (connects to 127.0.0.1:8765)
+- `src/tools/` — MCP tool implementations (one file per category)
+- `maxscript/mcp_server.ms` — MAXScript listener (runs inside 3ds Max)
+- `maxscript/startup/mcp_autostart.ms` — auto-start loader for 3ds Max
+- `native/` — C++ GUP bridge plugin (named pipe, 53 native handlers)
+
+## Skills & Build
+- `skills/3dsmax-mcp-dev/SKILL.md` — source of truth (grows via learn-from-mistakes)
+- `scripts/build_skill.py` — builds `.skill` archive, copies to repo `.agents/skills/` plus user-level `.claude/skills/` and `.agents/skills/`, generates `AGENTS.md`
+- `.agents/skills/` and `AGENTS.md` are gitignored — never edit them directly
+
+## Key Patterns
+- Tools registered via `@mcp.tool()` in `src/tools/*.py`
+- External MCP defaults to compact `MCP_TOOL_PROFILE=core`, including controller tools; set `MCP_TOOL_PROFILE=full` to register specialty modules (`data_channel`, `effects`, `floor_plan`, `railclone`, `render`, `scattering`, `state_sets`, `tyflow`, `wire_params`, `chat`).
+- Direct scene tools include `get_session_context`, `get_scene_snapshot`, `get_selection_snapshot`, and `learn_scene_patterns`; use repo/source inspection only for code, build, packaging, or debugging requests.
+- All tools send MAXScript strings to 3ds Max via `client.send_command()`
+- MAXScript results returned as JSON strings via manual concatenation
+- Prefer OpenPBR for neutral PBR material creation/conversion; use PhysicalMaterial only as fallback or when explicitly requested.
+- Viewport capture: `gw.getViewportDib()` → save to temp → `Read` tool to view
+- Do not RENDER unless user explicitly asks — but `capture_multi_view` (quad view) is encouraged after scene changes
+- Standalone chat (v0.7.0): `MCP Chat` macroscript opens a Win32 window; config in `%LOCALAPPDATA%\\3dsmax-mcp\\mcp_config.ini` `[llm]`, tool registry auto-generated from Python by `scripts/gen_tool_registry.py`, dispatches through the same `CommandDispatcher` so `safe_mode` applies. Token defaults are compact: `prompt_mode=compact`, `tool_profile=core`; use `prompt_mode=full` or `tool_profile=full` only when needed.
+"""
 
 
 def generate_agents_md():
-    """Generate AGENTS.md from CLAUDE.md + inlined skill files.
+    """Generate AGENTS.md from the repo header + inlined skill file.
 
     Codex/Gemini read AGENTS.md from the repo root. They don't have
-    the skill system, so we inline SKILL.md and all maxscript-*.md
-    reference files directly into AGENTS.md.
+    the skill system, so we inline SKILL.md directly into AGENTS.md.
     """
-    if not CLAUDE_MD.exists():
-        print(f"  WARN: {CLAUDE_MD} not found, skipping AGENTS.md")
-        return
-
-    text = CLAUDE_MD.read_text("utf-8")
-
-    # Replace agent-specific terms (case-sensitive, whole-word where possible)
-    subs = [
-        (r"(?<!\w)Claude(?!\w)", "Codex"),    # "Claude" as standalone word
-        (r"\.claude/skills/", ".Codex/skills/"),
-    ]
-    for pattern, repl in subs:
-        text = re.sub(pattern, repl, text)
-
-    # Fix the self-reference line — keep it pointing to CLAUDE.md as source
-    text = text.replace(
-        "from it via `scripts/build_skill.py`",
-        "from `.claude/CLAUDE.md` via `scripts/build_skill.py`",
-    )
-
     # Inline SKILL.md only (pitfalls, tool reference, architecture).
     # MAXScript reference files (maxscript-*.md) are too large to inline —
     # agents can read them on demand from skills/3dsmax-mcp-dev/
-    parts = [text, "", "---", ""]
+    parts = [AGENTS_HEADER, "", "---", ""]
 
     if SKILL_SRC.exists():
         # Strip frontmatter from SKILL.md
@@ -88,7 +101,6 @@ def build(target="both"):
 
     # 2. Select install targets
     local_dests = [
-        (".claude/skills", LOCAL_SKILLS_DIR),
         (".agents/skills", LOCAL_AGENTS_DIR),
     ]
     global_dests = [
@@ -116,7 +128,7 @@ def build(target="both"):
         except PermissionError:
             print(f"  WARN: {label} locked, skipped")
 
-    # 3. Generate AGENTS.md from CLAUDE.md
+    # 3. Generate AGENTS.md
     generate_agents_md()
 
     print("Done.")

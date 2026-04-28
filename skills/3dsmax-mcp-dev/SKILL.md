@@ -6,130 +6,34 @@ description: Rules, tool choices, and workflow patterns for AI agents working wi
 # 3dsmax-mcp Skill Guide
 
 Principles:
-- Prefer dedicated tools over raw MAXScript
-- Prefer SDK introspection over MAXScript reflection
-- Do NOT render unless asked — but `capture_multi_view` (quad view) is encouraged after building or modifying scenes so the user can see the result
+- Match the user's request. Do not run setup, discovery, scene analysis, or source-code inspection by habit.
+- Prefer a dedicated MCP tool over raw MAXScript when a tool clearly matches the task.
+- Use repo/source inspection only for code, build, packaging, or debugging requests, or when the MCP tool path is unavailable.
+- Do not render unless the user explicitly asks. Viewport capture is fine when visual proof is useful.
 
-## 1. Deep SDK Introspection (Use First)
+## Tool Choice
 
-When encountering an unfamiliar class, plugin, or object — **use SDK introspection tools first**. These read the DLL class registry directly. Faster and more complete than MAXScript's `showClass`/`getPropNames`.
+Scene reads:
+- `get_session_context`: compact bridge, capability, scene, and selection summary.
+- `get_scene_snapshot`: scene counts, layers, roots, materials, modifiers.
+- `get_selection_snapshot`: compact selected-object details.
+- `learn_scene_patterns`: broader production-scene patterns when the user asks for analysis.
 
-**Tool hierarchy:**
-1. **`introspect_class`** — Full API of any class: ParamBlock2 params (names, types, defaults, ranges), FPInterface functions/properties. Works on any class. **Blocked for OSLMap** — use `introspect_osl` instead.
-2. **`introspect_instance`** — Same but on a live object with current values + modifier stack + material params. Add `include_subanims:true` for animation tree.
-3. **`introspect_osl`** — Lightweight reflection for OSLMap and any material/texturemap class. Creates a temp instance, dumps properties with types, interfaces, and output channels. For OSLMap, use `osl_file` param to load a shader (e.g. `osl_file:"UberBitmap2"`). Short names resolve to `(getDir #maxRoot)/OSL/<name>.osl`.
-4. **`discover_plugin_classes`** — Enumerate ALL classes from DLL directory. Filter by superclass or name pattern.
+Object/material/plugin inspection:
+- `inspect_object`, `inspect_properties`, `get_material_slots`, and `get_materials` cover normal live scene inspection.
+- `introspect_class`, `introspect_instance`, `introspect_osl`, `discover_plugin_classes`, and `map_class_relationships` are for unfamiliar plugin APIs, exact parameter names, slot wiring, or SDK-level automation work.
+- Arnold scripted materials such as `ai_standard_surface` may not appear in native class discovery. Create with MAXScript class names and inspect with `inspect_plugin_class` or `introspect_osl`.
 
-**Always prefer these over MAXScript reflection:**
-- `introspect_class` > `inspect_plugin_class` (gets defaults, ranges, function signatures)
-- `introspect_osl` for OSLMap and scripted material/map classes (bounded output, handles dynamic params)
-- `introspect_instance` > `inspect_properties` for plugin objects (catches params `getPropNames` misses)
-- `discover_plugin_classes` > `list_plugin_classes` (scans every loaded DLL)
+Mutation:
+- Use object, modifier, material, controller, organization, and viewport tools directly when they match.
+- Verify after meaningful edits with `get_scene_delta`, re-inspection, or viewport capture when useful.
 
-**Unknown plugin workflow:**
-```
-1. discover_plugin_classes pattern:"*Forest*"     → find classes
-2. introspect_class class_name:"Forest_Pro"        → get full API
-3. introspect_instance name:"ForestPack001"        → read live values
-4. Proceed with edits — you now know every param, type, range, value
-```
+Debugging:
+- `walk_references` helps trace dependencies from a live object.
+- `watch_scene` can track user actions during an interactive session.
+- `execute_maxscript` is a fallback for custom scripted operations, animation keyframing, render/environment settings, or temporary probes when no dedicated tool exists.
 
-**Material/shader introspection:**
-- `introspect_instance` reads the entire material tree in one call — every param, every texmap slot, all sub-materials with current values
-- Use for renderer conversion workflows: read source material tree → map params → write to new material
-
-**Deep SDK learning tools:**
-
-These tools let you understand how 3ds Max works at the deepest level — class relationships, real-world usage patterns, reference graphs, and live events.
-
-1. **`learn_scene_patterns`** — Analyze the current scene in one call. Returns frequency-sorted data on:
-   - Which geometry/material/modifier/texmap classes are used and how often
-   - Common modifier stacks (e.g. "TurboSmooth | Skin | Skin Wrap" = character deform pipeline)
-   - Material-to-geometry associations (e.g. "Shell Material → PolyMeshObject" = export pipeline)
-   - Texture-to-material connections (e.g. "Bitmap → Physical Material")
-   - **Use first** when opening an unfamiliar scene — instantly understand the entire production setup
-
-2. **`walk_references`** — Walk the SDK reference graph from any object. Shows how materials, modifiers, controllers, and textures connect through Max's reference system.
-   - Use to understand shader networks: "this Shell Material references Standard Surface + Physical Material"
-   - Use to debug why changing one object affects another
-   - `max_depth` controls detail (default 4, max 8)
-
-3. **`map_class_relationships`** — Scan DLL directory to find which classes accept which reference types via ParamBlock2 params.
-   - Shows "Physical Material accepts texturemaps in these slots: base_color_map, bump_map, ..."
-   - Shows "Forest_Pro accepts nodes + texturemaps"
-   - Filter by superclass or name pattern
-   - **Use before wiring** — know which slots exist without guessing
-
-4. **`watch_scene`** — Live event streaming from 3ds Max. Registers native SDK callbacks for:
-   - node created/deleted, selection changes, modifier added
-   - material assigned, file open, undo/redo, render start/end
-   - Actions: `start`, `stop`, `get` (poll events), `clear`, `status`
-   - Use `since=<timestamp>` for incremental polling
-   - **Use during iterative work** — track what the user does between your calls
-
-**Learning workflow for new scenes:**
-```
-1. learn_scene_patterns                           → understand the whole scene
-2. walk_references name:"MainCharacter"           → map one object's dependencies
-3. introspect_instance name:"MainCharacter"       → get live param values
-4. map_class_relationships superclass:"material"  → learn what plugs into what
-5. Now you understand the scene deeply — proceed with edits
-```
-
-## 2. Plugin & Tool Development (SDK Learning)
-
-When the user is developing a tool, plugin, or automating a workflow and you need to understand SDK classes, parameters, or how things connect — **use native introspection, not documentation or guesswork.**
-
-**Learning an unknown class or API:**
-```
-1. discover_plugin_classes pattern:"*ClassName*"   → find it in the DLL registry
-2. introspect_class class_name:"ClassName"          → get ALL params, types, defaults, ranges, functions
-3. map_class_relationships pattern:"ClassName"      → see what it accepts (nodes, materials, texmaps)
-```
-NOTE: Arnold materials (ai_standard_surface, etc.) are scripted plugins — `discover_plugin_classes` and `introspect_class` won't find them. Create via MAXScript: `ai_standard_surface()`. Use `inspect_plugin_class` or `introspect_osl` for reflection instead.
-
-**Understanding how a live object works:**
-```
-1. introspect_instance name:"ObjectName"            → every param with current value
-2. walk_references name:"ObjectName"                → full dependency graph (materials → textures → controllers)
-3. introspect_instance name:"ObjectName" include_subanims:true → animation/controller tree
-```
-
-**Testing changes and verifying results:**
-```
-1. get_scene_delta capture:true                     → capture baseline
-2. (make changes — create objects, assign materials, add modifiers)
-3. get_scene_delta                                  → see exactly what changed (added/removed/modified with before/after values)
-```
-
-**Reverse-engineering a production scene:**
-```
-1. learn_scene_patterns                             → modifier stacks, material combos, class frequencies
-2. walk_references name:"KeyObject"                 → map its dependency tree
-3. map_class_relationships superclass:"material"    → learn all material slot wiring possibilities
-```
-
-**Watching user actions in real-time:**
-```
-1. watch_scene action:"start"                       → enable event tracking
-2. (user works in Max — creates, selects, modifies)
-3. watch_scene action:"get"                         → see every action with full detail
-```
-
-**Rules:**
-- NEVER guess parameter names — use `introspect_class` to get the exact names, types, and ranges
-- NEVER assume slot connections — use `map_class_relationships` to see what plugs into what
-- NEVER skip verification — use `get_scene_delta` after mutations to confirm what actually changed
-- When writing MAXScript that targets a specific class, introspect it first to get correct property names
-
-## 3. Default Workflow
-
-1. **Context** — `get_bridge_status`, `get_scene_snapshot`
-2. **Inspect** — `introspect_instance` (preferred) or `inspect_object` + `get_material_slots`
-3. **Mutate** — use a dedicated tool (never `execute_maxscript` if a tool exists)
-4. **Verify** — `get_scene_delta` or re-inspect after mutation
-
-## 4. Scene Organization
+## Scene Organization
 
 **Layers** — `manage_layers`:
 - Actions: `list`, `create`, `delete`, `set_current`, `set_properties`, `add_objects`, `select_objects`
@@ -141,7 +45,7 @@ NOTE: Arnold materials (ai_standard_surface, etc.) are scripted plugins — `dis
 **Named Selection Sets** — `manage_selection_sets`:
 - Actions: `list`, `create`, `delete`, `select`, `replace`
 
-## 5. Tool Reference
+## Tool Reference
 
 ### Scene reads
 `get_scene_info` `get_selection` `get_scene_snapshot` `get_selection_snapshot` `get_scene_delta` `get_hierarchy`

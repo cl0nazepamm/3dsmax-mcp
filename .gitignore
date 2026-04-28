@@ -7,8 +7,7 @@ build/
 .venv/
 *.egg
 .DS_Store
-.claude/settings.local.json
-.claude/skills/
+.claude/
 .agents/
 AGENTS.md
 TODO.md
