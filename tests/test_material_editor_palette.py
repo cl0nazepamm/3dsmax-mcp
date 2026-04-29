@@ -125,6 +125,41 @@ class MaterialEditorPaletteTests(unittest.TestCase):
         self.assertIn("color 255 255 255", maxscript)
         self.assertNotIn("notes.txt", maxscript)
 
+    def test_grouped_pbr_consumes_normal_variants_and_common_suffixes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in (
+                "cloud_Albedo_Map.png",
+                "cloud_Metallic.png",
+                "cloud_Normal_OpenGL.png",
+                "cloud_Roughness.png",
+                "cloud_shoes_alb.png",
+                "cloud_shoes_Metallic.png",
+                "cloud_shoes_Norm.png",
+                "cloud_shoes_Roughness.png",
+            ):
+                (root / name).write_bytes(b"fake")
+
+            with patch(
+                "src.tools.material_ops.client.send_command",
+                return_value={"result": "Loaded 2 grouped PBR material(s)"},
+            ) as send:
+                result = palette_laydown(
+                    tmp,
+                    slot_content="full_pbr",
+                    material_class="OpenPBRMaterial",
+                )
+
+        self.assertEqual(result, "Loaded 2 grouped PBR material(s)")
+        send.assert_called_once()
+        maxscript = send.call_args.args[0]
+        self.assertIn('mcp_createOpenPbrPreferred "tex_cloud"', maxscript)
+        self.assertIn('mcp_createOpenPbrPreferred "tex_cloud_shoes"', maxscript)
+        self.assertNotIn('name:"tex_cloud_opengl"', maxscript)
+        self.assertNotIn('name:"tex_cloud_map"', maxscript)
+        self.assertNotIn('name:"tex_cloud_shoes_norm"', maxscript)
+        self.assertIn("normal->", maxscript)
+
     def test_load_texture_folder_to_material_editor_can_make_renderer_pbr_materials(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -174,6 +209,31 @@ class MaterialEditorPaletteTests(unittest.TestCase):
         self.assertIn("outputChannelIndex = 3", maxscript)
         self.assertIn("outputChannelIndex = 4", maxscript)
         self.assertIn("diffuse(+ao)", maxscript)
+
+    def test_load_texture_folder_to_material_editor_can_skip_displacement(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("stone_basecolor.png", "stone_roughness.png", "stone_height.exr"):
+                (root / name).write_bytes(b"fake")
+
+            with patch(
+                "src.tools.material_ops.client.send_command",
+                return_value={"result": "Loaded no displacement"},
+            ) as send:
+                result = palette_laydown(
+                    tmp,
+                    slot_content="full_pbr",
+                    material_class="PhysicalMaterial",
+                    include_displacement=False,
+                )
+
+        self.assertEqual(result, "Loaded no displacement")
+        send.assert_called_once()
+        maxscript = send.call_args.args[0]
+        self.assertIn('PhysicalMaterial name:"tex_stone"', maxscript)
+        self.assertIn("roughness_map", maxscript)
+        self.assertNotIn("slot_1_displacement", maxscript)
+        self.assertNotIn('displacement->', maxscript)
 
     def test_load_texture_folder_to_material_editor_can_make_vray_pbr_materials(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

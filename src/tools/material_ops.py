@@ -55,7 +55,7 @@ _DEFAULT_CHANNEL_PATTERNS: dict[str, list[str]] = {
     ],
     "normal":        [
         "_normalgl", "normalgl", "normal gl", "_normaldx", "normaldx", "normal dx",
-        "_normal", "normal", "_nrm", "nrm", "_nor", "nor", "_n",
+        "_normal", "normal", "_norm", "norm", "_nrm", "nrm", "_nor", "nor", "_n",
     ],
     "displacement":  [
         "_displacement", "displacement", "_displace", "displace", "_height", "height",
@@ -87,6 +87,11 @@ _TEXTURE_TOKEN_RE = re.compile(r"[a-z0-9]+")
 _COMMON_VARIANT_TOKENS = {
     "2k", "4k", "8k", "16k", "1k", "512", "1024", "2048", "4096", "8192",
     "png", "jpg", "jpeg", "tif", "tiff", "exr", "tga", "hdr", "bmp", "dds", "tx",
+    "map", "tex", "texture", "textures",
+}
+_NORMAL_VARIANT_TOKENS = {
+    "gl", "ogl", "opengl", "open", "dx", "directx",
+    "normalmap", "normalbump",
 }
 
 # Color-data maps (sRGB vs Raw / linear)
@@ -308,6 +313,11 @@ def _detect_texture_channel(
     _, _, channel, span, alias = best
     if span is not None:
         start, end = span
+        if channel in {"normal", "bump"}:
+            while end < len(tokens) and tokens[end] in _NORMAL_VARIANT_TOKENS:
+                end += 1
+            while start > 0 and tokens[start - 1] in _NORMAL_VARIANT_TOKENS:
+                start -= 1
         key_tokens = tokens[:start] + tokens[end:]
     else:
         key_tokens = tokens
@@ -1688,6 +1698,7 @@ def _build_material_editor_pbr_palette_maxscript(
     open_editor: bool,
     material_prefix: str,
     renderer: str,
+    include_displacement: bool = True,
     unmatched_count: int = 0,
     duplicate_count: int = 0,
 ) -> str:
@@ -1932,7 +1943,11 @@ def _build_material_editor_pbr_palette_maxscript(
                 ])
             add_wire(mat_var, f"slot_{idx}_bump", "bump", bump_node, slots["bump"])
 
-        for channel in ("displacement", "opacity", "emission", "translucency", "specular"):
+        optional_channels = ("displacement", "opacity", "emission", "translucency", "specular")
+        if not include_displacement:
+            optional_channels = ("opacity", "emission", "translucency", "specular")
+
+        for channel in optional_channels:
             if channel not in map_vars:
                 continue
             candidates = slots.get(channel)
@@ -1980,6 +1995,7 @@ def _palette_laydown_impl(
     material_prefix: str = "tex_",
     slot_content: str = "material",
     material_class: str = "",
+    include_displacement: bool = True,
 ) -> str:
     """Load image files from a folder into Compact Material Editor sample slots.
 
@@ -1990,6 +2006,8 @@ def _palette_laydown_impl(
     create one fully wired PBR material per slot. For grouped mode, material_class
     may be OpenPBRMaterial, PhysicalMaterial, ai_standard_surface,
     RS_Standard_Material, or VRayMtl; OpenPBR is the default.
+    include_displacement=False skips wiring height/displacement maps in grouped
+    PBR mode.
     """
     start_slot = max(1, min(24, int(start_slot)))
     max_slots = max(1, min(24 - start_slot + 1, int(max_slots)))
@@ -2037,6 +2055,7 @@ def _palette_laydown_impl(
             open_editor,
             material_prefix,
             renderer or "openpbr",
+            include_displacement=include_displacement,
             unmatched_count=len(unmatched),
             duplicate_count=len(duplicates),
         )}
