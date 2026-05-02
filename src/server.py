@@ -56,9 +56,9 @@ SPECIALTY_TOOL_MODULES = (
 
 
 def _tool_profile() -> str:
-    value = os.environ.get("MCP_TOOL_PROFILE") or os.environ.get("THREEDSMAX_MCP_TOOL_PROFILE") or "core"
+    value = os.environ.get("MCP_TOOL_PROFILE") or os.environ.get("THREEDSMAX_MCP_TOOL_PROFILE") or "full"
     value = value.strip().lower()
-    return value if value in {"core", "full"} else "core"
+    return value if value in {"core", "full"} else "full"
 
 
 def _register_tool_modules() -> None:
@@ -69,8 +69,8 @@ def _register_tool_modules() -> None:
         import_module(f".tools.{name}", package=__package__)
 
 
-# Import tool modules to trigger @mcp.tool() registration. Default is compact;
-# set MCP_TOOL_PROFILE=full to expose specialty tool modules too.
+# Import tool modules to trigger @mcp.tool() registration. Default is full;
+# set MCP_TOOL_PROFILE=core to limit registration to everyday tool modules.
 _register_tool_modules()
 
 

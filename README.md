@@ -12,7 +12,7 @@ Works with any MCP-compatible client.
 - **Native C++ Bridge** — 76 handlers running inside 3ds Max as a GUP plugin, 86-130x faster than MAXScript
 - **One-step installer** — `uv run python install.py` handles everything
 - **Quad-view capture** — Screenshotting is fast and supports multi views.
-- **Compact default tool surface** — core MCP profile exposes common scene/object/material/inspection tools; full profile keeps specialty tools available
+- **Full default tool surface** — full MCP profile exposes core and specialty scene/object/material/pipeline tools by default
 - **116 tools in full profile** across scene, objects, materials, modifiers, controllers, viewport, introspection.
 - **Bundled MAXScript reference** — 10 topic files for agents to write correct MAXScript
 
@@ -56,13 +56,13 @@ uv run python install.py --skip-skill
 
 ## MCP Tool Profile
 
-The external MCP server defaults to a compact core profile to reduce tool-list
-tokens in clients. Controller tools are included in core. Use the full profile
-only when you need specialty modules such as Data Channel, effects, floor-plan
-generation, tyFlow, RailClone, wire params, or standalone-chat driver tools.
+The external MCP server defaults to the full profile so specialty modules such
+as Data Channel, effects, floor-plan generation, tyFlow, RailClone, wire params,
+and standalone-chat driver tools are available without extra setup. Use the core
+profile only when you want a smaller common-tool surface.
 
 ```powershell
-$env:MCP_TOOL_PROFILE = "full"
+$env:MCP_TOOL_PROFILE = "core"
 python -m src.server
 ```
 
@@ -107,7 +107,7 @@ The v0.7.0 chat window runs your configured LLM with direct scene-editing tools.
 
 ## Tools
 
-Default core profile: 79 tools with concise descriptions. Full profile: 116 tools across scene management, objects, materials, modifiers, controllers, wiring, viewport capture, file access, plugin introspection, tyFlow, Forest Pack, RailClone, Data Channel, and more.
+Default full profile: 116 tools across scene management, objects, materials, modifiers, controllers, wiring, viewport capture, file access, plugin introspection, tyFlow, Forest Pack, RailClone, Data Channel, and more. Core profile: 79 tools with concise descriptions.
 
 | Category | Tools | Transport |
 |----------|-------|-----------|
@@ -135,8 +135,8 @@ Run an AI chat entirely inside 3ds Max — no external MCP client required. The 
 - **Launch:** You can find chat window in usermacros or search it directly by global search.
 - **API key:** `%LOCALAPPDATA%\3dsmax-mcp\.env` — `OPENROUTER_API_KEY=...` (also accepts `LLM_API_KEY` / `OPENAI_API_KEY`). Real env vars override the file. `deploy.bat` seeds `.env.example` on first install.
 - **Settings:** `%LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini` `[llm]` — non-secret knobs only (`base_url`, `model`, `max_tokens`, `temperature`, plus token controls below). Default target is OpenRouter + `anthropic/claude-sonnet-4.6`.
-- **Token controls:** external MCP defaults to `MCP_TOOL_PROFILE=core` plus concise tool descriptions. Standalone chat defaults to `prompt_mode=compact`, `tool_profile=core`, `include_scene_snapshot=true`, `max_scene_roots=25`, `max_prompt_chars=12000`, `max_tool_result_chars=12000`, `max_history_tool_chars=1800`, `max_tool_summary_chars=600`, `max_display_tool_chars=600`, `max_tool_loops=4`. Use `MCP_TOOL_PROFILE=full`, `prompt_mode=full`, or `tool_profile=full` only when you need the full specialty surface.
-- **Tools:** native tools from `src/tools/*.py` are auto-registered (generated at build time by `scripts/gen_tool_registry.py`), plus `execute_maxscript` as a catch-all. The default chat schema exposes the compact core profile; the full registry remains available with `tool_profile=full`.
+- **Token controls:** external MCP defaults to `MCP_TOOL_PROFILE=full` plus concise tool descriptions. Standalone chat defaults to `prompt_mode=compact`, `tool_profile=full`, `include_scene_snapshot=true`, `max_scene_roots=25`, `max_prompt_chars=12000`, `max_tool_result_chars=12000`, `max_history_tool_chars=1800`, `max_tool_summary_chars=600`, `max_display_tool_chars=600`, `max_tool_loops=4`. Use `MCP_TOOL_PROFILE=core` or `tool_profile=core` only when you need a smaller tool surface.
+- **Tools:** native tools from `src/tools/*.py` are auto-registered (generated at build time by `scripts/gen_tool_registry.py`), plus `execute_maxscript` as a catch-all. The default chat schema exposes the full profile; the compact registry remains available with `tool_profile=core`.
 - **Security:** the existing `[mcp] safe_mode` filter applies — `execute_maxscript` calls from the chat hit the same keyword blocklist as every other path.
 - **Skill-aware:** the v0.7.0 deploy copies `SKILL.md` to `%LOCALAPPDATA%\3dsmax-mcp\skill\`. The chat uses a compact rule summary by default; set `prompt_mode=full` to inject the deployed `SKILL.md`.
 - **Slash commands:** `/reload`, `/clear`, `/help`.
