@@ -221,7 +221,7 @@ void LLMClient::Init() {
     g_config.promptMode = ReadIniChoice(
         ini, "llm", "prompt_mode", "compact", {"compact", "full", "none"});
     g_config.toolProfile = ReadIniChoice(
-        ini, "llm", "tool_profile", "core", {"core", "full"});
+        ini, "llm", "tool_profile", "full", {"core", "full"});
     g_config.includeSceneSnapshot = ReadIniBool(ini, "llm", "include_scene_snapshot", true);
     g_config.maxSceneRoots = ReadIniInt(ini, "llm", "max_scene_roots", 25, 0, 200);
     g_config.maxPromptChars = ReadIniInt(ini, "llm", "max_prompt_chars", 12000, 2000, 200000);
@@ -629,9 +629,9 @@ static const size_t kChatToolCount = sizeof(kChatTools) / sizeof(kChatTools[0]);
 static bool ToolAllowedByProfile(const std::string& profile, const std::string& name) {
     if (profile == "full") return true;
 
-    // Default profile for in-Max chat. Keep high-frequency scene/object/material
+    // Compact profile for in-Max chat. Keep high-frequency scene/object/material
     // work and SDK discovery; leave specialty/bulk workflows out of the per-turn
-    // tool schema unless the user switches [llm] tool_profile=full.
+    // tool schema when the user switches [llm] tool_profile=core.
     static const std::unordered_set<std::string> coreTools = {
         "get_bridge_status",
         "get_session_context",
@@ -695,7 +695,7 @@ static bool ToolAllowedByProfile(const std::string& profile, const std::string& 
 
 json LLMClient::GetToolDefinitions() {
     json tools = json::array();
-    const std::string profile = g_config.toolProfile.empty() ? "core" : g_config.toolProfile;
+    const std::string profile = g_config.toolProfile.empty() ? "full" : g_config.toolProfile;
     for (size_t i = 0; i < kChatToolCount; ++i) {
         const auto& t = kChatTools[i];
         if (!ToolAllowedByProfile(profile, t.name)) {
@@ -816,7 +816,7 @@ static std::string CompactSkillPrompt() {
         "- Use execute_maxscript only when no dedicated tool covers the operation; safe_mode may block risky scripts.\n"
         "- MAXScript reminders: keyword args use `Box width:10`, escape JSON strings, wrap custom scripts in try/catch.\n"
         "- Standalone chat primitive creation: specify object dimensions explicitly.\n"
-        "- Tool profile is compact by default; ask the user to set [llm] tool_profile=full if a hidden specialty tool is needed.\n"
+        "- Tool profile is full by default; [llm] tool_profile=core is available only when a smaller tool list is needed.\n"
         "=== END MCP OPERATING RULES ===\n\n";
 }
 
