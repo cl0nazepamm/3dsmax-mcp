@@ -140,6 +140,20 @@ _RENDERER_CONFIGS: dict[str, dict] = {
             "displacement": ["displacement_map"],
         },
     },
+    "materialx": {
+        "material_class": "OpenPBRMaterial",
+        "slots": {
+            "diffuse":      ["base_color_map", "baseColor_map", "basecolor_map", "base_map", "diffuse_map"],
+            "roughness":    ["roughness_map", "specular_roughness_map", "base_roughness_map"],
+            "glossiness":   ["roughness_map", "specular_roughness_map", "base_roughness_map"],
+            "metallic":     ["metalness_map", "metallic_map", "base_metalness_map"],
+            "opacity":      ["opacity_map", "cutout_map", "transparency_map"],
+            "emission":     ["emission_color_map", "emit_color_map", "emission_map"],
+            "translucency": ["transmission_color_map", "trans_color_map", "transmission_map"],
+            "specular":     ["specular_color_map", "refl_color_map"],
+            "displacement": ["displacement_map"],
+        },
+    },
     "redshift": {
         "material_class": "RS_Standard_Material",
         "slots": {
@@ -196,6 +210,20 @@ _PBR_SLOT_CANDIDATES: dict[str, dict[str, list[str]]] = {
         "emission":     ["emit_color_map", "emission_map"],
         "translucency": ["trans_color_map", "transparency_map"],
         "specular":     ["refl_color_map"],
+    },
+    "materialx": {
+        "diffuse":      ["base_color_map", "baseColor_map", "basecolor_map", "base_map", "diffuse_map"],
+        "ao":           ["base_color_map", "baseColor_map", "basecolor_map", "base_map", "diffuse_map"],
+        "roughness":    ["roughness_map", "specular_roughness_map", "base_roughness_map"],
+        "glossiness":   ["roughness_map", "specular_roughness_map", "base_roughness_map"],
+        "metallic":     ["metalness_map", "metallic_map", "base_metalness_map"],
+        "normal":       ["bump_map", "normal_map"],
+        "bump":         ["bump_map", "normal_map"],
+        "displacement": ["displacement_map"],
+        "opacity":      ["opacity_map", "cutout_map", "transparency_map"],
+        "emission":     ["emission_color_map", "emit_color_map", "emission_map"],
+        "translucency": ["transmission_color_map", "trans_color_map", "transmission_map"],
+        "specular":     ["specular_color_map", "refl_color_map"],
     },
     "arnold": {
         "diffuse":      ["base_color_shader"],
@@ -391,6 +419,8 @@ def _renderer_from_material_class(material_class: str) -> str | None:
     class_lower = (material_class or "").strip().lower()
     if not class_lower or class_lower in {"openpbr", "openpbrmaterial", "openpbr_material", "openpbr_mtl"}:
         return "openpbr"
+    if class_lower in {"materialx", "material_x", "mtlx", "openpbr_materialx", "openpbr+materialx"} or "materialx" in class_lower:
+        return "materialx"
     if class_lower in {"physical", "physicalmaterial", "autodeskphysical"} or "physical" in class_lower:
         return "physical"
     if class_lower in {"arnold", "ai_standard_surface", "standard_surface"} or "ai_standard" in class_lower:
@@ -1705,6 +1735,7 @@ def _build_material_editor_pbr_palette_maxscript(
     """Generate MAXScript for one fully wired PBR material per texture set."""
     renderer_label = {
         "openpbr": "OpenPBR-first",
+        "materialx": "OpenPBR + MaterialX OSL",
         "physical": "PhysicalMaterial",
         "arnold": "Arnold ai_standard_surface",
         "redshift": "Redshift RS_Standard_Material",
@@ -1745,7 +1776,32 @@ def _build_material_editor_pbr_palette_maxscript(
         f"local slotIndex = {start_slot}",
     ]
 
-    if any("orm" in group["channels"] for group in groups):
+    if renderer == "materialx":
+        lines.extend([
+            "fn mcp_materialXOslRoot = (",
+            "    local roots = #(",
+            '        "C:\\\\ProgramData\\\\Autodesk\\\\ApplicationPlugins\\\\USD for 3ds Max 2027\\\\Contents\\\\MaterialX_plugin\\\\Contents\\\\OSL\\\\MaterialX",',
+            '        "C:\\\\ProgramData\\\\Autodesk\\\\ApplicationPlugins\\\\USD for 3ds Max 2026\\\\Contents\\\\MaterialX_plugin\\\\Contents\\\\OSL\\\\MaterialX",',
+            '        "C:\\\\ProgramData\\\\Autodesk\\\\ApplicationPlugins\\\\USD for 3ds Max 2025\\\\Contents\\\\MaterialX_plugin\\\\Contents\\\\OSL\\\\MaterialX"',
+            "    )",
+            '    for root in roots where doesFileExist (root + "\\\\tiledimage_color3.osl") do return root',
+            '    throw "USD MaterialX OSL nodes are unavailable. Expected tiledimage_color3.osl under ProgramData Autodesk ApplicationPlugins."',
+            ")",
+            "fn mcp_materialXOslPath fileName = (",
+            "    local path = (mcp_materialXOslRoot()) + \"\\\\\" + fileName",
+            '    if not (doesFileExist path) do throw ("MaterialX OSL file is unavailable: " + path)',
+            "    path",
+            ")",
+            "fn mcp_makeMaterialXOslMap fileName nodeName = (",
+            "    local m = OSLMap()",
+            "    m.name = nodeName",
+            "    m.OSLPath = mcp_materialXOslPath fileName",
+            "    m.OSLAutoUpdate = true",
+            "    m",
+            ")",
+        ])
+
+    if renderer != "materialx" and any("orm" in group["channels"] for group in groups):
         lines.append('local oslPath = (getDir #maxRoot) + "OSL\\\\UberBitmap2.osl"')
 
     if open_editor:
@@ -1770,7 +1826,20 @@ def _build_material_editor_pbr_palette_maxscript(
     def add_bitmap(var: str, channel: str, fpath: Path) -> None:
         path_literal = safe_string(_ms_path(fpath))
         tex_name = safe_string(fpath.stem)
-        if renderer == "arnold":
+        if renderer == "materialx":
+            is_color = channel in _COLOR_CHANNELS
+            file_name = "tiledimage_vector3.osl" if channel == "normal" else (
+                "tiledimage_color3.osl" if is_color else "tiledimage_float.osl"
+            )
+            colorspace = "srgb_texture" if is_color else ""
+            lines.extend([
+                f'    local {var} = mcp_makeMaterialXOslMap "{file_name}" "{tex_name}"',
+                f'    {var}.file = @"{path_literal}"',
+                f'    {var}.file_colorspace = "{colorspace}"',
+            ])
+            if channel == "normal":
+                lines.append(f"    {var}.default1 = [0.5, 0.5, 1.0]")
+        elif renderer == "arnold":
             color_space = "sRGB" if channel in _COLOR_CHANNELS else "Raw"
             lines.append(f'    local {var} = ai_image name:"{tex_name}" filename:@"{path_literal}" color_space:"{color_space}"')
         else:
@@ -1783,6 +1852,22 @@ def _build_material_editor_pbr_palette_maxscript(
         out_r = f"{prefix}_orm_r"
         out_g = f"{prefix}_orm_g"
         out_b = f"{prefix}_orm_b"
+        if renderer == "materialx":
+            lines.extend([
+                f'    local {uber} = mcp_makeMaterialXOslMap "tiledimage_color3.osl" "{tex_name}"',
+                f'    {uber}.file = @"{path_literal}"',
+                f'    {uber}.file_colorspace = ""',
+                f'    local {out_r} = mcp_makeMaterialXOslMap "extract_color3.osl" "{tex_name}_AO_R"',
+                f"    {out_r}.In_map = {uber}",
+                f"    {out_r}.index = 0",
+                f'    local {out_g} = mcp_makeMaterialXOslMap "extract_color3.osl" "{tex_name}_Roughness_G"',
+                f"    {out_g}.In_map = {uber}",
+                f"    {out_g}.index = 1",
+                f'    local {out_b} = mcp_makeMaterialXOslMap "extract_color3.osl" "{tex_name}_Metallic_B"',
+                f"    {out_b}.In_map = {uber}",
+                f"    {out_b}.index = 2",
+            ])
+            return {"ao": out_r, "roughness": out_g, "metallic": out_b}
         lines.extend([
             f"    local {uber} = OSLMap()",
             f'    {uber}.name = "{tex_name}"',
@@ -1808,7 +1893,7 @@ def _build_material_editor_pbr_palette_maxscript(
         map_vars: dict[str, str] = {}
 
         lines.append("try (")
-        if renderer == "openpbr":
+        if renderer in {"openpbr", "materialx"}:
             lines.append(f'    local {mat_var} = mcp_createOpenPbrPreferred "{mat_name}"')
         elif renderer == "physical":
             lines.append(f'    local {mat_var} = PhysicalMaterial name:"{mat_name}"')
@@ -1842,7 +1927,14 @@ def _build_material_editor_pbr_palette_maxscript(
         if "diffuse" in map_vars:
             diffuse_var = map_vars["diffuse"]
             if ao_var:
-                if renderer == "arnold":
+                if renderer == "materialx":
+                    comp_var = f"g{idx}_diffuse_ao"
+                    lines.extend([
+                        f'    local {comp_var} = mcp_makeMaterialXOslMap "multiply_color3FA.osl" "Diffuse_AO"',
+                        f"    {comp_var}.in1_map = {diffuse_var}",
+                        f"    {comp_var}.in2_map = {ao_var}",
+                    ])
+                elif renderer == "arnold":
                     comp_var = f"g{idx}_diffuse_ao"
                     lines.extend([
                         f'    local {comp_var} = ai_multiply name:"Diffuse_AO"',
@@ -1868,11 +1960,18 @@ def _build_material_editor_pbr_palette_maxscript(
             add_wire(mat_var, f"slot_{idx}_roughness", "roughness", map_vars["roughness"], slots["roughness"])
         elif "glossiness" in map_vars:
             inv_var = f"g{idx}_gloss_to_rough"
-            lines.extend([
-                f'    local {inv_var} = Output name:"GlossToRough"',
-                f"    {inv_var}.map1 = {map_vars['glossiness']}",
-                f"    {inv_var}.output.invert = true",
-            ])
+            if renderer == "materialx":
+                lines.extend([
+                    f'    local {inv_var} = mcp_makeMaterialXOslMap "invert_float.osl" "GlossToRough"',
+                    f"    {inv_var}.In_map = {map_vars['glossiness']}",
+                    f"    {inv_var}.amount = 1.0",
+                ])
+            else:
+                lines.extend([
+                    f'    local {inv_var} = Output name:"GlossToRough"',
+                    f"    {inv_var}.map1 = {map_vars['glossiness']}",
+                    f"    {inv_var}.output.invert = true",
+                ])
             add_wire(mat_var, f"slot_{idx}_glossiness", "glossiness(inverted)", inv_var, slots["glossiness"])
         elif "roughness" in map_vars:
             add_wire(mat_var, f"slot_{idx}_roughness_orm", "roughness(orm)", map_vars["roughness"], slots["roughness"])
@@ -1881,7 +1980,15 @@ def _build_material_editor_pbr_palette_maxscript(
             add_wire(mat_var, f"slot_{idx}_metallic", "metallic", map_vars["metallic"], slots["metallic"])
 
         if "normal" in map_vars:
-            if renderer == "arnold":
+            if renderer == "materialx":
+                final_normal = f"g{idx}_normal_node"
+                lines.extend([
+                    f'    local {final_normal} = mcp_makeMaterialXOslMap "normalmap.osl" "NormalMap"',
+                    f"    {final_normal}.In_map = {map_vars['normal']}",
+                    f'    {final_normal}.space = "tangent"',
+                    f"    {final_normal}.scale = 1.0",
+                ])
+            elif renderer == "arnold":
                 normal_node = f"g{idx}_normal_node"
                 final_normal = normal_node
                 lines.extend([
@@ -1920,7 +2027,19 @@ def _build_material_editor_pbr_palette_maxscript(
                     lines.append(f"    {final_normal}.bump_map = {map_vars['bump']}")
             add_wire(mat_var, f"slot_{idx}_normal", "normal", final_normal, slots["normal"])
         elif "bump" in map_vars:
-            if renderer == "arnold":
+            if renderer == "materialx":
+                height_node = f"g{idx}_height_to_normal"
+                bump_node = f"g{idx}_bump_node"
+                lines.extend([
+                    f'    local {height_node} = mcp_makeMaterialXOslMap "heighttonormal_vector3.osl" "BumpHeightToNormal"',
+                    f"    {height_node}.In_map = {map_vars['bump']}",
+                    f"    {height_node}.scale = 1.0",
+                    f'    local {bump_node} = mcp_makeMaterialXOslMap "normalmap.osl" "BumpNormalMap"',
+                    f"    {bump_node}.In_map = {height_node}",
+                    f'    {bump_node}.space = "tangent"',
+                    f"    {bump_node}.scale = 1.0",
+                ])
+            elif renderer == "arnold":
                 bump_node = f"g{idx}_bump_node"
                 lines.extend([
                     f'    local {bump_node} = ai_bump2d name:"Bump"',
@@ -2005,7 +2124,7 @@ def _palette_laydown_impl(
     values like "pbr_material" or "full_pbr" group texture sets by filename and
     create one fully wired PBR material per slot. For grouped mode, material_class
     may be OpenPBRMaterial, PhysicalMaterial, ai_standard_surface,
-    RS_Standard_Material, or VRayMtl; OpenPBR is the default.
+    RS_Standard_Material, VRayMtl, or MaterialX; OpenPBR is the default.
     include_displacement=False skips wiring height/displacement maps in grouped
     PBR mode.
     """
@@ -2033,7 +2152,7 @@ def _palette_laydown_impl(
     if slot_content == "pbr_material" and renderer is None:
         return (
             f"Unsupported material_class for grouped PBR palette: {material_class}. "
-            "Use OpenPBRMaterial, PhysicalMaterial, ai_standard_surface, RS_Standard_Material, or VRayMtl."
+            "Use OpenPBRMaterial, PhysicalMaterial, ai_standard_surface, RS_Standard_Material, VRayMtl, or MaterialX."
         )
 
     files = _scan_material_editor_palette_files(texture_folder, recursive)

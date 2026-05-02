@@ -20,7 +20,7 @@ def palette_laydown(
     slot_content: material = one OpenPBR preview per bitmap; bitmap = raw
     Bitmaptexture slots; pbr_material/full_pbr = grouped PBR material sets.
     material_class only applies to grouped PBR: OpenPBRMaterial, PhysicalMaterial,
-    ai_standard_surface, RS_Standard_Material, or VRayMtl.
+    ai_standard_surface, RS_Standard_Material, VRayMtl, or MaterialX.
     include_displacement controls whether height/displacement maps are wired in
     grouped PBR mode.
     """

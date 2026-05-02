@@ -261,6 +261,38 @@ class MaterialEditorPaletteTests(unittest.TestCase):
         self.assertIn("texmap_metalness", maxscript)
         self.assertIn("VRayNormalMap", maxscript)
 
+    def test_load_texture_folder_to_material_editor_can_make_materialx_pbr_materials(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("fabric_basecolor.png", "fabric_orm.png", "fabric_normal.png", "fabric_height.exr"):
+                (root / name).write_bytes(b"fake")
+
+            with patch(
+                "src.tools.material_ops.client.send_command",
+                return_value={"result": "Loaded MaterialX"},
+            ) as send:
+                result = palette_laydown(
+                    tmp,
+                    slot_content="full_pbr",
+                    material_class="MaterialX",
+                )
+
+        self.assertEqual(result, "Loaded MaterialX")
+        send.assert_called_once()
+        maxscript = send.call_args.args[0]
+        self.assertIn("OpenPBR + MaterialX OSL", maxscript)
+        self.assertIn('mcp_createOpenPbrPreferred "tex_fabric"', maxscript)
+        self.assertIn("mcp_materialXOslRoot", maxscript)
+        self.assertIn('mcp_makeMaterialXOslMap "tiledimage_color3.osl"', maxscript)
+        self.assertIn('mcp_makeMaterialXOslMap "tiledimage_vector3.osl"', maxscript)
+        self.assertIn('mcp_makeMaterialXOslMap "tiledimage_float.osl"', maxscript)
+        self.assertIn('mcp_makeMaterialXOslMap "extract_color3.osl"', maxscript)
+        self.assertIn('mcp_makeMaterialXOslMap "normalmap.osl"', maxscript)
+        self.assertIn("file_colorspace = \"srgb_texture\"", maxscript)
+        self.assertIn("file_colorspace = \"\"", maxscript)
+        self.assertNotIn("MultiOutputChannelTexmapToTexmap", maxscript)
+        self.assertNotIn("ai_image", maxscript)
+
 
 if __name__ == "__main__":
     unittest.main()
