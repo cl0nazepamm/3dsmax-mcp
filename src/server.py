@@ -22,6 +22,7 @@ CORE_TOOL_MODULES = (
     "scene_manage",
     "objects",
     "transform",
+    "orientation",
     "hierarchy",
     "selection",
     "visibility",

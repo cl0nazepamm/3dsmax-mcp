@@ -21,6 +21,7 @@ Scene reads:
 
 Object/material/plugin inspection:
 - `inspect_object`, `inspect_properties`, `get_material_slots`, and `get_materials` cover normal live scene inspection.
+- `analyze_node_orientation` is the first-line helper for pivot, bounding-box center, local axes, world matrix rows, and unit/space assumptions before writing rig, vehicle, camera, or gameplay transforms.
 - `introspect_class`, `introspect_instance`, `introspect_osl`, `discover_plugin_classes`, and `map_class_relationships` are for unfamiliar plugin APIs, exact parameter names, slot wiring, or SDK-level automation work.
 - Arnold scripted materials such as `ai_standard_surface` may not appear in native class discovery. Create with MAXScript class names and inspect with `inspect_plugin_class` or `introspect_osl`.
 
@@ -51,7 +52,7 @@ Debugging:
 `get_scene_info` `get_selection` `get_scene_snapshot` `get_selection_snapshot` `get_scene_delta` `get_hierarchy`
 
 ### Objects
-`get_object_properties` `set_object_property` `create_object` `delete_objects` `transform_object` `select_objects` `set_visibility` `clone_objects` `set_parent` `batch_rename_objects`
+`get_object_properties` `analyze_node_orientation` `set_object_property` `create_object` `delete_objects` `transform_object` `select_objects` `set_visibility` `clone_objects` `set_parent` `batch_rename_objects`
 
 ### Modifiers
 `add_modifier` `remove_modifier` `set_modifier_state` `collapse_modifier_stack` `make_modifier_unique` `batch_modify`

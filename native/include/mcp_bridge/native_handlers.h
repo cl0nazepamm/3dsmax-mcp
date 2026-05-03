@@ -21,6 +21,7 @@ namespace NativeHandlers {
 
     // Phase 1: Object operations
     std::string GetObjectProperties(const std::string& params, MCPBridgeGUP* gup);
+    std::string AnalyzeNodeOrientation(const std::string& params, MCPBridgeGUP* gup);
     std::string SetObjectProperty(const std::string& params, MCPBridgeGUP* gup);
     std::string CreateObject(const std::string& params, MCPBridgeGUP* gup);
     std::string DeleteObjects(const std::string& params, MCPBridgeGUP* gup);

@@ -77,6 +77,7 @@ set(SOURCES
     src/main_thread_executor.cpp
     src/handlers/scene_handlers.cpp
     src/handlers/object_handlers.cpp
+    src/handlers/orientation_handlers.cpp
     src/handlers/modifier_handlers.cpp
     src/handlers/inspect_handlers.cpp
     src/handlers/scene_manage_handlers.cpp

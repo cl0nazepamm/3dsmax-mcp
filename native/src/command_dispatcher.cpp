@@ -61,6 +61,7 @@ static bool IsDirectHandler(const std::string& cmd_type) {
         "native:scene_delta",
         // Object reads
         "native:get_object_properties",
+        "native:analyze_node_orientation",
         "native:inspect_object",
         "native:inspect_properties",
         // Material reads
@@ -299,6 +300,8 @@ std::string CommandDispatcher::Dispatch(
         // Phase 1: Object operations
         } else if (cmd_type == "native:get_object_properties") {
             result = NativeHandlers::GetObjectProperties(command, gup);
+        } else if (cmd_type == "native:analyze_node_orientation") {
+            result = NativeHandlers::AnalyzeNodeOrientation(command, gup);
         } else if (cmd_type == "native:set_object_property") {
             result = NativeHandlers::SetObjectProperty(command, gup);
         } else if (cmd_type == "native:create_object") {
