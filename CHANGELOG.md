@@ -2,7 +2,34 @@
 
 All notable changes to this project are documented here.
 
-## [1.4.0] — 2026-07-20
+## [1.5.1] — 2026-07-26
+
+Builder-mode hardening from the first external field run (M4 carbine): the pipeline completed but the vision layer self-absolved and two cameras were left at scene root.
+
+### Added
+
+- Session-litter gate: `start` records scene-root nodes in the ledger; any node appearing at scene root afterwards warns during the build and hard-fails at finish. Catches abandoned projection cameras and misfired tool calls that the descendants-only census could not see.
+- Per-detail review: `check` returns `details_to_review` at the detail pass and `record continue` is refused unless the evidence names every detail id — one grid glance cannot verify sixteen features.
+- Hedge-word gate: `record continue` refuses evidence containing self-absolving vocabulary ("stylized", "proxy", "placeholder", "chunky", "acceptable for", "good enough", "for now"); those are `refine-scene` words.
+- Optional `budget.min_tris` underbuild floor, checked at finish.
+
+### Changed
+
+- Projection recipe requires the camera parented under the root on `_builder`, plus a silhouette-match acceptance test before the map is wired — an unmatched camera projects garbage.
+
+### Fixed
+
+- `assign_material` access violation (0xC0000005) on a non-material `material_class`. The native handler's class lookup fell back to an unfiltered `FindClassDescByName` across every superclass and blind-cast the result to `Mtl*`; `material_class="Physical"` therefore instantiated the Physical *Camera* and dispatched `SetName`/`SetMtl`/redraw through the wrong vtable. The lookup now stays inside `MATERIAL_CLASS_ID` and raises a structured `BAD_PARAM` with `hint.didYouMean` (`Physical` → `PhysicalMaterial`). Requires a native redeploy; the same unguarded pattern remains in the modifier and object handlers. See `docs/CRASH_LOG.md`.
+
+## [1.5.0] — 2026-07-26
+
+Builder mode: spec-gated staged asset construction from a reference image.
+
+### Added
+
+- `builder_session` (start/spec/status/abandon): sculpt spec + pass state as an AppData ledger on a root assembly node; deterministic validation rejects shallow specs before any geometry (component/detail floors scale with declared complexity).
+- `builder_gate` (check/record): one-census hard gates — coverage, sorted-dims proportion, ratios, symmetry/mirror/ground/touch relations, degenerate scale, material assignment + declared params, detail anchors, tri budget, layer hygiene. Multi-view capture fires only after gates pass; `record continue` re-checks and refuses while violations remain; 3 failed checks per pass escalate to request-input.
+- Skill reference `builder.md`: pass rubrics, spec contract, detail-anchor naming, camera-map projection recipe for patterned surfaces.
 
 Agentic tyFlow graph authoring with a shadow wiring ledger.
 

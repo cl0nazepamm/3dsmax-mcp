@@ -51,6 +51,36 @@ static std::vector<std::pair<std::string, std::string>> ParseMtlParams(const std
     return result;
 }
 
+// ── Helper: material classes whose name starts with the given token ─────────
+// Turns a wrong class token into an actionable suggestion instead of a guess.
+static std::vector<std::string> SuggestMaterialClasses(const std::string& token) {
+    std::vector<std::string> out;
+    if (token.empty()) return out;
+    std::wstring wtok = Utf8ToWide(token);
+    size_t tokLen = wtok.size();
+    auto& dir = DllDir::GetInstance();
+    int numDlls = dir.Count();
+    for (int d = 0; d < numDlls && out.size() < 5; d++) {
+        const DllDesc& dll = dir[d];
+        int numClasses = dll.NumberOfClasses();
+        for (int c = 0; c < numClasses && out.size() < 5; c++) {
+            ClassDesc* cd = dll[c];
+            if (!cd || cd->SuperClassID() != MATERIAL_CLASS_ID) continue;
+            const MCHAR* candidates[2] = { cd->ClassName(), cd->InternalName() };
+            for (const MCHAR* cand : candidates) {
+                if (!cand || _wcsnicmp(cand, wtok.c_str(), tokLen) != 0) continue;
+                std::string s = WideToUtf8(cand);
+                bool dup = false;
+                for (const std::string& existing : out) {
+                    if (existing == s) { dup = true; break; }
+                }
+                if (!dup) out.push_back(s);
+            }
+        }
+    }
+    return out;
+}
+
 // ── native:assign_material (Pure SDK) ───────────────────────
 std::string NativeHandlers::AssignMaterial(const std::string& params, MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([&params]() -> std::string {
@@ -67,9 +97,26 @@ std::string NativeHandlers::AssignMaterial(const std::string& params, MCPBridgeG
         Interface* ip = GetCOREInterface();
         TimeValue t = ip->GetTime();
 
-        // Find material ClassDesc — try SDK DllDir first
+        // Find material ClassDesc — the lookup MUST stay inside MATERIAL_CLASS_ID.
+        // A name-only fallback across every superclass is not safe here: several
+        // non-material classes share a name with a material — notably "Physical",
+        // which is the Physical *Camera* (the material is "PhysicalMaterial").
+        // Instantiating one of those and casting it to Mtl* dispatches through the
+        // wrong vtable in SetName()/SetMtl()/redraw and faults with an SE Access
+        // Violation (0xC0000005). See docs/CRASH_LOG.md.
         ClassDesc* cd = FindClassDescByName(matClass, MATERIAL_CLASS_ID);
-        if (!cd) cd = FindClassDescByName(matClass);
+        if (!cd) {
+            ClassDesc* other = FindClassDescByName(matClass);
+            if (other && other->SuperClassID() != MATERIAL_CLASS_ID) {
+                json hint;
+                hint["message"] = "\"" + matClass + "\" is a registered class but not a material, "
+                                  "so it cannot be created or assigned as one.";
+                std::vector<std::string> suggestions = SuggestMaterialClasses(matClass);
+                if (!suggestions.empty()) hint["didYouMean"] = suggestions;
+                throw std::runtime_error(StructuredErrorPayload(
+                    "BAD_PARAM", "Not a material class: " + matClass, hint));
+            }
+        }
 
         Mtl* mtl = nullptr;
 

@@ -215,6 +215,7 @@ CORE_TOOL_MODULES = (
 )
 
 SPECIALTY_TOOL_MODULES = (
+    "builder",
     "chat",
     "data_channel",
     "effects",

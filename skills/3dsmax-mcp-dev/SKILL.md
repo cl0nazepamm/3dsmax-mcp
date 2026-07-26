@@ -107,6 +107,10 @@ and `capture_tyflow_editor` for foreign flows.
 
 For Data Channel or Max Creation Graph work, read [procedural-graphs.md](procedural-graphs.md) completely before acting. It contains the dedicated tool workflows, agentic compile/verify loop, safety gates, validation rules, and runtime pitfalls.
 
+### Builder mode
+
+For reconstructing an asset from a reference image or description (`builder_session`, `builder_gate`), read [builder.md](builder.md) completely before acting. It contains the pass sequence, spec contract, detail-anchor naming rules, vision rubrics, and the projection recipe.
+
 ### Scene management
 - `manage_scene` (hold/fetch/reset/save/info)
 - `get_state_sets`, `get_camera_sequence`
@@ -117,6 +121,15 @@ For Data Channel or Max Creation Graph work, read [procedural-graphs.md](procedu
 - Animation keyframing, render/environment settings, custom one-off scripted operations
 
 **Do not use for:** anything a dedicated tool already does — properties, objects, materials, selection, batch ops, inspection.
+
+### Passing code through `execute_maxscript` (serialization gotchas)
+
+The `code` string is delivered as a JSON value, so it is **un-escaped once before MAXScript ever parses it**. A generic `parse error (BAD_PARAM)` with no line number almost always means the string was corrupted in transit — **not** that your logic is wrong. `if/then/else`, chained `and`, `not`, and `for` loops all parse fine on their own; the failures are escaping artifacts. Confirmed causes and fixes:
+
+- **Backslashes in string literals break the literal.** `"C:\Users\...\textures\"` arrives with single backslashes, so MAXScript reads `\"`, `\U`, etc. as escapes — the trailing `\"` eats the closing quote and the string never terminates. **Use forward slashes in path literals** (`"C:/Users/.../textures/"` — Max accepts them on Windows), or derive paths from runtime values (`getFilenamePath`/`getFilenameFile`) instead of hardcoding.
+- **`\n` / `\t` inside `"..."` become real control chars** and corrupt the literal the same way. Don't embed escapes in strings you send; build output without them.
+- **Keep the whole script on one line, statements separated by `;`.** Multi-line code through the transport is unreliable; `;` is not.
+- **Debug tell:** on a `BAD_PARAM` parse error, shrink to a known-good core — `try ( local n=0; for x in (getClassInstances C) do (...); n ) catch (getCurrentException() as string)` — and add pieces back. The piece that reintroduces a `\` or `\n` in a *literal* is the culprit.
 
 ## MCP Tool Pitfalls
 
@@ -129,6 +142,7 @@ For Data Channel or Max Creation Graph work, read [procedural-graphs.md](procedu
 - Box: `width=X`, `length=Y`, `height=Z`.
 - `list_wireable_params` paths include `[#Parameters]` levels — pass through to `wire_params` as-is.
 - `create_shell_material`: `mcp_findMaterialByName` uses `sceneMaterials` — `getClassInstances Material` is invalid (Material is not a MAXClass).
+- `material_class` must be the **material's** own class name, never a shortened token: `PhysicalMaterial`, not `Physical` — `Physical` is the Physical *Camera*. A non-material class name now returns `BAD_PARAM` with `hint.didYouMean`.
 - `getHandleByAnim` formats as values like `12345P`; quote it as a string when building JSON, or the result is invalid JSON.
 - MCP tripback is a structured `ToolEnvelope` dict (`ok`/`result`/`error`/`hint`), not a JSON string. Error envelopes may include `hint.suggested_tools`; tool-authored hints win over auto-hints.
 - Success JSON payloads may include `message`; classify raw structured errors by `error`, `code`, or `status=error|failed`, not by `message` alone.
