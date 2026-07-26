@@ -509,6 +509,8 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::GetDependencies(command, gup);
         } else if (cmd_type == "native:get_material_slots") {
             result = NativeHandlers::GetMaterialSlots(command, gup);
+        } else if (cmd_type == "native:get_material_library") {
+            result = NativeHandlers::GetMaterialLibrary(command, gup);
         } else if (cmd_type == "native:inspect_material_network") {
             result = NativeHandlers::InspectMaterialNetwork(command, gup);
         } else if (cmd_type == "native:replicate_material") {
@@ -540,6 +542,8 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::CaptureViewport(command, gup);
         } else if (cmd_type == "native:capture_screen") {
             result = NativeHandlers::CaptureScreen(command, gup);
+        } else if (cmd_type == "native:isolate_and_capture_selected") {
+            result = NativeHandlers::IsolateAndCaptureSelected(command, gup);
         } else if (cmd_type == "native:advancedvision") {
             result = NativeHandlers::AdvancedVision(command, gup);
         // Phase 6: Material writes
@@ -551,9 +555,13 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::SetMaterialProperties(command, gup);
         } else if (cmd_type == "native:create_shell_material") {
             result = NativeHandlers::CreateShellMaterial(command, gup);
+        } else if (cmd_type == "native:backup_material_library") {
+            result = NativeHandlers::BackupMaterialLibrary(command, gup);
         // Plugin enumeration
         } else if (cmd_type == "native:list_plugin_classes") {
             result = NativeHandlers::ListPluginClasses(command, gup);
+        } else if (cmd_type == "native:get_plugin_capabilities") {
+            result = NativeHandlers::GetPluginCapabilities(command, gup);
         // Controller / track inspection
         } else if (cmd_type == "native:inspect_track_view") {
             result = NativeHandlers::InspectTrackView(command, gup);

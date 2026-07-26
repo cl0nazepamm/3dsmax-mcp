@@ -14,11 +14,13 @@ from typing import Optional
 from ..server import mcp, client
 from ..coerce import IntList, StrList
 from src.helpers.maxscript import safe_string, safe_value
+from src.helpers.native_compat import is_missing_native_route_error
 from src.helpers.material_tripback import (
     material_class_hint,
     unsupported_material_class_result,
     wrap_material_tool_result,
 )
+from src.max_client import MaxBridgeError
 from src.helpers.palette_sampling import (
     collect_one_sample_per_subfolder,
     normalize_overflow_mode,
@@ -1477,6 +1479,30 @@ def create_shell_material(
             "render_material is required when texture_folder is empty. "
             "Pass existing material names to wrap, or texture_folder + render_material_class to build."
         )
+
+    # Existing-material wrapping has a complete pure-SDK implementation. Texture
+    # folder mode remains in Python/MAXScript because its renderer-specific
+    # builders intentionally cover third-party material classes.
+    if client.native_available and not texture_folder:
+        payload = {
+            "shell_name": shell_name,
+            "render_material": render_name,
+            "export_material": export_name,
+            "assign_to": list(assign_to or []),
+            "render_slot": int(render_slot),
+            "viewport_slot": int(viewport_slot),
+        }
+        try:
+            response = client.send_command(
+                json.dumps(payload),
+                cmd_type="native:create_shell_material",
+            )
+            return response.get("result", "{}")
+        except (MaxBridgeError, RuntimeError) as exc:
+            # Compatibility with an older bridge binary that predates the
+            # generic Shell Material payload.
+            if not is_missing_native_route_error(exc):
+                raise
 
     maxscript = build_shell_wrap_maxscript(
         shell_name=shell_name,

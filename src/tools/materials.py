@@ -4,6 +4,8 @@ from datetime import datetime
 from pathlib import Path
 
 from src.helpers.maxscript import safe_string
+from src.helpers.native_compat import is_missing_native_route_error
+from src.max_client import MaxBridgeError
 
 from ..server import mcp, client
 
@@ -396,6 +398,20 @@ def get_material_library(source: str = "all", include_empty_slots: bool = False)
             "source must be one of: current, medit, combined, all"
         )
 
+    if client.native_available:
+        try:
+            response = client.send_command(
+                _json.dumps({
+                    "source": normalized,
+                    "include_empty_slots": include_empty_slots,
+                }),
+                cmd_type="native:get_material_library",
+            )
+            return response.get("result", "{}")
+        except (MaxBridgeError, RuntimeError) as exc:
+            if not is_missing_native_route_error(exc):
+                raise
+
     maxscript = _material_library_summary_maxscript(normalized, include_empty_slots)
     response = client.send_command(maxscript, cmd_type="maxscript")
     return response.get("result", "{}")
@@ -434,6 +450,25 @@ def backup_material_library(
         current_path = root / _backup_filename("currentMaterialLibrary", stamp, prefix)
         medit_path = root / _backup_filename("meditMaterials", stamp, prefix)
         combined_path = root / _backup_filename("combined_material_scratchpad", stamp, prefix)
+
+    if client.native_available:
+        try:
+            response = client.send_command(
+                _json.dumps({
+                    "source": normalized,
+                    "current_path": _ms_path(current_path),
+                    "medit_path": _ms_path(medit_path),
+                    "combined_path": _ms_path(combined_path),
+                }),
+                cmd_type="native:backup_material_library",
+                timeout=45.0,
+            )
+            return _flag_failed_material_backups(
+                response.get("result", "{}")
+            )
+        except (MaxBridgeError, RuntimeError) as exc:
+            if not is_missing_native_route_error(exc):
+                raise
 
     maxscript = _material_library_backup_maxscript(
         normalized,

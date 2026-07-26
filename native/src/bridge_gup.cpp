@@ -3,6 +3,7 @@
 #include "mcp_bridge/llm_client.h"
 #include "mcp_bridge/native_handlers.h"
 #include "mcp_bridge/handler_helpers.h"
+#include "mcp_bridge/gdiplus_runtime.h"
 #include "mcp_bridge/scene_journal.h"
 #include <maxapi.h>
 #include <notify.h>
@@ -321,6 +322,9 @@ void MCPBridgeGUP::Stop() {
 
     MCPChatUI::Destroy();
     StopPipe();
+    if (drained) {
+        GdiPlusRuntime::Shutdown();
+    }
     UnregisterInstance();
     executor_.Shutdown();
     g_gupInstance = nullptr;

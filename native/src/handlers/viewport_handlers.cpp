@@ -1,6 +1,7 @@
 #include "mcp_bridge/native_handlers.h"
 #include "mcp_bridge/handler_helpers.h"
 #include "mcp_bridge/bridge_gup.h"
+#include "mcp_bridge/gdiplus_runtime.h"
 
 #include <GraphicsWindow.h>
 #include <gdiplus.h>
@@ -9,19 +10,6 @@
 
 using json = nlohmann::json;
 using namespace HandlerHelpers;
-
-// ── GDI+ RAII initializer ───────────────────────────────────
-static class GdiPlusInit {
-    ULONG_PTR token = 0;
-public:
-    GdiPlusInit() {
-        Gdiplus::GdiplusStartupInput input;
-        Gdiplus::GdiplusStartup(&token, &input, nullptr);
-    }
-    ~GdiPlusInit() {
-        if (token) Gdiplus::GdiplusShutdown(token);
-    }
-} g_gdipInit;
 
 // ── Helper: get PNG encoder CLSID ───────────────────────────
 static int GetEncoderClsid(const WCHAR* format, CLSID* pClsid) {
@@ -155,6 +143,9 @@ static void DrawLabel(Gdiplus::Graphics& g, const wchar_t* text,
 // ── native:capture_multi_view ───────────────────────────────
 std::string NativeHandlers::CaptureMultiView(const std::string& params, MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([&params]() -> std::string {
+        if (!GdiPlusRuntime::EnsureStarted())
+            throw std::runtime_error("GDI+ initialization failed");
+
         json p = json::parse(params, nullptr, false);
         int maxWidth = p.value("max_width", 1600);
         int maxHeight = p.value("max_height", 0);
@@ -335,6 +326,9 @@ static std::string SaveBitmapToTemp(Gdiplus::Bitmap* bmp, const wchar_t* filenam
 // ── native:capture_viewport ─────────────────────────────────
 std::string NativeHandlers::CaptureViewport(const std::string& params, MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([&params]() -> std::string {
+        if (!GdiPlusRuntime::EnsureStarted())
+            throw std::runtime_error("GDI+ initialization failed");
+
         json p = json::parse(params, nullptr, false);
         int maxWidth = p.value("max_width", 1600);
         int maxHeight = p.value("max_height", 0);
@@ -367,6 +361,9 @@ std::string NativeHandlers::CaptureViewport(const std::string& params, MCPBridge
 // ── native:capture_screen ───────────────────────────────────
 std::string NativeHandlers::CaptureScreen(const std::string& params, MCPBridgeGUP* gup) {
     // Screen capture doesn't need main thread — pure Win32/GDI+
+    if (!GdiPlusRuntime::EnsureStarted())
+        throw std::runtime_error("GDI+ initialization failed");
+
     json p = json::parse(params, nullptr, false);
     int maxWidth = p.value("max_width", 1600);
     int maxHeight = p.value("max_height", 0);

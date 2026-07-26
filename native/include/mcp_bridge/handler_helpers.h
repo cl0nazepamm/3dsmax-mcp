@@ -18,6 +18,7 @@
 
 #include <maxscript/maxscript.h>
 #include <maxscript/foundation/strings.h>
+#include <maxscript/maxwrapper/mxsobjects.h>
 #include <CoreFunctions.h>
 
 class MCPBridgeGUP;
@@ -41,6 +42,68 @@ inline std::wstring Utf8ToWide(const std::string& s) {
     std::wstring w(len, 0);
     MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], len);
     return w;
+}
+
+// MAXScript's `(classOf value) as string` exposes the script-facing class
+// token, not the localized UI label returned by Animatable::ClassName().
+inline std::string ScriptClassName(ClassDesc* descriptor) {
+    if (!descriptor) return {};
+
+    const MCHAR* internalName = descriptor->InternalName();
+    if (internalName && *internalName) {
+        return WideToUtf8(internalName);
+    }
+
+    const MCHAR* nonLocalizedName = descriptor->NonLocalizedClassName();
+    if (nonLocalizedName && *nonLocalizedName) {
+        return WideToUtf8(nonLocalizedName);
+    }
+
+    const MCHAR* className = descriptor->ClassName();
+    return className ? WideToUtf8(className) : std::string();
+}
+
+inline std::string ScriptClassName(Animatable* value) {
+    if (!value) return {};
+
+    ClassDesc* descriptor = DllDir::GetInstance().ClassDir().FindClass(
+        value->SuperClassID(), value->ClassID());
+    const std::string scriptName = ScriptClassName(descriptor);
+    if (!scriptName.empty()) {
+        return scriptName;
+    }
+    return WideToUtf8(value->ClassName().data());
+}
+
+// The script-visible MAXClass name can differ from ClassDesc::InternalName()
+// (OpenPBR_Material vs OpenPBR, for example). This is still native C++ metadata:
+// it does not evaluate MAXScript. Call only from handlers marshalled to Max's
+// main thread because the MAXScript class registry is not thread-safe.
+inline std::string MaxScriptVisibleClassName(
+    SClass_ID superClassId,
+    const Class_ID& classId) {
+    ScopedMaxScriptEvaluationContext evaluationContext;
+    MAXClass* maxClass = MAXClass::lookup_class(
+        classId,
+        superClassId,
+        true);
+    if (maxClass && maxClass->name) {
+        const MCHAR* value = maxClass->name->to_string();
+        if (value && *value) {
+            return WideToUtf8(value);
+        }
+    }
+    ClassDesc* descriptor = DllDir::GetInstance().ClassDir().FindClass(
+        superClassId,
+        classId);
+    return ScriptClassName(descriptor);
+}
+
+inline std::string MaxScriptVisibleClassName(Animatable* value) {
+    if (!value) return {};
+    return MaxScriptVisibleClassName(
+        value->SuperClassID(),
+        value->ClassID());
 }
 
 // ── Node property helpers ───────────────────────────────────────

@@ -3,6 +3,9 @@ import os
 import re
 import tempfile
 
+from src.helpers.native_compat import is_missing_native_route_error
+from src.max_client import MaxBridgeError
+
 from ..server import mcp, client
 
 
@@ -18,6 +21,18 @@ def _sanitize_filename(name: str) -> str:
 def isolate_and_capture_selected() -> str:
     """Capture isolated viewport screenshots of each selected object (resolves to top-level parents)."""
     capture_dir = os.path.join(COMMS_DIR, "identify").replace("\\", "/")
+
+    if client.native_available:
+        payload = json.dumps({"capture_dir": capture_dir})
+        try:
+            response = client.send_command(
+                payload,
+                cmd_type="native:isolate_and_capture_selected",
+            )
+            return response.get("result", "[]")
+        except (MaxBridgeError, RuntimeError) as exc:
+            if not is_missing_native_route_error(exc):
+                raise
 
     maxscript = f"""(
         makeDir "{capture_dir}" all:true

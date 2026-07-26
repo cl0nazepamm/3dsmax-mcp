@@ -88,6 +88,7 @@ set(SOURCES
     src/pipe_server.cpp
     src/command_dispatcher.cpp
     src/main_thread_executor.cpp
+    src/gdiplus_runtime.cpp
     src/scene_journal.cpp
     src/handlers/scene_handlers.cpp
     src/spatial_snapshot.cpp
@@ -99,9 +100,11 @@ set(SOURCES
     src/handlers/scene_manage_handlers.cpp
     src/handlers/file_handlers.cpp
     src/handlers/viewport_handlers.cpp
+    src/handlers/identify_handlers.cpp
     src/handlers/advancedvision_handlers.cpp
     src/handlers/material_handlers.cpp
     src/handlers/material_network_handlers.cpp
+    src/handlers/material_library_handlers.cpp
     src/handlers/controller_handlers.cpp
     src/handlers/keyframe_handlers.cpp
     src/handlers/plugin_introspect_handlers.cpp
@@ -112,6 +115,7 @@ set(SOURCES
     src/handlers/state_sets_handlers.cpp
     src/handlers/mainthread_handlers.cpp
     src/handlers/discovery_handlers.cpp
+    src/handlers/capabilities_handlers.cpp
     src/handlers/chat_handlers.cpp
     src/handlers/tool_test_handlers.cpp
     src/chat_ui.cpp

@@ -1,9 +1,23 @@
+from src.helpers.native_compat import is_missing_native_route_error
+from src.max_client import MaxBridgeError
+
 from ..server import mcp, client
 
 
 @mcp.tool()
 def get_plugin_capabilities() -> str:
     """Get 3ds Max version, available renderers, installed plugins, and class counts."""
+    if client.native_available:
+        try:
+            response = client.send_command(
+                "{}",
+                cmd_type="native:get_plugin_capabilities",
+            )
+            return response.get("result", "{}")
+        except (MaxBridgeError, RuntimeError) as exc:
+            if not is_missing_native_route_error(exc):
+                raise
+
     maxscript = r"""(
         local esc = MCP_Server.escapeJsonString
 

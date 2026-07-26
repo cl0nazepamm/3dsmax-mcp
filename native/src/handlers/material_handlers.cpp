@@ -4,6 +4,7 @@
 
 #include <iparamb2.h>
 #include <set>
+#include <vector>
 
 using json = nlohmann::json;
 using namespace HandlerHelpers;
@@ -400,187 +401,158 @@ std::string NativeHandlers::SetMaterialProperties(const std::string& params, MCP
     });
 }
 
-// ── native:create_shell_material (Arnold UberBitmap + glTF Shell) ──
+static Mtl* FindNamedMaterialTree(
+    Mtl* material,
+    const std::string& wanted,
+    std::set<Mtl*>& visited) {
+    if (!material || !visited.insert(material).second) return nullptr;
+    if (_stricmp(WideToUtf8(material->GetName().data()).c_str(), wanted.c_str()) == 0)
+        return material;
+    for (int i = 0; i < material->NumSubMtls(); ++i) {
+        if (Mtl* found = FindNamedMaterialTree(material->GetSubMtl(i), wanted, visited))
+            return found;
+    }
+    return nullptr;
+}
+
+static Mtl* FindNamedMaterial(const std::string& wanted, Interface* ip) {
+    std::set<Mtl*> visited;
+    auto scanLibrary = [&](MtlBaseLib* library) -> Mtl* {
+        if (!library) return nullptr;
+        for (int i = 0; i < library->NumSubs(); ++i) {
+            Animatable* entry = library->SubAnim(i);
+            if (!entry || entry->SuperClassID() != MATERIAL_CLASS_ID) continue;
+            if (Mtl* found = FindNamedMaterialTree(static_cast<Mtl*>(entry), wanted, visited))
+                return found;
+        }
+        return nullptr;
+    };
+
+    if (Mtl* found = scanLibrary(ip->GetSceneMtls())) return found;
+    MtlBaseLib& currentLibrary = ip->GetMaterialLibrary();
+    if (Mtl* found = scanLibrary(&currentLibrary)) return found;
+    for (int slot = 0; slot < 24; ++slot) {
+        MtlBase* entry = ip->GetMtlSlot(slot);
+        if (!entry || entry->SuperClassID() != MATERIAL_CLASS_ID) continue;
+        if (Mtl* found = FindNamedMaterialTree(static_cast<Mtl*>(entry), wanted, visited))
+            return found;
+    }
+    return nullptr;
+}
+
+// ── native:create_shell_material (pure SDK, existing materials) ──
 std::string NativeHandlers::CreateShellMaterial(const std::string& params, MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([&params]() -> std::string {
         json p = json::parse(params, nullptr, false);
-        if (p.is_discarded()) throw std::runtime_error("Invalid JSON params");
+        if (p.is_discarded() || !p.is_object())
+            throw std::runtime_error("Invalid JSON params");
 
-        std::string shellName       = p.value("name", "");
-        std::string arnoldName      = p.value("render_material_name", "");
-        std::string gltfMatName     = p.value("gltf_material_name", "");
-        std::string baseColorPath   = p.value("base_color_path", "");
-        std::string ormPath         = p.value("orm_path", "");
-        std::string normalPath      = p.value("normal_path", "");
-        auto assignTo               = p.value("assign_to", std::vector<std::string>{});
+        const std::string shellName = p.value("shell_name", p.value("name", ""));
+        const std::string renderName =
+            p.value("render_material", p.value("render_material_name", ""));
+        const std::string exportName =
+            p.value("export_material", p.value("gltf_material_name", ""));
+        const int renderSlot = p.value("render_slot", 0);
+        const int viewportSlot = p.value("viewport_slot", 1);
+        const auto assignTo = p.value("assign_to", std::vector<std::string>{});
 
-        if (shellName.empty()) throw std::runtime_error("name is required");
-        if (arnoldName.empty()) throw std::runtime_error("render_material_name is required");
-        if (baseColorPath.empty()) throw std::runtime_error("base_color_path is required");
-        if (ormPath.empty()) throw std::runtime_error("orm_path is required");
-
-        // Escape strings for safe embedding in MAXScript
-        std::string eShellName     = JsonEscape(shellName);
-        std::string eArnoldName    = JsonEscape(arnoldName);
-        std::string eGltfMatName   = JsonEscape(gltfMatName);
-        std::string eBaseColorPath = JsonEscape(baseColorPath);
-        std::string eOrmPath       = JsonEscape(ormPath);
-        std::string eNormalPath    = JsonEscape(normalPath);
-
-        // OSL path for UberBitmap2 — resolved dynamically from Max install dir
-
-        // Build MAXScript
-        std::string script;
-        script.reserve(4096);
-
-        script += "(\n";
-        script += "  local oslPath = (getDir #maxRoot) + \"OSL\\\\UberBitmap2.osl\"\n";
-
-        // --- Find existing glTF material by name if provided ---
-        script += "  local gltfMat = undefined\n";
-        if (!gltfMatName.empty()) {
-            script += "  for obj in objects do (\n";
-            script += "    if obj.material != undefined do (\n";
-            script += "      if (classOf obj.material == Multimaterial) then (\n";
-            script += "        for i = 1 to obj.material.numsubs do (\n";
-            script += "          if obj.material[i] != undefined and obj.material[i].name == \"" + eGltfMatName + "\" do (\n";
-            script += "            gltfMat = obj.material[i]\n";
-            script += "          )\n";
-            script += "        )\n";
-            script += "      ) else (\n";
-            script += "        if obj.material.name == \"" + eGltfMatName + "\" do gltfMat = obj.material\n";
-            script += "      )\n";
-            script += "    )\n";
-            script += "  )\n";
-        }
-
-        // --- UberBitmap for BaseColor ---
-        script += "  local uberBC = OSLMap()\n";
-        script += "  uberBC.OSLPath = oslPath\n";
-        script += "  uberBC.OSLAutoUpdate = true\n";
-        script += "  uberBC.filename = \"" + eBaseColorPath + "\"\n";
-        script += "  uberBC.name = \"UberBitmap_BaseColor\"\n";
-
-        // --- UberBitmap for ORM ---
-        script += "  local uberORM = OSLMap()\n";
-        script += "  uberORM.OSLPath = oslPath\n";
-        script += "  uberORM.OSLAutoUpdate = true\n";
-        script += "  uberORM.filename = \"" + eOrmPath + "\"\n";
-        script += "  uberORM.name = \"UberBitmap_ORM\"\n";
-
-        // --- MultiOutputChannelTexmapToTexmap splitters ---
-        // BaseColor Col output (index 1)
-        script += "  local bcCol = MultiOutputChannelTexmapToTexmap()\n";
-        script += "  bcCol.sourceMap = uberBC\n";
-        script += "  bcCol.outputChannelIndex = 1\n";
-        script += "  bcCol.name = \"BC_Col\"\n";
-
-        // ORM R output (index 2) = AO
-        script += "  local ormR = MultiOutputChannelTexmapToTexmap()\n";
-        script += "  ormR.sourceMap = uberORM\n";
-        script += "  ormR.outputChannelIndex = 2\n";
-        script += "  ormR.name = \"ORM_R_AO\"\n";
-
-        // ORM G output (index 3) = Roughness
-        script += "  local ormG = MultiOutputChannelTexmapToTexmap()\n";
-        script += "  ormG.sourceMap = uberORM\n";
-        script += "  ormG.outputChannelIndex = 3\n";
-        script += "  ormG.name = \"ORM_G_Roughness\"\n";
-
-        // ORM B output (index 4) = Metalness
-        script += "  local ormB = MultiOutputChannelTexmapToTexmap()\n";
-        script += "  ormB.sourceMap = uberORM\n";
-        script += "  ormB.outputChannelIndex = 4\n";
-        script += "  ormB.name = \"ORM_B_Metalness\"\n";
-
-        // --- ai_multiply: diffuse * AO ---
-        script += "  local aiMul = ai_multiply()\n";
-        script += "  aiMul.input1_shader = bcCol\n";
-        script += "  aiMul.input2_shader = ormR\n";
-        script += "  aiMul.name = \"Diffuse_x_AO\"\n";
-
-        // --- ai_standard_surface ---
-        script += "  local arnoldMat = ai_standard_surface()\n";
-        script += "  arnoldMat.name = \"" + eArnoldName + "\"\n";
-        script += "  arnoldMat.base_color_shader = aiMul\n";
-        script += "  arnoldMat.specular_roughness_shader = ormG\n";
-        script += "  arnoldMat.metalness_shader = ormB\n";
-
-        // --- Optional: Normal map chain ---
-        if (!normalPath.empty()) {
-            script += "  local uberNrm = OSLMap()\n";
-            script += "  uberNrm.OSLPath = oslPath\n";
-            script += "  uberNrm.OSLAutoUpdate = true\n";
-            script += "  uberNrm.filename = \"" + eNormalPath + "\"\n";
-            script += "  uberNrm.name = \"UberBitmap_Normal\"\n";
-
-            script += "  local nrmCol = MultiOutputChannelTexmapToTexmap()\n";
-            script += "  nrmCol.sourceMap = uberNrm\n";
-            script += "  nrmCol.outputChannelIndex = 1\n";
-            script += "  nrmCol.name = \"Normal_Col\"\n";
-
-            script += "  local aiNrm = ai_normal_map()\n";
-            script += "  aiNrm.input_shader = nrmCol\n";
-            script += "  aiNrm.name = \"NormalMap\"\n";
-
-            script += "  local aiBump = ai_bump2d()\n";
-            script += "  aiBump.bump_map_shader = aiNrm\n";
-            script += "  aiBump.name = \"Bump2D\"\n";
-
-            script += "  arnoldMat.normal_shader = aiBump\n";
-        }
-
-        // --- Shell_Material ---
-        script += "  local shellMat = Shell_Material()\n";
-        script += "  shellMat.name = \"" + eShellName + "\"\n";
-        script += "  shellMat.originalMaterial = arnoldMat\n";
-        script += "  if gltfMat != undefined do shellMat.bakedMaterial = gltfMat\n";
-        script += "  shellMat.renderMtlIndex = 0\n";
-        script += "  shellMat.viewportMtlIndex = 1\n";
-
-        // --- Assign to objects ---
-        script += "  local assignCount = 0\n";
-        script += "  local notFoundNames = #()\n";
-        if (!assignTo.empty()) {
-            script += "  local targetNames = #(";
-            for (size_t i = 0; i < assignTo.size(); i++) {
-                if (i > 0) script += ", ";
-                script += "\"" + JsonEscape(assignTo[i]) + "\"";
-            }
-            script += ")\n";
-            script += "  for n in targetNames do (\n";
-            script += "    local obj = getNodeByName n\n";
-            script += "    if obj != undefined then (\n";
-            script += "      obj.material = shellMat\n";
-            script += "      assignCount += 1\n";
-            script += "    ) else (\n";
-            script += "      append notFoundNames n\n";
-            script += "    )\n";
-            script += "  )\n";
-        }
-
-        // --- Build result string ---
-        script += "  local gltfStatus = if gltfMat != undefined then (\"found: \" + gltfMat.name) else \"not found\"\n";
-        script += "  local hasNormal = ";
-        script += (normalPath.empty() ? "false" : "true");
-        script += "\n";
-        script += "  local resultStr = \"{\" +\n";
-        script += "    \"\\\"shell\\\":\\\"\" + shellMat.name + \"\\\",\" +\n";
-        script += "    \"\\\"arnold\\\":\\\"\" + arnoldMat.name + \"\\\",\" +\n";
-        script += "    \"\\\"gltf\\\":\\\"\" + gltfStatus + \"\\\",\" +\n";
-        script += "    \"\\\"hasNormal\\\":\" + (if hasNormal then \"true\" else \"false\") + \",\" +\n";
-        script += "    \"\\\"assignedCount\\\":\" + (assignCount as string) + \",\" +\n";
-        script += "    \"\\\"notFoundCount\\\":\" + (notFoundNames.count as string) +\n";
-        script += "    \"}\"\n";
-        script += "  resultStr\n";
-        script += ")\n";
-
-        std::string result = RunMAXScript(script);
+        if (shellName.empty()) throw std::runtime_error("shell_name is required");
+        if (renderName.empty()) throw std::runtime_error("render_material is required");
+        if (renderSlot < 0 || renderSlot > 1 || viewportSlot < 0 || viewportSlot > 1)
+            throw std::runtime_error("render_slot and viewport_slot must be 0 or 1");
 
         Interface* ip = GetCOREInterface();
-        ip->RedrawViews(ip->GetTime());
+        const TimeValue t = ip->GetTime();
+        Mtl* renderMaterial = FindNamedMaterial(renderName, ip);
+        if (!renderMaterial)
+            throw std::runtime_error("Render material not found: " + renderName);
 
-        return result;
+        Mtl* exportMaterial = nullptr;
+        if (!exportName.empty()) {
+            exportMaterial = FindNamedMaterial(exportName, ip);
+        }
+
+        auto* shellMaterial = static_cast<Mtl*>(
+            ip->CreateInstance(MATERIAL_CLASS_ID, Class_ID(BAKE_SHELL_CLASS_ID, 0)));
+        if (!shellMaterial)
+            throw std::runtime_error("Shell_Material class is unavailable");
+
+        shellMaterial->SetName(Utf8ToWide(shellName).c_str());
+        shellMaterial->SetSubMtl(0, renderMaterial);
+        if (exportMaterial) shellMaterial->SetSubMtl(1, exportMaterial);
+
+        // Shell Material publishes these as PB2 integer parameters. Set both
+        // explicitly instead of relying on class-version defaults.
+        const bool setRender = SetParamByName(
+            shellMaterial, "renderMtlIndex", std::to_string(renderSlot), t);
+        const bool setViewport = SetParamByName(
+            shellMaterial, "viewportMtlIndex", std::to_string(viewportSlot), t);
+        if (!setRender || !setViewport) {
+            shellMaterial->DeleteThis();
+            throw std::runtime_error("Shell_Material slot parameters are unavailable");
+        }
+
+        json notFound = json::array();
+        std::vector<INode*> assignmentTargets;
+        std::set<INode*> seen;
+        for (const std::string& name : assignTo) {
+            std::vector<INode*> matches = CollectNodesByExactName(name);
+            if (matches.empty()) {
+                notFound.push_back(name);
+                continue;
+            }
+            if (matches.size() > 1) {
+                json candidates = json::array();
+                for (INode* candidate : matches)
+                    candidates.push_back(NodeIdentityJson(candidate));
+                shellMaterial->DeleteThis();
+                throw std::runtime_error(StructuredErrorPayload(
+                    "AMBIGUOUS",
+                    "Ambiguous object name: " + name,
+                    {{"message", "Pass unique object names before assigning the Shell Material."},
+                     {"candidates", candidates}}));
+            }
+            INode* node = matches.front();
+            if (seen.insert(node).second) {
+                assignmentTargets.push_back(node);
+            }
+        }
+
+        json assigned = json::array();
+        for (INode* node : assignmentTargets) {
+            node->SetMtl(shellMaterial);
+            assigned.push_back(NodeIdentityJson(node));
+        }
+        const int assignedCount = static_cast<int>(assignmentTargets.size());
+        if (assignedCount == 0) {
+            // A native material needs a ReferenceMaker owner after this handler
+            // returns. Keep an unassigned Shell reachable in the user's scratch
+            // library instead of leaking an inaccessible ReferenceTarget.
+            ip->GetMaterialLibrary().Add(shellMaterial);
+        }
+
+        shellMaterial->NotifyDependents(FOREVER, PART_ALL, REFMSG_CHANGE);
+        ip->RedrawViews(t);
+
+        json result = {
+            {"workflow", "shell_wrap"},
+            {"shell_name", WideToUtf8(shellMaterial->GetName().data())},
+            {"shell_class", MaxScriptVisibleClassName(shellMaterial)},
+            {"render_material", WideToUtf8(renderMaterial->GetName().data())},
+            {"render_material_class", MaxScriptVisibleClassName(renderMaterial)},
+            {"render_slot", renderSlot},
+            {"viewport_slot", viewportSlot},
+            {"assigned_count", assignedCount},
+            {"assigned", assigned},
+            {"not_found", notFound},
+            {"status", "success"},
+        };
+        if (exportMaterial) {
+            result["export_material"] = WideToUtf8(exportMaterial->GetName().data());
+            result["export_material_class"] =
+                MaxScriptVisibleClassName(exportMaterial);
+        }
+        return result.dump();
     });
 }
 

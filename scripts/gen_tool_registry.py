@@ -150,6 +150,33 @@ SKIP_TOOL_NAMES = {
 # `execute_maxscript` itself is a first-class catch-all and always kept.
 INCLUDE_MAXSCRIPT_NAMES = {"execute_maxscript"}
 
+# Hybrid wrappers sometimes expose Python-only orchestration fields that the
+# native route cannot consume directly. Override their standalone-chat surface
+# with the exact payload contract accepted by the selected native handler.
+STANDALONE_TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
+    "create_shell_material": {
+        "description": (
+            "Wrap existing render and export materials in a Shell Material. "
+            "Texture-folder material building requires the external MCP server."
+        ),
+        "schema": {
+            "type": "object",
+            "properties": {
+                "shell_name": {"type": "string"},
+                "render_material": {"type": "string"},
+                "export_material": {"type": "string"},
+                "assign_to": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "render_slot": {"type": "integer"},
+                "viewport_slot": {"type": "integer"},
+            },
+            "required": ["shell_name", "render_material"],
+        },
+    },
+}
+
 
 def extract_tools(path: Path) -> list[dict]:
     source = path.read_text(encoding="utf-8")
@@ -175,12 +202,14 @@ def extract_tools(path: Path) -> list[dict]:
         if cmd_type == "maxscript" and node.name not in INCLUDE_MAXSCRIPT_NAMES:
             # Python-side MaxScript wrapper — its body can't run standalone.
             continue
-        tools.append({
+        tool = {
             "name": node.name,
             "cmdType": cmd_type,
             "description": first_doc_line(node) or node.name,
             "schema": build_schema(node),
-        })
+        }
+        tool.update(STANDALONE_TOOL_OVERRIDES.get(node.name, {}))
+        tools.append(tool)
     return tools
 
 
