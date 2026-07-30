@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here.
 
+## [1.6.0] — 2026-07-31
+
+Modeling release: booleans, splines, vertex fitting — and builder mode taught to use them. Python-side only; no native redeploy needed.
+
+### Added
+
+- `boolean_operation`: Boolean modifier (BooleanMod) workflows — apply union/subtract/intersect/merge/attach/insert/split operands (imprint/cookie options, mesh/OpenVDB method, live references), list/retune/rename/disable operands, remove or extract them. Non-live operands are consumed and keep their node names in the operand list. Extract handles the Modify-panel context requirement internally.
+- `draw_spline`: spline authoring from world-space points (corner/smooth/bezier knots, closed loops, multi-spline holes via add_spline), knot readback with length-uniform samples, knot edits (bezier handles dragged along by default), insert/delete knots, renderable thickness.
+- `edit_vertices`: Editable_Poly vertex reads (index/bbox/radius filters), moves with soft (1-d/r)² falloff, explicit sets, and conform — pull verts onto a spline (axis-masked, e.g. fit the xz silhouette while preserving width) or ray-project onto geometry. World-space; edits the poly base beneath live modifiers.
+
+### Changed (builder mode)
+
+- Boolean operand names count as detail anchors; new detail `via` kinds `boolean` and `spline`.
+- Extruded/lathed splines (mesh output) satisfy geometry coverage; bare profile splines fail with a hint; mesh-producing shapes are now held to the unspecced-geometry gate at finish.
+- Gate metrics include per-component `center_off_root`.
+- builder.md: shaping-toolkit section (boolean cuts, spline profiles, vertex conform); the form rubric now rejects components that still read as their source primitive.
+
 ## [1.5.1] — 2026-07-26
 
 Builder-mode hardening from the first external field run (M4 carbine): the pipeline completed but the vision layer self-absolved and two cameras were left at scene root.

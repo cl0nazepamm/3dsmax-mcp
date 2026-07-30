@@ -11,7 +11,11 @@ with raw MAXScript; the discipline is the point.
 
 **Tools:** `builder_session` (start | spec | status | abandon),
 `builder_gate` (check | record). Everything else is the normal toolset:
-`create_object`, modifier tools, material tools, `set_parent`.
+`create_object`, modifier tools, material tools, `set_parent` — plus the
+shaping trio: `boolean_operation` (cuts/insets/fusions), `draw_spline`
+(profiles and paths), `edit_vertices` (silhouette fitting). Primitives plus
+Bend/Taper alone produce primitive-looking output; the shaping trio is how a
+form pass earns its capture.
 
 ## Loop shape (every pass)
 
@@ -87,7 +91,12 @@ declared `complexity`: simple 3/0, moderate 6/6, complex 10/12).
   needs at least one relational constraint
   (`ratios` / `symmetry` / `mirror_of` / `ground` / `touches`).
 - `floating: true` opts a component out of the must-touch-something check.
-- `kind`: `geometry` (default) | `helper` | `shape`.
+- `kind`: `geometry` (default) | `helper` | `shape`. A spline with mesh output
+  (Extrude/Lathe/Sweep/Bevel_Profile on it) satisfies `geometry`; a bare
+  profile spline does not — declare construction curves as `kind: shape`.
+- detail `via`: `modifier` | `editpoly` | `map` | `geometry` | `projection` |
+  `boolean` (a Boolean operand or modifier named for the id on the component) |
+  `spline` (a spline shape named for the id under the root).
 - Names: letters, digits, space, `_`, `-` only. Node names must match
   component names exactly (case-insensitive).
 - Sending only some sections (`components`, `materials`, `details`, `budget`)
@@ -110,8 +119,10 @@ declared `complexity`: simple 3/0, moderate 6/6, complex 10/12).
 ## Detail anchors — name your work
 
 A detail `id` resolves iff something is **named after it**: a node under root,
-a modifier on its component (`renameModifier` / set `.name` when adding), or a
-top-level texture map in the component's material. Anchor as you build —
+a modifier on its component (`renameModifier` / set `.name` when adding), a
+**Boolean operand** on its component (operands keep their node name when
+consumed — name the cutter after the detail id *before* `boolean_operation`),
+or a top-level texture map in the component's material. Anchor as you build —
 unnamed work does not count, and unspecced geometry that matches no component
 or detail id hard-fails at finish.
 
@@ -121,11 +132,15 @@ or detail id hard-fails at finish.
 root. Gates: coverage, proportion, relation. Vision: silhouette and
 proportions vs reference from every grid view; part placement.
 
-**form** — shape each mass: Bend/Taper/FFD/Chamfer/TurboSmooth, Edit_Poly for
-cuts and insets. Gates add: degenerate (collapsed dims, baked node scale —
-model at real size; if you scaled a node, reset xform and re-check). Vision:
-does each form read as the reference's form, not a primitive? Curves where
-curves belong, hard edges where hard?
+**form** — shape each mass with the strongest tool for the silhouette, not the
+cheapest one (see the shaping toolkit below): spline profiles for curved
+masses, `boolean_operation` for holes/insets/steps, `edit_vertices` conform
+for silhouette fixes, Bend/Taper/FFD/Chamfer/TurboSmooth where a uniform
+deformation truly is the shape. Gates add: degenerate (collapsed dims, baked
+node scale — model at real size; if you scaled a node, reset xform and
+re-check). Vision: does each form read as the reference's form, not a
+primitive? Curves where curves belong, hard edges where hard? If a component
+still reads as the box or cylinder it started from, the form pass is not done.
 
 **material** — build and assign per spec zone. Gates add: assignment matches
 spec, class matches, declared params within tolerance. Vision: value/roughness
@@ -154,6 +169,32 @@ including projection cameras and review lights — is parented under the root an
 lives on `_builder`, or is deleted before finish. Vision: final grid vs
 reference — state remaining mismatches honestly in the evidence; they go in the
 record for the user.
+
+## Shaping toolkit (form and detail passes)
+
+**Boolean cuts** — holes, sockets, insets, panel steps, vents, trigger guards:
+create the cutter as a scratch primitive (or extruded spline), **name it after
+the detail id**, then `boolean_operation action=apply` with `subtract` /
+`intersect` / `union`. Non-live operands are consumed — no litter, and the
+operand name stays in the modifier as a detail anchor (`via: boolean`).
+`operation_option="imprint"` scores panel lines without removing volume.
+Never consume a *component* node as an operand — its name leaves the scene and
+coverage fails; cutters are scratch objects, or pass `live=true`.
+
+**Spline profiles** — any mass whose identity is a curve (bottle, blade, grip,
+fender, vase): read the silhouette off the reference, `draw_spline` the
+profile (smooth knots first; switch problem knots to bezier and place handles),
+then Lathe (revolved), Extrude (prismatic), Bevel_Profile or Sweep (rails).
+The result counts as geometry once it has mesh output. Iterate: capture,
+compare the outline against the reference, `set_knots` the offenders — this
+loop is cheap and is where curved forms come from.
+
+**Vertex conform** — when a blocked mass is close but the silhouette is wrong:
+`draw_spline` the target outline from the reference, then `edit_vertices
+action=conform` with an `axes` mask (e.g. `"xz"` fits the side profile while
+preserving width) and `strength` under 1.0 for gradual pulls. `action=move`
+with `falloff` gives soft regional pushes. Verts are edited on the poly base
+beneath the stack, so TurboSmooth/Shell above stay live.
 
 ## Projection recipe (patterned surfaces)
 
@@ -207,3 +248,12 @@ declare `"via": "projection"` and:
   litter gate catches these at finish, but check `query_scene(action=overview)`
   `rootCount` after a suspicious tripback rather than discovering it five
   passes later.
+- An extruded/lathed spline satisfies geometry coverage only once it has mesh
+  output (tris > 0) — a bare profile spline named as a component fails with a
+  "no mesh output" hint until the Extrude/Lathe lands.
+- Mesh-producing shapes under root are held to the same unspecced-geometry
+  gate as real geometry at finish; zero-tris construction splines are exempt,
+  but name them after a detail id or delete them anyway.
+- Boolean cutters must be parented under the root *before* apply if live, or
+  simply consumed if not — a consumed operand cannot litter, which makes
+  non-live subtract the cleanest detail-cutting primitive in builder mode.

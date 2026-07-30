@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 138,
+  "tool_count": 153,
   "starter_tools": [
     "query_scene",
     "get_session_context",
@@ -354,12 +354,25 @@
     {
       "name": "Other",
       "hint": "",
-      "tool_count": 3,
+      "tool_count": 18,
       "categories": [
         {
           "name": "Advancedvision",
           "tools": [
             "advancedvision"
+          ]
+        },
+        {
+          "name": "Booleans",
+          "tools": [
+            "boolean_operation"
+          ]
+        },
+        {
+          "name": "Builder",
+          "tools": [
+            "builder_gate",
+            "builder_session"
           ]
         },
         {
@@ -369,9 +382,56 @@
           ]
         },
         {
+          "name": "Mainthread",
+          "tools": [
+            "main_thread"
+          ]
+        },
+        {
+          "name": "Poly Edit",
+          "tools": [
+            "edit_vertices"
+          ]
+        },
+        {
           "name": "Render Automations",
           "tools": [
             "render_automations"
+          ]
+        },
+        {
+          "name": "Splines",
+          "tools": [
+            "draw_spline"
+          ]
+        },
+        {
+          "name": "Tyflow Census",
+          "tools": [
+            "capture_tyflow_editor",
+            "tyflow_event_census"
+          ]
+        },
+        {
+          "name": "Tyflow Graph",
+          "tools": [
+            "connect_tyflow_operator",
+            "disconnect_tyflow_operator",
+            "get_tyflow_graph",
+            "set_tyflow_wiring_ledger"
+          ]
+        },
+        {
+          "name": "Tyflow Manifest",
+          "tools": [
+            "harvest_tyflow_manifest",
+            "list_tyflow_operators"
+          ]
+        },
+        {
+          "name": "Tyflow Patch",
+          "tools": [
+            "tyflow_apply_patch"
           ]
         }
       ]
@@ -1642,7 +1702,7 @@
       },
       "example": {},
       "risk": "read",
-      "routing": "maxscript",
+      "routing": "native:backup_material_library",
       "starter": false
     },
     {
@@ -1763,7 +1823,7 @@
         "shell_name": ""
       },
       "risk": "advanced",
-      "routing": "maxscript",
+      "routing": "native:create_shell_material",
       "starter": false
     },
     {
@@ -1820,7 +1880,7 @@
       },
       "example": {},
       "risk": "safe",
-      "routing": "maxscript",
+      "routing": "native:get_material_library",
       "starter": false
     },
     {
@@ -2670,7 +2730,7 @@
       },
       "example": {},
       "risk": "advanced",
-      "routing": "maxscript",
+      "routing": "native:isolate_and_capture_selected",
       "starter": false
     },
     {
@@ -3056,6 +3116,168 @@
       "starter": false
     },
     {
+      "name": "boolean_operation",
+      "description": "Boolean modeling on a base object via the Boolean modifier (BooleanMod).",
+      "category": "Booleans",
+      "group": "Other",
+      "module": "booleans",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "operands": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "operation": {
+            "type": "string"
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "operation_option": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "voxel_size": {
+            "type": "number"
+          },
+          "live": {
+            "type": "boolean"
+          },
+          "use_operand_material": {
+            "type": "boolean"
+          },
+          "new_modifier": {
+            "type": "boolean"
+          },
+          "modifier_name": {
+            "type": "string"
+          },
+          "operand_index": {
+            "type": "integer"
+          },
+          "rename": {
+            "type": "string"
+          },
+          "disable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "example": {},
+      "risk": "read",
+      "routing": "python",
+      "starter": false
+    },
+    {
+      "name": "builder_gate",
+      "description": "The only door between builder passes: deterministic census gates, then a multi-view capture for agent-vision review, then a single recorded verdict.",
+      "category": "Builder",
+      "group": "Other",
+      "module": "builder",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "views": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "capture": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action",
+          "name"
+        ]
+      },
+      "example": {
+        "action": "info",
+        "name": "$first_object"
+      },
+      "risk": "read",
+      "routing": "python",
+      "starter": false
+    },
+    {
+      "name": "builder_session",
+      "description": "Manage a builder-mode session: spec-gated staged asset construction.",
+      "category": "Builder",
+      "group": "Other",
+      "module": "builder",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "object_desc": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "units": {
+            "type": "string"
+          },
+          "complexity": {
+            "type": "string"
+          },
+          "spec": {},
+          "delete_nodes": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action",
+          "name"
+        ]
+      },
+      "example": {
+        "action": "info",
+        "name": "$first_object"
+      },
+      "risk": "read",
+      "routing": "maxscript",
+      "starter": false
+    },
+    {
       "name": "keyframe_tracks",
       "description": "Native keyframing: list inspects tracks read-only; set keys at time/times; value or move writes keyed poses without transform_object; match copies between times; loop closes f1->f100 on parented rigs (order=hierarchy); style sets tangents; ort sets out-of-range.",
       "category": "Keyframes",
@@ -3176,6 +3398,107 @@
       "starter": false
     },
     {
+      "name": "main_thread",
+      "description": "Inspect or clean up what runs on the Max main/UI thread.",
+      "category": "Mainthread",
+      "group": "Other",
+      "module": "mainthread",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "example": {},
+      "risk": "read",
+      "routing": "native:main_thread",
+      "starter": false
+    },
+    {
+      "name": "edit_vertices",
+      "description": "Read and manipulate Editable_Poly vertices in world space.",
+      "category": "Poly Edit",
+      "group": "Other",
+      "module": "poly_edit",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "indices": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "offset": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "positions": {},
+          "target": {
+            "type": "string"
+          },
+          "axes": {
+            "type": "string"
+          },
+          "axis": {
+            "type": "string"
+          },
+          "strength": {
+            "type": "number"
+          },
+          "falloff": {
+            "type": "number"
+          },
+          "spline_index": {
+            "type": "integer"
+          },
+          "in_bbox": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "near_point": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "radius": {
+            "type": "number"
+          },
+          "max_verts": {
+            "type": "integer"
+          },
+          "convert": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "example": {
+        "action": "info"
+      },
+      "risk": "read",
+      "routing": "python",
+      "starter": false
+    },
+    {
       "name": "render_automations",
       "description": "Arm a done-signal for the NEXT render, then report when it finishes.",
       "category": "Render Automations",
@@ -3202,6 +3525,399 @@
         }
       },
       "example": {},
+      "risk": "read",
+      "routing": "python",
+      "starter": false
+    },
+    {
+      "name": "draw_spline",
+      "description": "Draw and edit spline shapes from explicit points (world-space).",
+      "category": "Splines",
+      "group": "Other",
+      "module": "splines",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "points": {},
+          "closed": {
+            "type": "boolean"
+          },
+          "knot_type": {
+            "type": "string"
+          },
+          "knots": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "spline_index": {
+            "type": "integer"
+          },
+          "knot_index": {
+            "type": "integer"
+          },
+          "segment": {
+            "type": "integer"
+          },
+          "param": {
+            "type": "number"
+          },
+          "thickness": {
+            "type": "number"
+          },
+          "sides": {
+            "type": "integer"
+          },
+          "samples": {
+            "type": "integer"
+          },
+          "center_pivot": {
+            "type": "boolean"
+          }
+        }
+      },
+      "example": {},
+      "risk": "read",
+      "routing": "python",
+      "starter": false
+    },
+    {
+      "name": "capture_tyflow_editor",
+      "description": "Open the tyFlow editor and capture the screen for visual wire inspection.",
+      "category": "Tyflow Census",
+      "group": "Other",
+      "module": "tyflow_census",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "output_path": {
+            "type": "string"
+          },
+          "reset_view": {
+            "type": "boolean"
+          },
+          "max_width": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "example": {
+        "name": "$first_object"
+      },
+      "risk": "read",
+      "routing": "maxscript",
+      "starter": false
+    },
+    {
+      "name": "tyflow_event_census",
+      "description": "Per-event particle counts at probe frames via temporary instrumentation.",
+      "category": "Tyflow Census",
+      "group": "Other",
+      "module": "tyflow_census",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "frames": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "method": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "integer"
+          },
+          "max_particles_sampled": {
+            "type": "integer"
+          },
+          "cleanup": {
+            "type": "boolean"
+          },
+          "mapping_mode": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "example": {
+        "name": "$first_object"
+      },
+      "risk": "read",
+      "routing": "maxscript",
+      "starter": false
+    },
+    {
+      "name": "connect_tyflow_operator",
+      "description": "Connect a test/Send Out operator's output to a target event (documented API).",
+      "category": "Tyflow Graph",
+      "group": "Other",
+      "module": "tyflow_graph",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "from_event": {
+            "type": "string"
+          },
+          "from_operator": {
+            "type": "string"
+          },
+          "to_event": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "from_event",
+          "from_operator",
+          "to_event"
+        ]
+      },
+      "example": {
+        "name": "$first_object",
+        "from_event": "",
+        "from_operator": "",
+        "to_event": ""
+      },
+      "risk": "read",
+      "routing": "python",
+      "starter": false
+    },
+    {
+      "name": "disconnect_tyflow_operator",
+      "description": "Disconnect an operator's output and drop its ledger edge.",
+      "category": "Tyflow Graph",
+      "group": "Other",
+      "module": "tyflow_graph",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "from_event": {
+            "type": "string"
+          },
+          "from_operator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "from_event",
+          "from_operator"
+        ]
+      },
+      "example": {
+        "name": "$first_object",
+        "from_event": "",
+        "from_operator": ""
+      },
+      "risk": "read",
+      "routing": "python",
+      "starter": false
+    },
+    {
+      "name": "get_tyflow_graph",
+      "description": "Full tyFlow graph view: events, operators, properties, ledger edges, staleness.",
+      "category": "Tyflow Graph",
+      "group": "Other",
+      "module": "tyflow_graph",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "include_properties": {
+            "type": "boolean"
+          },
+          "max_operators_per_event": {
+            "type": "integer"
+          },
+          "max_properties_per_operator": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "example": {
+        "name": "$first_object"
+      },
+      "risk": "safe",
+      "routing": "python",
+      "starter": false
+    },
+    {
+      "name": "set_tyflow_wiring_ledger",
+      "description": "Reconcile the wiring ledger by hand (e.g. after reading an editor capture).",
+      "category": "Tyflow Graph",
+      "group": "Other",
+      "module": "tyflow_graph",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "edges"
+        ]
+      },
+      "example": {
+        "name": "$first_object",
+        "edges": []
+      },
+      "risk": "read",
+      "routing": "python",
+      "starter": false
+    },
+    {
+      "name": "harvest_tyflow_manifest",
+      "description": "Probe-harvest the tyFlow operator manifest and cache it per tyFlow version.",
+      "category": "Tyflow Manifest",
+      "group": "Other",
+      "module": "tyflow_manifest",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "refresh": {
+            "type": "boolean"
+          },
+          "operator_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "batch_size": {
+            "type": "integer"
+          }
+        }
+      },
+      "example": {},
+      "risk": "read",
+      "routing": "python",
+      "starter": false
+    },
+    {
+      "name": "list_tyflow_operators",
+      "description": "Query the cached tyFlow operator manifest (no Max traffic).",
+      "category": "Tyflow Manifest",
+      "group": "Other",
+      "module": "tyflow_manifest",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "include_properties": {
+            "type": "boolean"
+          },
+          "executable_only": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      },
+      "example": {},
+      "risk": "safe",
+      "routing": "python",
+      "starter": false
+    },
+    {
+      "name": "tyflow_apply_patch",
+      "description": "Apply a batch of tyFlow graph operations as one transaction.",
+      "category": "Tyflow Patch",
+      "group": "Other",
+      "module": "tyflow_patch",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "expected_hash": {
+            "type": "string"
+          },
+          "checkpoint": {
+            "type": "boolean"
+          },
+          "verify_frames": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "min_particles": {
+            "type": "integer"
+          },
+          "max_particles": {
+            "type": "integer"
+          },
+          "rollback_on_failure": {
+            "type": "boolean"
+          },
+          "allow_executable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "operations"
+        ]
+      },
+      "example": {
+        "name": "$first_object",
+        "operations": []
+      },
       "risk": "read",
       "routing": "python",
       "starter": false
@@ -3396,7 +4112,7 @@
       },
       "example": {},
       "risk": "safe",
-      "routing": "maxscript",
+      "routing": "native:get_plugin_capabilities",
       "starter": false
     },
     {
@@ -4597,7 +5313,7 @@
     },
     {
       "name": "connect_tyflow_events",
-      "description": "Connect events with Send Out by applying common destination property candidates.",
+      "description": "Connect events via Send Out using tyFlow's documented connect API.",
       "category": "tyFlow",
       "group": "Specialty",
       "module": "tyflow",
@@ -5115,7 +5831,7 @@
     },
     {
       "name": "capture_viewport",
-      "description": "Capture the current 3ds Max viewport to a file and return compact metadata.",
+      "description": "Capture the current 3ds Max viewport and return the saved file path.",
       "category": "Viewport",
       "group": "Viewport & Render",
       "module": "viewport",

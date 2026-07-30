@@ -11,11 +11,11 @@ import src.tools.builder as b
 
 
 def node(name, dims, pos, mat="", matclass="", mods=(), layer="_builder",
-         cls="Box", sup="GeometryClass", tris=12, scale=(1, 1, 1)):
+         cls="Box", sup="GeometryClass", tris=12, scale=(1, 1, 1), boolops=()):
     return {
         "name": name, "class": cls, "super": sup, "parent": "BLD_test", "layer": layer,
         "pos": pos, "dims": dims, "mat": mat, "matclass": matclass,
-        "mods": list(mods), "tris": tris, "scale": list(scale),
+        "mods": list(mods), "tris": tris, "scale": list(scale), "boolops": list(boolops),
     }
 
 
@@ -49,12 +49,13 @@ class FakeClient:
             px, py, pz = n["pos"]
             dx, dy, dz = n["dims"]
             lines.append(
-                "NODE|{0}|{1}|{2}|{3}|{4}|{5},{6},{7}|{8},{9},{10}|{11},{12},{13}|{14}|{15}|{16}|{17}|{18},{19},{20}".format(
+                "NODE|{0}|{1}|{2}|{3}|{4}|{5},{6},{7}|{8},{9},{10}|{11},{12},{13}|{14}|{15}|{16}|{17}|{18},{19},{20}|{21}".format(
                     n["name"], n["class"], n["super"], n["parent"], n["layer"],
                     px, py, pz, px - dx / 2, py - dy / 2, pz,
                     px + dx / 2, py + dy / 2, pz + dz, n["tris"],
                     n["mat"], n["matclass"], ",".join(n["mods"]),
                     n["scale"][0], n["scale"][1], n["scale"][2],
+                    ",".join(n.get("boolops", [])),
                 )
             )
             for m in self.scene["maps"].get(n["name"].lower(), []):
@@ -368,6 +369,84 @@ class TestPipeline(BuilderTestCase):
         r = b.builder_session(action="abandon", name="test", delete_nodes=True)
         self.assertTrue(r["abandoned"])
         self.assertIsNone(self.fake.scene["appdata"])
+
+
+class TestModelingGates(BuilderTestCase):
+    """1.6.0 modeling upgrades: boolean operand anchors, via=boolean/spline,
+    extruded splines as geometry, center metrics."""
+
+    def setUp(self):
+        super().setUp()
+        self.start()
+        spec = json.loads(json.dumps(VALID_SPEC))
+        spec["details"] = [{"id": "fuller", "on": "blade", "via": "boolean"}]
+        b.builder_session(action="spec", name="test", spec=spec)
+        self.fake.scene["nodes"] = [
+            node("handle", (3, 3, 10), (0, 0, 0)),
+            node("guard", (5, 1.5, 1), (0, 0, 10)),
+            node("blade", (3, 0.5, 30), (0, 0, 11)),
+        ]
+
+    def to_detail(self):
+        for n in self.fake.scene["nodes"]:
+            n["mat"], n["matclass"] = "steel", "PhysicalMaterial"
+        self.fake.scene["mparams"][("steel", "roughness")] = "0.25"
+        for _ in range(3):  # blockout -> form -> material -> detail
+            b.builder_gate(action="check", name="test")
+            b.builder_gate(action="record", name="test", verdict="continue",
+                           evidence="grid vs reference judged: matches within tolerance")
+
+    def test_boolean_operand_anchors_detail(self):
+        self.to_detail()
+        r = b.builder_gate(action="check", name="test")
+        self.assertTrue(any(v["gate"] == "detail" for v in r["violations"]))
+        self.fake.scene["nodes"][2]["boolops"] = ["fuller_cut"]
+        r = b.builder_gate(action="check", name="test")
+        self.assertTrue(r["clean"], r["violations"])
+
+    def test_via_boolean_needs_anchor_on_the_component(self):
+        self.to_detail()
+        # global anchor exists (a spline named for the id) but the blade has no
+        # boolean operand/modifier for it — via=boolean must still flag
+        self.fake.scene["nodes"].append(
+            node("fuller_profile", (1, 1, 1), (0, 0, 40), cls="SplineShape", sup="Shape", tris=0))
+        r = b.builder_gate(action="check", name="test")
+        self.assertTrue(any("via=boolean" in v["message"] for v in r["violations"]))
+
+    def test_via_spline_requires_shape_node(self):
+        self.to_detail()
+        spec = {"details": [{"id": "fuller", "on": "blade", "via": "spline"}]}
+        b.builder_session(action="spec", name="test", spec=spec)
+        self.fake.scene["nodes"][2]["mods"] = ["fuller_groove"]  # generic anchor ok
+        r = b.builder_gate(action="check", name="test")
+        self.assertTrue(any("via=spline" in v["message"] for v in r["violations"]))
+        self.fake.scene["nodes"].append(
+            node("fuller_profile", (1, 1, 1), (0, 0, 40), cls="SplineShape", sup="Shape", tris=0))
+        r = b.builder_gate(action="check", name="test")
+        self.assertTrue(r["clean"], r["violations"])
+
+    def test_extruded_spline_counts_as_geometry(self):
+        self.fake.scene["nodes"][2] = node(
+            "blade", (3, 0.5, 30), (0, 0, 11), cls="SplineShape", sup="Shape", tris=200)
+        r = b.builder_gate(action="check", name="test")
+        self.assertTrue(r["clean"], r["violations"])
+
+    def test_bare_spline_fails_geometry_coverage(self):
+        self.fake.scene["nodes"][2] = node(
+            "blade", (3, 0.5, 30), (0, 0, 11), cls="SplineShape", sup="Shape", tris=0)
+        r = b.builder_gate(action="check", name="test")
+        self.assertTrue(any("no mesh output" in v["message"] for v in r["violations"]))
+
+    def test_extruded_spline_litter_flagged_at_finish(self):
+        # a mesh-producing shape under root that matches nothing must warn
+        self.fake.scene["nodes"].append(
+            node("swoosh", (2, 2, 2), (0, 0, 45), cls="SplineShape", sup="Shape", tris=150))
+        r = b.builder_gate(action="check", name="test")
+        self.assertTrue(any("unspecced" in w for w in r.get("warnings", [])))
+
+    def test_center_metric_reported(self):
+        r = b.builder_gate(action="check", name="test")
+        self.assertIn("center_off_root", r["metrics"]["components"]["blade"])
 
 
 class TestParamCompare(unittest.TestCase):

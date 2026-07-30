@@ -29,7 +29,7 @@ BUILDER_APPDATA_ID = 1112294482  # "BLDR"
 LEDGER_VERSION = 1
 PASSES = ["blockout", "form", "material", "detail", "finish"]
 VERDICTS = {"continue", "refine-spec", "refine-scene", "request-input"}
-VIA = {"modifier", "editpoly", "map", "geometry", "projection"}
+VIA = {"modifier", "editpoly", "map", "geometry", "projection", "boolean", "spline"}
 COMPLEXITY_FLOORS = {"simple": (3, 0), "moderate": (6, 6), "complex": (10, 12)}
 DEFAULT_TOLERANCE_PCT = 8.0
 MAX_ATTEMPTS = 3
@@ -365,10 +365,23 @@ if root == undefined then (
             mclass = (classof n.material) as string
         )
         local mods = ""
-        for m in n.modifiers do mods += (bldClean m.name) + ","
+        local bops = ""
+        for m in n.modifiers do (
+            mods += (bldClean m.name) + ","
+            if (classof m) == BooleanMod do (
+                try (
+                    local bcnt = m.GetNumOperands()
+                    for oi = 2 to bcnt do (
+                        local onm = ""
+                        m.GetFlatOperandName oi &onm
+                        bops += (bldClean onm) + ","
+                    )
+                ) catch ()
+            )
+        )
         local lname = ""
         try (lname = bldClean n.layer.name) catch ()
-        format "NODE|%|%|%|%|%|%,%,%|%,%,%|%,%,%|%|%|%|%|%,%,%\\n" (bldClean n.name) ((classof n) as string) ((superclassof n) as string) (bldClean (if n.parent != undefined then n.parent.name else "")) lname n.pos.x n.pos.y n.pos.z bbmin.x bbmin.y bbmin.z bbmax.x bbmax.y bbmax.z (tris as string) mname mclass mods n.scale.x n.scale.y n.scale.z to:out
+        format "NODE|%|%|%|%|%|%,%,%|%,%,%|%,%,%|%|%|%|%|%,%,%|%\\n" (bldClean n.name) ((classof n) as string) ((superclassof n) as string) (bldClean (if n.parent != undefined then n.parent.name else "")) lname n.pos.x n.pos.y n.pos.z bbmin.x bbmin.y bbmin.z bbmax.x bbmax.y bbmax.z (tris as string) mname mclass mods n.scale.x n.scale.y n.scale.z bops to:out
         if n.material != undefined do (
             try (
                 for i = 1 to (getNumSubTexmaps n.material) do (
@@ -424,6 +437,7 @@ if root == undefined then (
                 "matclass": f[10],
                 "mods": [m for m in f[11].split(",") if m],
                 "scale": _parse_triple(f[12]),
+                "boolops": [b.replace("<pipe>", "|") for b in f[13].split(",") if b] if len(f) > 13 else [],
             }
             census["node_list"].append(node)
             census["nodes_by_name"].setdefault(node["name"].lower(), []).append(node)
@@ -511,8 +525,23 @@ def _evaluate(ledger: dict[str, Any], census: dict[str, Any]) -> tuple[list[dict
             viols.append(_violation("coverage", f"{len(matches)} nodes share this name under root", cname))
         else:
             node = matches[0]
-            if kind_is_geometry(comp) and node["super"] != "GeometryClass":
-                viols.append(_violation("coverage", f"node is {node['class']}, not geometry", cname))
+            # A Shape-based node with mesh output (extruded/lathed/swept spline)
+            # is real geometry; a bare profile spline is not.
+            if kind_is_geometry(comp) and node["super"] != "GeometryClass" and not (
+                node["super"] == "Shape" and node["tris"] > 0
+            ):
+                viols.append(
+                    _violation(
+                        "coverage",
+                        f"node is {node['class']}, not geometry"
+                        + (
+                            " (spline with no mesh output — add Extrude/Lathe/Sweep or declare kind:shape)"
+                            if node["super"] == "Shape"
+                            else ""
+                        ),
+                        cname,
+                    )
+                )
             else:
                 found[cname.lower()] = node
 
@@ -530,7 +559,11 @@ def _evaluate(ledger: dict[str, Any], census: dict[str, Any]) -> tuple[list[dict
         if node is None:
             continue
         dims = _dims(node)
-        metrics["components"][cname] = {"dims": [round(d, 3) for d in dims], "tris": node["tris"]}
+        metrics["components"][cname] = {
+            "dims": [round(d, 3) for d in dims],
+            "tris": node["tris"],
+            "center_off_root": [round(_center(node)[i] - root_pos[i], 3) for i in range(3)],
+        }
         spec_dims = _as_float3(comp.get("dims"))
         if spec_dims:
             target = sorted(spec_dims)
@@ -664,24 +697,47 @@ def _evaluate(ledger: dict[str, Any], census: dict[str, Any]) -> tuple[list[dict
                 continue
             did = str(det["id"]).lower()
             on = str(det.get("on") or "").lower()
+            via = str(det.get("via") or "").lower()
             node = found.get(on)
             anchors: list[str] = []
             if node is not None:
                 anchors += node["mods"]
+                anchors += node.get("boolops", [])
                 anchors += [m["name"] for m in census["maps"].get(node["name"].lower(), [])]
             anchors += [n["name"] for n in census["node_list"]]
             if not any(did in a.lower() for a in anchors):
                 viols.append(
                     _violation(
                         "detail",
-                        f"no anchor named *{det['id']}* (node, modifier on {det.get('on')}, or map)",
+                        f"no anchor named *{det['id']}* (node, modifier or Boolean operand "
+                        f"on {det.get('on')}, or map)",
                     )
                 )
-            elif str(det.get("via") or "").lower() == "projection" and node is not None:
+            elif via == "projection" and node is not None:
                 maps = census["maps"].get(node["name"].lower(), [])
                 if not any("camera" in m["class"].lower() for m in maps):
                     viols.append(
                         _violation("detail", f"{det['id']}: via=projection but no Camera Map on {det.get('on')}")
+                    )
+            elif via == "boolean" and node is not None:
+                own = node["mods"] + node.get("boolops", [])
+                if not any(did in a.lower() for a in own):
+                    viols.append(
+                        _violation(
+                            "detail",
+                            f"{det['id']}: via=boolean but no Boolean operand or modifier "
+                            f"named *{det['id']}* on {det.get('on')}",
+                        )
+                    )
+            elif via == "spline":
+                if not any(
+                    did in n["name"].lower() and n["super"] == "Shape" for n in census["node_list"]
+                ):
+                    viols.append(
+                        _violation(
+                            "detail",
+                            f"{det['id']}: via=spline but no spline shape named *{det['id']}* under root",
+                        )
                     )
 
     total_tris = sum(n["tris"] for n in census["node_list"])
@@ -690,7 +746,7 @@ def _evaluate(ledger: dict[str, Any], census: dict[str, Any]) -> tuple[list[dict
     unspecced = [
         n["name"]
         for n in census["node_list"]
-        if n["super"] == "GeometryClass"
+        if (n["super"] == "GeometryClass" or (n["super"] == "Shape" and n["tris"] > 0))
         and n["name"].lower() not in comp_names_lower
         and not any(did.lower() in n["name"].lower() for did in detail_ids)
     ]

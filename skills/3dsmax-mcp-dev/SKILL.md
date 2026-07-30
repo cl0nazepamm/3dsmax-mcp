@@ -57,6 +57,12 @@ Debugging:
 ### Modifiers
 `add_modifier` `remove_modifier` `set_modifier_state` `set_modifier_property` `collapse_modifier_stack` `make_modifier_unique`
 
+### Modeling
+- `boolean_operation` — Boolean modifier (BooleanMod): apply union/subtract/intersect/merge/attach operands, list/retune/rename/extract them
+- `draw_spline` — spline shapes from world-space point lists; knot readback and editing, holes via add_spline, renderable thickness
+- `edit_vertices` — Editable_Poly verts in world space: get (filtered), move (soft falloff), set, conform to a spline or ray-projected onto geometry
+- Curved-form recipe: `draw_spline` the reference profile → Lathe/Extrude/Bevel_Profile/Sweep via `add_modifier` → refine with `set_knots` or `edit_vertices conform`
+
 ### Materials
 - Create + assign: `assign_material`, `create_material_from_textures`, `smart_import`, `palette_laydown`
 - Edit: `set_material_property`, `set_material_properties`
@@ -140,6 +146,9 @@ The `code` string is delivered as a JSON value, so it is **un-escaped once befor
 - `get_material_slots`: prefer `slot_scope="map"` unless you need every param (`slot_scope="all"` + `include_values:true` is huge on Arnold/Physical).
 - `create_object`: default `pos_mode="ground"` — `pos` is bottom-center contact, not bbox center. Tripback includes `bbox`, `placement`, `groundContact`.
 - Box: `width=X`, `length=Y`, `height=Z`.
+- `boolean_operation`: non-live operands are **consumed** — scene node deleted, geometry captured; the operand keeps its node name inside the modifier (rename cutters *before* applying). `live=true` keeps the node (hidden) for later transform tweaks at extra eval cost. Never consume a node other tools still reference by name.
+- `draw_spline`: all coordinates world-space; bezier `in_vec`/`out_vec` are absolute handle **positions**, not directions. Edit actions auto-convert parametric shapes to SplineShape (reported as `converted_to_splineshape`).
+- `edit_vertices`: edits the Editable_Poly **base** beneath the stack (cage editing — TurboSmooth above stays live); non-poly bases need `convert=true` (collapses) or `collapse_modifier_stack`. `conform` to geometry is ray-based — `skipped` verts had no hit along `axis`; unsigned tokens (`z`) cast both ways, signed (`-z`) one way.
 - `list_wireable_params` paths include `[#Parameters]` levels — pass through to `wire_params` as-is.
 - `create_shell_material`: `mcp_findMaterialByName` uses `sceneMaterials` — `getClassInstances Material` is invalid (Material is not a MAXClass).
 - `material_class` must be the **material's** own class name, never a shortened token: `PhysicalMaterial`, not `Physical` — `Physical` is the Physical *Camera*. A non-material class name now returns `BAD_PARAM` with `hint.didYouMean`.
