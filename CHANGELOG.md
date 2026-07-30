@@ -14,6 +14,7 @@ Modeling release: booleans, splines, vertex fitting — and builder mode taught 
 
 ### Changed (builder mode)
 
+- Form pass gains a deterministic **shaping gate**: geometry components whose base object is still a raw primitive (no shaping modifiers, no Boolean operands) hard-fail until booleaned, spline-built, poly-edited, or deformed — or declared `primitive: true` in the spec. Detection keys off the base-object class (any modifier flips the world-state class to Editable_mesh) and ignores non-silhouette modifiers (UVW map, Smooth, ...). Metrics report the route each component cleared it (`shaped`: base | boolean | modifier | declared-primitive).
 - Boolean operand names count as detail anchors; new detail `via` kinds `boolean` and `spline`.
 - Extruded/lathed splines (mesh output) satisfy geometry coverage; bare profile splines fail with a hint; mesh-producing shapes are now held to the unspecced-geometry gate at finish.
 - Gate metrics include per-component `center_off_root`.

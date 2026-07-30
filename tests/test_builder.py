@@ -11,11 +11,13 @@ import src.tools.builder as b
 
 
 def node(name, dims, pos, mat="", matclass="", mods=(), layer="_builder",
-         cls="Box", sup="GeometryClass", tris=12, scale=(1, 1, 1), boolops=()):
+         cls="Box", sup="GeometryClass", tris=12, scale=(1, 1, 1), boolops=(),
+         modcls=(), baseclass=""):
     return {
         "name": name, "class": cls, "super": sup, "parent": "BLD_test", "layer": layer,
         "pos": pos, "dims": dims, "mat": mat, "matclass": matclass,
         "mods": list(mods), "tris": tris, "scale": list(scale), "boolops": list(boolops),
+        "modcls": list(modcls), "baseclass": baseclass or cls,
     }
 
 
@@ -49,13 +51,15 @@ class FakeClient:
             px, py, pz = n["pos"]
             dx, dy, dz = n["dims"]
             lines.append(
-                "NODE|{0}|{1}|{2}|{3}|{4}|{5},{6},{7}|{8},{9},{10}|{11},{12},{13}|{14}|{15}|{16}|{17}|{18},{19},{20}|{21}".format(
+                "NODE|{0}|{1}|{2}|{3}|{4}|{5},{6},{7}|{8},{9},{10}|{11},{12},{13}|{14}|{15}|{16}|{17}|{18},{19},{20}|{21}|{22}|{23}".format(
                     n["name"], n["class"], n["super"], n["parent"], n["layer"],
                     px, py, pz, px - dx / 2, py - dy / 2, pz,
                     px + dx / 2, py + dy / 2, pz + dz, n["tris"],
                     n["mat"], n["matclass"], ",".join(n["mods"]),
                     n["scale"][0], n["scale"][1], n["scale"][2],
                     ",".join(n.get("boolops", [])),
+                    ",".join(n.get("modcls", [])),
+                    n.get("baseclass") or n["class"],
                 )
             )
             for m in self.scene["maps"].get(n["name"].lower(), []):
@@ -158,10 +162,12 @@ class TestPipeline(BuilderTestCase):
         b.builder_session(action="spec", name="test", spec=VALID_SPEC)
 
     def blockout(self, blade_height=30):
+        # modcls carries a shaping modifier so pipeline tests clear the
+        # form-pass shaping gate; TestShapingGate covers the raw case.
         self.fake.scene["nodes"] = [
-            node("handle", (3, 3, 10), (0, 0, 0)),
-            node("guard", (5, 1.5, 1), (0, 0, 10)),
-            node("blade", (3, 0.5, blade_height), (0, 0, 11)),
+            node("handle", (3, 3, 10), (0, 0, 0), modcls=("Taper",)),
+            node("guard", (5, 1.5, 1), (0, 0, 10), modcls=("Taper",)),
+            node("blade", (3, 0.5, blade_height), (0, 0, 11), modcls=("Taper",)),
         ]
 
     def advance(self, evidence="grid vs reference judged: matches within tolerance"):
@@ -220,7 +226,7 @@ class TestPipeline(BuilderTestCase):
         scene["nodes"][0]["scale"] = [1.5, 1, 1]
         r = b.builder_gate(action="check", name="test")
         self.assertTrue(any(v["gate"] == "degenerate" for v in r["violations"]))
-        scene["nodes"][0] = node("handle", (3, 3, 10), (0, 0, 0))
+        scene["nodes"][0] = node("handle", (3, 3, 10), (0, 0, 0), modcls=("Taper",))
         self.advance()  # form -> material
 
         r = b.builder_gate(action="check", name="test")
@@ -382,9 +388,9 @@ class TestModelingGates(BuilderTestCase):
         spec["details"] = [{"id": "fuller", "on": "blade", "via": "boolean"}]
         b.builder_session(action="spec", name="test", spec=spec)
         self.fake.scene["nodes"] = [
-            node("handle", (3, 3, 10), (0, 0, 0)),
-            node("guard", (5, 1.5, 1), (0, 0, 10)),
-            node("blade", (3, 0.5, 30), (0, 0, 11)),
+            node("handle", (3, 3, 10), (0, 0, 0), modcls=("Taper",)),
+            node("guard", (5, 1.5, 1), (0, 0, 10), modcls=("Taper",)),
+            node("blade", (3, 0.5, 30), (0, 0, 11), modcls=("Taper",)),
         ]
 
     def to_detail(self):
@@ -430,6 +436,71 @@ class TestModelingGates(BuilderTestCase):
             "blade", (3, 0.5, 30), (0, 0, 11), cls="SplineShape", sup="Shape", tris=200)
         r = b.builder_gate(action="check", name="test")
         self.assertTrue(r["clean"], r["violations"])
+
+
+class TestShapingGate(BuilderTestCase):
+    """Form pass refuses geometry components that are still raw primitives."""
+
+    def setUp(self):
+        super().setUp()
+        self.start()
+        b.builder_session(action="spec", name="test", spec=VALID_SPEC)
+        self.fake.scene["nodes"] = [
+            node("handle", (3, 3, 10), (0, 0, 0)),
+            node("guard", (5, 1.5, 1), (0, 0, 10)),
+            node("blade", (3, 0.5, 30), (0, 0, 11)),
+        ]
+
+    def to_form(self):
+        b.builder_gate(action="check", name="test")
+        b.builder_gate(action="record", name="test", verdict="continue",
+                       evidence="grid vs reference judged: matches within tolerance")
+
+    def test_blockout_allows_raw_primitives(self):
+        r = b.builder_gate(action="check", name="test")
+        self.assertTrue(r["clean"], r["violations"])
+
+    def test_form_refuses_raw_primitives(self):
+        self.to_form()
+        r = b.builder_gate(action="check", name="test")
+        shaping = [v for v in r["violations"] if v["gate"] == "shaping"]
+        self.assertEqual(len(shaping), 3)
+        self.assertIn("boolean_operation", shaping[0]["message"])
+        self.assertEqual(r["metrics"]["components"]["blade"]["shaped"], "raw-primitive")
+
+    def test_each_shaping_route_clears_the_gate(self):
+        self.to_form()
+        nodes = self.fake.scene["nodes"]
+        nodes[0]["boolops"] = ["grip_cut"]                     # boolean route
+        nodes[1]["modcls"] = ["Bend"]                          # modifier route
+        nodes[2]["class"] = "Editable_Poly"                    # base-object route
+        nodes[2]["baseclass"] = "Editable_Poly"
+        r = b.builder_gate(action="check", name="test")
+        self.assertTrue(r["clean"], r["violations"])
+        shaped = {c: m["shaped"] for c, m in r["metrics"]["components"].items()}
+        self.assertEqual(shaped, {"handle": "boolean", "guard": "modifier", "blade": "base"})
+
+    def test_nonshaping_modifiers_do_not_count(self):
+        # Live semantics: any modifier flips the world-state class to
+        # Editable_mesh, so detection must key off the base object class.
+        self.to_form()
+        self.fake.scene["nodes"][0]["modcls"] = ["Uvwmap", "Smooth"]
+        self.fake.scene["nodes"][0]["class"] = "Editable_mesh"
+        self.fake.scene["nodes"][0]["baseclass"] = "Box"
+        r = b.builder_gate(action="check", name="test")
+        self.assertTrue(any(v["gate"] == "shaping" and v.get("component") == "handle"
+                            for v in r["violations"]))
+
+    def test_declared_primitive_opts_out(self):
+        spec = json.loads(json.dumps(VALID_SPEC))
+        for comp in spec["components"]:
+            comp["primitive"] = True
+        b.builder_session(action="spec", name="test", spec=spec)
+        self.to_form()
+        r = b.builder_gate(action="check", name="test")
+        self.assertTrue(r["clean"], r["violations"])
+        self.assertEqual(
+            r["metrics"]["components"]["blade"]["shaped"], "declared-primitive")
 
     def test_bare_spline_fails_geometry_coverage(self):
         self.fake.scene["nodes"][2] = node(

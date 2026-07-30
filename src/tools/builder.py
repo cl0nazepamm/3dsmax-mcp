@@ -44,6 +44,40 @@ HEDGE_WORDS = (
     "chunky", "good enough", "close enough", "for now", "acceptable for",
 )
 
+# Shaping gate (form pass): a geometry component still classed as one of these
+# with no shaping work on it reads as a blockout box, not a form.
+PRIMITIVE_CLASSES = {
+    "box", "cylinder", "sphere", "geosphere", "cone", "tube", "torus", "plane",
+    "pyramid", "prism", "capsule", "chamferbox", "chamfercyl", "oiltank",
+    "spindle", "gengon", "l_ext", "c_ext", "hose", "teapot",
+}
+# Modifier classes that do not change the silhouette; anything else counts as
+# shaping work.  Permissive on purpose — the gate exists to catch bare
+# primitives, and the vision rubric still judges the rest.
+NONSHAPING_MOD_CLASSES = {
+    "uvwmap", "unwrap_uvw", "uvw_xform", "mapscaler", "materialmodifier",
+    "material_by_element", "smooth", "normalmodifier", "edit_normals",
+    "vertexpaint", "paintlayermod", "turn_to_poly", "turn_to_mesh",
+    "turn_to_patch", "renderable_spline", "camera_map",
+}
+
+
+def _shaping_of(comp: dict[str, Any], node: dict[str, Any]) -> str:
+    """How this component earned its form; empty string means raw primitive.
+
+    Uses the BASE object class — the world-state class flips to Editable_mesh
+    the moment any modifier lands, which would let a UVW-mapped box pass."""
+    if comp.get("primitive"):
+        return "declared-primitive"
+    base_cls = (node.get("baseclass") or node["class"]).lower()
+    if base_cls not in PRIMITIVE_CLASSES:
+        return "base"  # editable poly, spline-with-mesh, compound, ...
+    if node.get("boolops"):
+        return "boolean"
+    if any(mc.lower() not in NONSHAPING_MOD_CLASSES for mc in node.get("modcls", [])):
+        return "modifier"
+    return ""
+
 
 # ---------------------------------------------------------------------------
 # Ledger
@@ -366,8 +400,10 @@ if root == undefined then (
         )
         local mods = ""
         local bops = ""
+        local mcls = ""
         for m in n.modifiers do (
             mods += (bldClean m.name) + ","
+            mcls += ((classof m) as string) + ","
             if (classof m) == BooleanMod do (
                 try (
                     local bcnt = m.GetNumOperands()
@@ -381,7 +417,9 @@ if root == undefined then (
         )
         local lname = ""
         try (lname = bldClean n.layer.name) catch ()
-        format "NODE|%|%|%|%|%|%,%,%|%,%,%|%,%,%|%|%|%|%|%,%,%|%\\n" (bldClean n.name) ((classof n) as string) ((superclassof n) as string) (bldClean (if n.parent != undefined then n.parent.name else "")) lname n.pos.x n.pos.y n.pos.z bbmin.x bbmin.y bbmin.z bbmax.x bbmax.y bbmax.z (tris as string) mname mclass mods n.scale.x n.scale.y n.scale.z bops to:out
+        local bcls = ""
+        try (bcls = (classof n.baseobject) as string) catch ()
+        format "NODE|%|%|%|%|%|%,%,%|%,%,%|%,%,%|%|%|%|%|%,%,%|%|%|%\\n" (bldClean n.name) ((classof n) as string) ((superclassof n) as string) (bldClean (if n.parent != undefined then n.parent.name else "")) lname n.pos.x n.pos.y n.pos.z bbmin.x bbmin.y bbmin.z bbmax.x bbmax.y bbmax.z (tris as string) mname mclass mods n.scale.x n.scale.y n.scale.z bops mcls bcls to:out
         if n.material != undefined do (
             try (
                 for i = 1 to (getNumSubTexmaps n.material) do (
@@ -438,6 +476,8 @@ if root == undefined then (
                 "mods": [m for m in f[11].split(",") if m],
                 "scale": _parse_triple(f[12]),
                 "boolops": [b.replace("<pipe>", "|") for b in f[13].split(",") if b] if len(f) > 13 else [],
+                "modcls": [m for m in f[14].split(",") if m] if len(f) > 14 else [],
+                "baseclass": f[15] if len(f) > 15 else "",
             }
             census["node_list"].append(node)
             census["nodes_by_name"].setdefault(node["name"].lower(), []).append(node)
@@ -656,6 +696,25 @@ def _evaluate(ledger: dict[str, Any], census: dict[str, Any]) -> tuple[list[dict
                         "degenerate",
                         f"baked node scale {[round(s, 3) for s in node['scale']]} — model at real size, reset xform",
                         node["name"],
+                    )
+                )
+        for comp in comps:
+            cname = str(comp["name"])
+            node = found.get(cname.lower())
+            if node is None or not kind_is_geometry(comp):
+                continue
+            how = _shaping_of(comp, node)
+            if cname in metrics["components"]:
+                metrics["components"][cname]["shaped"] = how or "raw-primitive"
+            if not how:
+                viols.append(
+                    _violation(
+                        "shaping",
+                        f"still a raw {node.get('baseclass') or node['class']} — cut or shape it (boolean_operation, "
+                        "draw_spline profile + Extrude/Lathe/Sweep, edit_vertices conform, "
+                        "deform modifiers), or declare primitive:true in the spec if this "
+                        "part truly is a bare primitive",
+                        cname,
                     )
                 )
 

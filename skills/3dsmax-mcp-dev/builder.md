@@ -91,6 +91,10 @@ declared `complexity`: simple 3/0, moderate 6/6, complex 10/12).
   needs at least one relational constraint
   (`ratios` / `symmetry` / `mirror_of` / `ground` / `touches`).
 - `floating: true` opts a component out of the must-touch-something check.
+- `primitive: true` declares a component intentionally a bare primitive
+  (a simple pin, a flat spacer) — the only way past the form-pass shaping
+  gate without shaping work. Declaring it on identity-carrying masses is
+  self-absolution with extra steps; the vision rubric still judges them.
 - `kind`: `geometry` (default) | `helper` | `shape`. A spline with mesh output
   (Extrude/Lathe/Sweep/Bevel_Profile on it) satisfies `geometry`; a bare
   profile spline does not — declare construction curves as `kind: shape`.
@@ -138,9 +142,13 @@ masses, `boolean_operation` for holes/insets/steps, `edit_vertices` conform
 for silhouette fixes, Bend/Taper/FFD/Chamfer/TurboSmooth where a uniform
 deformation truly is the shape. Gates add: degenerate (collapsed dims, baked
 node scale — model at real size; if you scaled a node, reset xform and
-re-check). Vision: does each form read as the reference's form, not a
-primitive? Curves where curves belong, hard edges where hard? If a component
-still reads as the box or cylinder it started from, the form pass is not done.
+re-check) and **shaping** — a geometry component whose base object is still a
+raw primitive with no shaping modifiers and no Boolean operands hard-fails;
+the gate does not advance box-and-cylinder blockouts. Parts that truly are
+bare primitives must say so in the spec (`primitive: true`). Vision: does each
+form read as the reference's form, not a primitive? Curves where curves
+belong, hard edges where hard? Metrics report how each component cleared the
+gate (`shaped`: base | boolean | modifier | declared-primitive).
 
 **material** — build and assign per spec zone. Gates add: assignment matches
 spec, class matches, declared params within tolerance. Vision: value/roughness
