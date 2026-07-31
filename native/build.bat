@@ -40,11 +40,14 @@ if not "%MAX_VERSION%"=="2023" if not "%MAX_VERSION%"=="2024" if not "%MAX_VERSI
     exit /b 1
 )
 
-set "MAXSDK_PATH=C:\Program Files\Autodesk\3ds Max %MAX_VERSION% SDK\maxsdk"
+set "MAXSDK_ENV=ADSK_3DSMAX_SDK_%MAX_VERSION%"
+set "MAXSDK_PATH=!%MAXSDK_ENV%!"
 set "BUILD_DIR=%NATIVE_DIR%\build-%MAX_VERSION%"
 set "OUT_DIR=%NATIVE_DIR%\bin"
 set "BUILT_GUP=%BUILD_DIR%\Release\mcp_bridge.gup"
 set "STAGED_GUP=%OUT_DIR%\mcp_bridge_%MAX_VERSION%.gup"
+
+echo %MAXSDK_PATH%
 
 if not exist "%MAXSDK_PATH%\include\max.h" (
     echo Missing 3ds Max %MAX_VERSION% SDK: %MAXSDK_PATH%
@@ -71,24 +74,10 @@ echo [3/3] Staging %STAGED_GUP%
 copy /Y "%BUILT_GUP%" "%STAGED_GUP%" >nul
 if errorlevel 1 exit /b 1
 
-if "%MAX_VERSION%"=="2026" (
-    copy /Y "%BUILT_GUP%" "%OUT_DIR%\mcp_bridge.gup" >nul
-    if errorlevel 1 exit /b 1
-)
-
-if "%DO_DEPLOY%"=="1" (
-    set "PLUGIN_DST=C:\Program Files\Autodesk\3ds Max %MAX_VERSION%\plugins\mcp_bridge.gup"
-    if exist "C:\Program Files\Autodesk\3ds Max %MAX_VERSION%\3dsmax.exe" (
-        echo Deploying to !PLUGIN_DST!
-        copy /Y "%STAGED_GUP%" "!PLUGIN_DST!" >nul
-        if errorlevel 1 (
-            echo Deploy failed. Run this batch file from an elevated terminal to deploy.
-            exit /b 1
-        )
-    ) else (
-        echo SKIP deploy: 3ds Max %MAX_VERSION% install not found.
-    )
-)
+set "BUNDLE_BIN=%NATIVE_DIR%\..\bundle\Contents\bin"
+if not exist "%BUNDLE_BIN%" mkdir "%BUNDLE_BIN%"
+copy /Y "%STAGED_GUP%" "%BUNDLE_BIN%\mcp_bridge_%MAX_VERSION%.gup" >nul
+if errorlevel 1 exit /b 1
 
 exit /b 0
 
@@ -99,4 +88,7 @@ exit /b 1
 
 :done
 echo.
+if "%DO_DEPLOY%"=="1" (
+    echo === Deploy: run uv run python install.py from repo root ===
+)
 echo === Done ===
