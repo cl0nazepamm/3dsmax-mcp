@@ -33,7 +33,35 @@ Skip skill deployment:
 uv run python install.py --skip-skill
 ```
 
-After install, restart 3ds Max. The installer deploys the native GUP for your Max version, copies startup MAXScript, writes config under `%LOCALAPPDATA%\3dsmax-mcp\`, builds the agent skill, and registers MCP entries where it can (Claude Desktop, Cursor, Gemini, CLI agents).
+After install, restart 3ds Max. The installer:
+
+1. Removes any **legacy** files copied into the Max install directory (`plugins\mcp_bridge.gup`, `scripts\mcp\`, `scripts\startup\mcp_autostart.ms`) from older installs.
+2. Deploys an **ApplicationPlugins bundle** to `%ProgramData%\Autodesk\ApplicationPlugins\3dsmax-mcp\` (native GUPs in `Contents\bin\`, MAXScript in `Contents\scripts\`).
+3. Writes user config under `%LOCALAPPDATA%\3dsmax-mcp\`, builds the agent skill, and registers MCP entries where it can (Claude Desktop, Cursor, Gemini, CLI agents).
+
+### Application package layout
+
+```
+%ProgramData%\Autodesk\ApplicationPlugins\3dsmax-mcp\
+  PackageContents.xml
+  Contents\
+    bin\mcp_bridge_2023.gup … mcp_bridge_2027.gup
+    scripts\mcp_server.ms
+```
+
+Manifest template: [`bundle/PackageContents.xml.in`](../bundle/PackageContents.xml.in). Max loads the GUP matching its version (`plugins parts`) and the shared TCP fallback script (`post-start-up scripts parts`).
+
+### Dev testing without install
+
+Build native binaries, stage the bundle, and point Max at it:
+
+```powershell
+native\build.bat all
+uv run python scripts/stage_bundle.py --dest bundle
+set ADSK_APPLICATION_PLUGINS=C:\path\to\3dsmax-mcp\bundle
+```
+
+Then launch 3ds Max. For a full install, run `uv run python install.py` (also migrates away legacy install-dir copies automatically).
 
 ## MCP client registration
 
@@ -186,7 +214,7 @@ External helper tools (for automation outside Max): `send_to_chat`, `chat_status
 
 Only needed when modifying C++ handlers.
 
-Install matching 3ds Max SDKs. Builds land in `native/bin/`; `install.py` deploys the binary for the detected Max version.
+Install matching 3ds Max SDKs. Builds land in `native/bin/` and are staged into `bundle/Contents/bin/`. Run `uv run python install.py` to deploy the application package to `%ProgramData%\Autodesk\ApplicationPlugins\3dsmax-mcp\`.
 
 ```powershell
 cd native

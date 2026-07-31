@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Template for PackageContents.xml — AppVersion is injected at install/stage time -->
+<ApplicationPackage
+  SchemaVersion="1.0"
+  AutodeskProduct="3ds Max"
+  ProductType="Application"
+  Name="3dsmax-mcp"
+  Description="MCP bridge for AI agents to control 3ds Max"
+  AppVersion="__APP_VERSION__"
+  FriendlyVersion="__APP_VERSION__"
+  ProductCode="{e2c7f59f-b2a3-489f-bf01-e2c6281126d0}"
+  UpgradeCode="{07bb0422-8d22-4fa8-bfb6-4cadc7b5cf4c}">
+  <CompanyDetails Name="Metaverse Makers" />
+  <Components Description="plugins parts">
+    <RuntimeRequirements OS="Win64" Platform="3ds Max" SeriesMin="2023" SeriesMax="2023" />
+    <ComponentEntry ModuleName="./Contents/bin/mcp_bridge_2023.gup" />
+  </Components>
+  <Components Description="plugins parts">
+    <RuntimeRequirements OS="Win64" Platform="3ds Max" SeriesMin="2024" SeriesMax="2024" />
+    <ComponentEntry ModuleName="./Contents/bin/mcp_bridge_2024.gup" />
+  </Components>
+  <Components Description="plugins parts">
+    <RuntimeRequirements OS="Win64" Platform="3ds Max" SeriesMin="2025" SeriesMax="2025" />
+    <ComponentEntry ModuleName="./Contents/bin/mcp_bridge_2025.gup" />
+  </Components>
+  <Components Description="plugins parts">
+    <RuntimeRequirements OS="Win64" Platform="3ds Max" SeriesMin="2026" SeriesMax="2026" />
+    <ComponentEntry ModuleName="./Contents/bin/mcp_bridge_2026.gup" />
+  </Components>
+  <Components Description="plugins parts">
+    <RuntimeRequirements OS="Win64" Platform="3ds Max" SeriesMin="2027" SeriesMax="2027" />
+    <ComponentEntry ModuleName="./Contents/bin/mcp_bridge_2027.gup" />
+  </Components>
+  <Components Description="post-start-up scripts parts">
+    <RuntimeRequirements OS="Win64" Platform="3ds Max" SeriesMin="2023" SeriesMax="2027" />
+    <ComponentEntry ModuleName="./Contents/scripts/mcp_server.ms" />
+  </Components>
+</ApplicationPackage>
