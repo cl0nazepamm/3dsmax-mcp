@@ -78,9 +78,6 @@ namespace NativeHandlers {
     std::string CaptureScreen(const std::string& params, MCPBridgeGUP* gup);
     std::string IsolateAndCaptureSelected(const std::string& params, MCPBridgeGUP* gup);
 
-    // Advanced Vision overlay
-    std::string AdvancedVision(const std::string& params, MCPBridgeGUP* gup);
-
     // Phase 6: Material writes
     std::string AssignMaterial(const std::string& params, MCPBridgeGUP* gup);
     std::string SetMaterialProperty(const std::string& params, MCPBridgeGUP* gup);

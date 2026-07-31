@@ -127,7 +127,6 @@ static bool IsMutatingNativeHandler(const std::string& cmd_type) {
         "native:batch_rename_objects",
         "native:manage_scene",
         "native:merge_from_file",
-        "native:advancedvision",
         "native:assign_material",
         "native:set_material_property",
         "native:set_material_properties",
@@ -544,8 +543,6 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::CaptureScreen(command, gup);
         } else if (cmd_type == "native:isolate_and_capture_selected") {
             result = NativeHandlers::IsolateAndCaptureSelected(command, gup);
-        } else if (cmd_type == "native:advancedvision") {
-            result = NativeHandlers::AdvancedVision(command, gup);
         // Phase 6: Material writes
         } else if (cmd_type == "native:assign_material") {
             result = NativeHandlers::AssignMaterial(command, gup);

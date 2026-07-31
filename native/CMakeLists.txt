@@ -101,7 +101,6 @@ set(SOURCES
     src/handlers/file_handlers.cpp
     src/handlers/viewport_handlers.cpp
     src/handlers/identify_handlers.cpp
-    src/handlers/advancedvision_handlers.cpp
     src/handlers/material_handlers.cpp
     src/handlers/material_network_handlers.cpp
     src/handlers/material_library_handlers.cpp

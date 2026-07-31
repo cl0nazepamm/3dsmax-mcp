@@ -93,7 +93,22 @@ def _coerce_dict_list(v: object) -> object:
     return v
 
 
+def _coerce_dict_value(v: object) -> object:
+    if isinstance(v, str):
+        # '{"count": 3}' → {"count": 3}  (stringified JSON object)
+        s = v.strip()
+        if s.startswith("{") and s.endswith("}"):
+            try:
+                parsed = _json.loads(s)
+                if isinstance(parsed, dict):
+                    return parsed
+            except (ValueError, TypeError):
+                pass
+    return v
+
+
 StrList = Annotated[list[str], BeforeValidator(_coerce_str_list)]
 IntList = Annotated[list[int], BeforeValidator(_coerce_int_list)]
 FloatList = Annotated[list[float], BeforeValidator(_coerce_float_list)]
 DictList = Annotated[list[dict], BeforeValidator(_coerce_dict_list)]
+DictValue = Annotated[dict, BeforeValidator(_coerce_dict_value)]

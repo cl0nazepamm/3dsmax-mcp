@@ -207,7 +207,6 @@ CORE_TOOL_MODULES = (
     "plugins",
     "organize",
     "viewport",
-    # "advancedvision",  # WIP — code kept & compiled, tool not exposed yet
     "identify",
     "file_access",
     "learning",
@@ -218,7 +217,6 @@ CORE_TOOL_MODULES = (
 )
 
 SPECIALTY_TOOL_MODULES = (
-    "builder",
     "chat",
     "data_channel",
     "effects",

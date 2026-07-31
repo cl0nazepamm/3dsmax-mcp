@@ -2,7 +2,16 @@
 
 All notable changes to this project are documented here.
 
-## [1.6.0] — 2026-07-31
+## [1.7.0] — 2026-07-31
+
+### Changed
+
+- `boolean_operation action=apply`: inline `cutters` — scratch primitives defined in-call ({name, shape: box|cylinder|sphere, size, pos (bbox center), rot, operation?}), created, named, and consumed atomically; failed appends are deleted on the spot, so no scene litter on any path. `repeat` {count, axis, spacing} arrays every cutter along an axis (`vent_1..N` naming) for vents, ribs, and window grids. `operands` is now optional when `cutters` is given.
+- New `DictValue` coerced type (stringified JSON objects absorbed, same spirit as the list coercions).
+
+### Removed
+
+- Builder mode (`builder_session`, `builder_gate`, builder.md) and the unexposed advanced-vision overlay (Python module + native handler) are out of the tree. Field runs showed builder output quality tracks the driver model too steeply to ship; retrieve from git history if revisited. Native rebuild drops the dead `native:advancedvision` handler — no callers remain.
 
 Modeling release: booleans, splines, vertex fitting — and builder mode taught to use them. Python-side only; no native redeploy needed.
 

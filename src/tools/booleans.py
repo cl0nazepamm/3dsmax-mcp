@@ -4,7 +4,7 @@ One tool, action-dispatched: apply operands (union/subtract/intersect/...),
 list the operand stack, retune/rename/disable an operand, remove or extract
 one.  Non-live appends CONSUME the operand node (its geometry is captured into
 the modifier and the scene node is deleted) — the operand keeps its node name
-inside the modifier, which is what builder-mode detail anchors match against.
+inside the modifier, so name cutters after the feature they cut.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from ..coerce import StrList
+from ..coerce import DictList, DictValue, StrList
 from ..helpers.maxscript import safe_string
 from ..server import client, mcp
 
@@ -33,9 +33,119 @@ OPERATIONS = {
 OPTIONS = {"": "#none", "none": "#none", "imprint": "#imprint", "cookie": "#cookie"}
 METHODS = {"": None, "mesh": 0, "openvdb": 1}
 
+# Inline cutter shapes -> script enum (1=box, 2=cylinder, 3=sphere).
+CUTTER_SHAPES = {"box": 1, "cylinder": 2, "sphere": 3}
+AXES = {
+    "x": (1.0, 0.0, 0.0),
+    "y": (0.0, 1.0, 0.0),
+    "z": (0.0, 0.0, 1.0),
+    "-x": (-1.0, 0.0, 0.0),
+    "-y": (0.0, -1.0, 0.0),
+    "-z": (0.0, 0.0, -1.0),
+}
+MAX_CUTTER_INSTANCES = 200
+
 
 def _op_enum(token: str) -> str | None:
     return OPERATIONS.get(token.strip().lower())
+
+
+def _triple(v: Any, what: str) -> tuple[list[float] | None, str]:
+    """[x,y,z] (or a single number -> uniform) as floats."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return [float(v)] * 3, ""
+    if isinstance(v, (list, tuple)) and len(v) == 3:
+        try:
+            return [float(x) for x in v], ""
+        except (TypeError, ValueError):
+            pass
+    return None, f"{what} must be a number or [x, y, z]"
+
+
+def _fmt3(v: list[float]) -> str:
+    return "[" + ", ".join(f"{x:.6g}" for x in v) + "]"
+
+
+def _normalize_cutters(
+    cutters: list[Any], repeat: dict[str, Any], default_enum: str
+) -> tuple[list[dict[str, Any]] | None, str]:
+    """Expand cutter defs (+ optional repeat) into flat, validated instances."""
+    reps, axis, spacing = 1, AXES["x"], 0.0
+    if repeat:
+        try:
+            reps = int(repeat.get("count", 0))
+        except (TypeError, ValueError):
+            return None, "repeat.count must be an integer"
+        if reps < 1:
+            return None, "repeat.count must be >= 1"
+        ax = str(repeat.get("axis", "x")).strip().lower()
+        if ax not in AXES:
+            return None, f"repeat.axis must be one of {sorted(AXES)}"
+        axis = AXES[ax]
+        try:
+            spacing = float(repeat.get("spacing", 0.0))
+        except (TypeError, ValueError):
+            return None, "repeat.spacing must be a number"
+        if reps > 1 and spacing <= 0:
+            return None, "repeat.spacing must be > 0 (flip direction with a signed axis, e.g. '-x')"
+    instances: list[dict[str, Any]] = []
+    for idx, c in enumerate(cutters):
+        if not isinstance(c, dict):
+            return None, f"cutters[{idx}] must be an object"
+        nm = str(c.get("name", "")).strip()
+        if not nm:
+            return None, f"cutters[{idx}]: name is required (it becomes the operand name)"
+        shape = CUTTER_SHAPES.get(str(c.get("shape", "box")).strip().lower())
+        if shape is None:
+            return None, f"cutters[{idx}]: shape must be box, cylinder, or sphere"
+        size, err = _triple(c.get("size"), f"cutters[{idx}].size")
+        if err:
+            return None, err
+        if min(size) <= 0:
+            return None, f"cutters[{idx}].size values must be > 0"
+        pos, err = _triple(c.get("pos", [0.0, 0.0, 0.0]), f"cutters[{idx}].pos")
+        if err:
+            return None, err
+        rot, err = _triple(c.get("rot", [0.0, 0.0, 0.0]), f"cutters[{idx}].rot")
+        if err:
+            return None, err
+        op_token = str(c.get("operation", "")).strip()
+        enum = _op_enum(op_token) if op_token else default_enum
+        if enum is None:
+            return None, f"cutters[{idx}]: unknown operation '{op_token}'"
+        for i in range(reps):
+            instances.append(
+                {
+                    "name": nm if reps == 1 else f"{nm}_{i + 1}",
+                    "shape": shape,
+                    "size": size,
+                    "pos": [pos[k] + axis[k] * spacing * i for k in range(3)],
+                    "rot": rot,
+                    "enum": enum,
+                }
+            )
+    if len(instances) > MAX_CUTTER_INSTANCES:
+        return None, f"cutter expansion produced {len(instances)} instances (cap {MAX_CUTTER_INSTANCES})"
+    return instances, ""
+
+
+# Cutters are created inside the same undo block, appended alongside named
+# operands, and any cutter whose append FAILS is deleted on the spot — no
+# scene litter on any path.  d = #(name, shapeEnum, size, posCenter, rotEuler, opEnum)
+_CUTTER_SCRIPT = """local madeCutters = #()
+            for d in cutDefs do (
+                local c
+                if d[2] == 1 then c = Box width:d[3].x length:d[3].y height:d[3].z
+                else if d[2] == 2 then c = Cylinder radius:((amin #(d[3].x, d[3].y)) / 2.0) height:d[3].z
+                else c = Sphere radius:((amin #(d[3].x, d[3].y, d[3].z)) / 2.0)
+                c.name = d[1]
+                if d[5] != [0,0,0] do c.rotation = eulerAngles d[5].x d[5].y d[5].z
+                c.pos += d[4] - c.center
+                append madeCutters c
+                append opNodes c
+                append opEnums d[6]
+                append opNames d[1]
+            )"""
 
 
 def _err(message: str, **extra: Any) -> dict[str, Any]:
@@ -68,6 +178,8 @@ def boolean_operation(
     action: str = "apply",
     name: str = "",
     operands: Optional[StrList] = None,
+    cutters: Optional[DictList] = None,
+    repeat: Optional[DictValue] = None,
     operation: str = "",
     operations: Optional[StrList] = None,
     operation_option: str = "",
@@ -84,14 +196,20 @@ def boolean_operation(
     """Boolean modeling on a base object via the Boolean modifier (BooleanMod).
 
     Actions:
-    - apply: append `operands` (node names) with `operation` — union | subtract |
-      intersect | merge | attach | insert | split. Reuses the topmost BooleanMod
-      unless new_modifier=true. Non-live operands are CONSUMED (scene node deleted,
-      geometry captured; the operand keeps its name inside the modifier). live=true
-      keeps operand nodes in the scene (hidden) for later transform tweaks.
+    - apply: append `operands` (node names) and/or `cutters` (inline defs) with
+      `operation` — union | subtract | intersect | merge | attach | insert | split.
+      Reuses the topmost BooleanMod unless new_modifier=true. Non-live operands are
+      CONSUMED (scene node deleted, geometry captured; the operand keeps its name
+      inside the modifier). live=true keeps operand nodes in the scene (hidden).
       `operations` optionally overrides per operand (parallel to `operands`).
       operation_option: imprint (edges only) | cookie (cut without adding faces).
       method: mesh (default) | openvdb (+ voxel_size for VDB resolution).
+      `cutters`: scratch primitives built and applied in the same call — never
+      litter the scene. Each: {name (required), shape: box|cylinder|sphere (default
+      box), size: [x,y,z] or number, pos: [x,y,z] bbox CENTER, rot: [deg,deg,deg],
+      operation?}. Cylinder is Z-axis (rot to orient); size a through-cut past both
+      faces. `repeat` {count, axis: x|y|z|-x|-y|-z, spacing} arrays every cutter
+      along the axis, naming instances <name>_1..N.
     - list: enumerate operand stack — flat index, name, operation, option, disabled.
     - set_operand: retune operand at operand_index — operation / operation_option /
       rename (anchor-friendly) / disable.
@@ -108,8 +226,11 @@ def boolean_operation(
 
     if action == "apply":
         ops = [str(o) for o in (operands or []) if str(o).strip()]
-        if not ops:
-            return _err("operands: at least one operand node name is required")
+        cutter_list = list(cutters or [])
+        if repeat and not cutter_list:
+            return _err("repeat requires cutters")
+        if not ops and not cutter_list:
+            return _err("operands (node names) and/or cutters (inline defs) required")
         if any(o.lower() == name.lower() for o in ops):
             return _err("an object cannot be a boolean operand of itself")
         default_token = operation.strip() or "subtract"
@@ -129,6 +250,35 @@ def boolean_operation(
         meth = METHODS.get(method.strip().lower(), "bad")
         if meth == "bad":
             return _err("method must be 'mesh' or 'openvdb'")
+        cut_instances: list[dict[str, Any]] = []
+        if cutter_list:
+            cut_instances, cut_err = _normalize_cutters(cutter_list, repeat or {}, _op_enum(default_token))
+            if cut_err:
+                return _err(cut_err)
+            if any(ci["name"].lower() == name.lower() for ci in cut_instances):
+                return _err("a cutter cannot be named after the base object")
+            combined = [o.lower() for o in ops] + [ci["name"].lower() for ci in cut_instances]
+            if len(set(combined)) != len(combined):
+                return _err("operand/cutter names must be unique within one call")
+        cutter_block = ""
+        fail_cleanup = ""
+        if cut_instances:
+            cut_defs = "#(" + ", ".join(
+                '#("%s", %d, %s, %s, %s, %s)'
+                % (
+                    safe_string(ci["name"]),
+                    ci["shape"],
+                    _fmt3(ci["size"]),
+                    _fmt3(ci["pos"]),
+                    _fmt3(ci["rot"]),
+                    ci["enum"],
+                )
+                for ci in cut_instances
+            ) + ")"
+            cutter_block = f"local cutDefs = {cut_defs}\n            {_CUTTER_SCRIPT}\n            "
+            fail_cleanup = (
+                "\n                    if (findItem madeCutters opNodes[i]) > 0 do (try (delete opNodes[i]) catch ())"
+            )
 
         names_arr = "#(" + ", ".join(f'"{safe_string(o)}"' for o in ops) + ")"
         enums_arr = "#(" + ", ".join(per_op) + ")"
@@ -170,11 +320,13 @@ def boolean_operation(
         undo "Boolean" on (
             {find_or_make}
             {chr(10).join("            " + p for p in props)}
-            local failed = ""
+            {cutter_block}local failed = ""
             for i = 1 to opNodes.count do (
                 local ok = false
                 try (ok = bm.appendOperand #single operandNode:opNodes[i] operationType:opEnums[i] operationOption:{opt}) catch ()
-                if not ok do failed += opNames[i] + ", "
+                if not ok do (
+                    failed += opNames[i] + ", "{fail_cleanup}
+                )
             )
             local tris = 0
             try (tris = (GetTriMeshFaceCount obj)[1]) catch ()
@@ -192,14 +344,17 @@ def boolean_operation(
         if len(parts) < 6 or parts[0] != "OK":
             return _err(f"unexpected bridge reply: {raw[:200]}")
         failed = [f.strip() for f in parts[5].split(",") if f.strip()]
+        all_names = ops + [ci["name"] for ci in cut_instances]
         result: dict[str, Any] = {
             "modifier": parts[1],
             "new_modifier": parts[2] == "true",
             "operands_total": int(parts[3]) if parts[3].isdigit() else 0,
-            "appended": [o for o in ops if o not in failed],
+            "appended": [o for o in all_names if o not in failed],
             "tris": int(parts[4]) if parts[4].isdigit() else 0,
             "live": live,
         }
+        if cut_instances:
+            result["cutters_created"] = [ci["name"] for ci in cut_instances]
         if failed:
             result["failed"] = failed
         if not live:

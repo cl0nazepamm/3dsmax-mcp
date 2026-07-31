@@ -192,5 +192,107 @@ class TestPolyEditValidation(Patched):
         self.assertIn("note", r)
 
 
+class TestInlineCutters(Patched):
+    module = booleans
+
+    def test_repeat_expansion_names_and_offsets(self):
+        inst, err = booleans._normalize_cutters(
+            [{"name": "vent", "size": [10, 4, 30], "pos": [100, 0, 0]}],
+            {"count": 3, "axis": "-x", "spacing": 12},
+            "#subtraction",
+        )
+        self.assertEqual(err, "")
+        self.assertEqual([i["name"] for i in inst], ["vent_1", "vent_2", "vent_3"])
+        self.assertEqual([i["pos"][0] for i in inst], [100.0, 88.0, 76.0])
+
+    def test_single_count_keeps_bare_name_and_scalar_size(self):
+        inst, err = booleans._normalize_cutters(
+            [{"name": "hole", "shape": "cylinder", "size": 20}], {}, "#subtraction"
+        )
+        self.assertEqual(err, "")
+        self.assertEqual(inst[0]["name"], "hole")
+        self.assertEqual(inst[0]["size"], [20.0, 20.0, 20.0])
+
+    def test_bad_shape_rejected(self):
+        _, err = booleans._normalize_cutters([{"name": "x", "shape": "torus", "size": 5}], {}, "#union")
+        self.assertIn("shape", err)
+
+    def test_missing_name_rejected(self):
+        _, err = booleans._normalize_cutters([{"size": 5}], {}, "#union")
+        self.assertIn("name", err)
+
+    def test_zero_size_rejected(self):
+        _, err = booleans._normalize_cutters([{"name": "x", "size": [5, 0, 5]}], {}, "#union")
+        self.assertIn("> 0", err)
+
+    def test_spacing_required_for_multi(self):
+        _, err = booleans._normalize_cutters(
+            [{"name": "x", "size": 5}], {"count": 2, "axis": "x"}, "#union"
+        )
+        self.assertIn("spacing", err)
+
+    def test_instance_cap(self):
+        _, err = booleans._normalize_cutters(
+            [{"name": "x", "size": 5}], {"count": 201, "axis": "x", "spacing": 1}, "#union"
+        )
+        self.assertIn("cap", err)
+
+    def test_repeat_requires_cutters(self):
+        r = boolean_operation(action="apply", name="Base", repeat={"count": 2})
+        self.assertEqual(r["status"], "error")
+        self.assertIn("repeat requires cutters", r["error"])
+
+    def test_cutter_named_base_rejected(self):
+        r = boolean_operation(
+            action="apply", name="Base", cutters=[{"name": "base", "size": 5}]
+        )
+        self.assertEqual(r["status"], "error")
+        self.assertIn("base object", r["error"])
+
+    def test_duplicate_names_rejected(self):
+        self.use("")
+        r = boolean_operation(
+            action="apply", name="Base", operands=["A"], cutters=[{"name": "a", "size": 5}]
+        )
+        self.assertEqual(r["status"], "error")
+        self.assertIn("unique", r["error"])
+
+    def test_apply_cutters_only_script_and_reply(self):
+        fake = self.use("OK|Boolean|true|2|321|")
+        r = boolean_operation(
+            action="apply",
+            name="Base",
+            cutters=[{"name": "hole", "shape": "cylinder", "size": [10, 10, 60]}],
+        )
+        self.assertEqual(r["cutters_created"], ["hole"])
+        self.assertIn("hole", r["appended"])
+        self.assertIn("hole", r["consumed"])
+        script = fake.scripts[0]
+        self.assertIn("cutDefs", script)
+        self.assertIn("Cylinder radius:", script)
+        self.assertIn("findItem madeCutters", script)
+
+    def test_apply_mixed_operands_and_cutters(self):
+        fake = self.use("OK|Boolean|false|3|500|")
+        r = boolean_operation(
+            action="apply",
+            name="Base",
+            operands=["Cap"],
+            operation="union",
+            cutters=[{"name": "slot", "size": [4, 40, 30], "operation": "subtract"}],
+        )
+        self.assertEqual(sorted(r["appended"]), ["Cap", "slot"])
+        script = fake.scripts[0]
+        self.assertIn('"Cap"', script)
+        self.assertIn('"slot"', script)
+        self.assertIn("#subtraction", script)
+        self.assertIn("#union", script)
+
+    def test_no_cutter_block_without_cutters(self):
+        fake = self.use("OK|Boolean|true|1|100|")
+        boolean_operation(action="apply", name="Base", operands=["A"])
+        self.assertNotIn("cutDefs", fake.scripts[0])
+
+
 if __name__ == "__main__":
     unittest.main()

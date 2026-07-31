@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 153,
+  "tool_count": 150,
   "starter_tools": [
     "query_scene",
     "get_session_context",
@@ -354,25 +354,12 @@
     {
       "name": "Other",
       "hint": "",
-      "tool_count": 18,
+      "tool_count": 15,
       "categories": [
-        {
-          "name": "Advancedvision",
-          "tools": [
-            "advancedvision"
-          ]
-        },
         {
           "name": "Booleans",
           "tools": [
             "boolean_operation"
-          ]
-        },
-        {
-          "name": "Builder",
-          "tools": [
-            "builder_gate",
-            "builder_session"
           ]
         },
         {
@@ -3076,46 +3063,6 @@
       "starter": false
     },
     {
-      "name": "advancedvision",
-      "description": "Single compact visual-assist tool for viewport-editing experiments.",
-      "category": "Advancedvision",
-      "group": "Other",
-      "module": "advancedvision",
-      "schema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "components": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "target": {
-            "type": "string"
-          },
-          "max_ids": {
-            "type": "integer"
-          },
-          "id_base": {
-            "type": "integer"
-          },
-          "text_size": {
-            "type": "number"
-          },
-          "hud": {
-            "type": "boolean"
-          }
-        }
-      },
-      "example": {},
-      "risk": "read",
-      "routing": "native:advancedvision",
-      "starter": false
-    },
-    {
       "name": "boolean_operation",
       "description": "Boolean modeling on a base object via the Boolean modifier (BooleanMod).",
       "category": "Booleans",
@@ -3136,6 +3083,13 @@
               "type": "string"
             }
           },
+          "cutters": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "repeat": {},
           "operation": {
             "type": "string"
           },
@@ -3180,101 +3134,6 @@
       "example": {},
       "risk": "read",
       "routing": "python",
-      "starter": false
-    },
-    {
-      "name": "builder_gate",
-      "description": "The only door between builder passes: deterministic census gates, then a multi-view capture for agent-vision review, then a single recorded verdict.",
-      "category": "Builder",
-      "group": "Other",
-      "module": "builder",
-      "schema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "verdict": {
-            "type": "string"
-          },
-          "evidence": {
-            "type": "string"
-          },
-          "changes": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "views": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "capture": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "action",
-          "name"
-        ]
-      },
-      "example": {
-        "action": "info",
-        "name": "$first_object"
-      },
-      "risk": "read",
-      "routing": "python",
-      "starter": false
-    },
-    {
-      "name": "builder_session",
-      "description": "Manage a builder-mode session: spec-gated staged asset construction.",
-      "category": "Builder",
-      "group": "Other",
-      "module": "builder",
-      "schema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "object_desc": {
-            "type": "string"
-          },
-          "reference": {
-            "type": "string"
-          },
-          "units": {
-            "type": "string"
-          },
-          "complexity": {
-            "type": "string"
-          },
-          "spec": {},
-          "delete_nodes": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "action",
-          "name"
-        ]
-      },
-      "example": {
-        "action": "info",
-        "name": "$first_object"
-      },
-      "risk": "read",
-      "routing": "maxscript",
       "starter": false
     },
     {
