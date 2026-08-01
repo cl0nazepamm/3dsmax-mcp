@@ -153,20 +153,6 @@ The `code` string is delivered as a JSON value, so it is **un-escaped once befor
 - MCP tripback is a structured `ToolEnvelope` dict (`ok`/`result`/`error`/`hint`), not a JSON string. Error envelopes may include `hint.suggested_tools`; tool-authored hints win over auto-hints.
 - Success JSON payloads may include `message`; classify raw structured errors by `error`, `code`, or `status=error|failed`, not by `message` alone.
 - Never issue mutating native tool calls concurrently: pre-guard bridges interleaved `theHold` transactions via nested message pumps (0xC0000005, then persistent corruption — phantom successes, wrong handles, bad class resolution). The main-thread executor now defers work items that arrive mid-item, but keep agent-side mutations sequential regardless.
-- Native cross-version builds: `INode::IsSceneNode()` is unavailable in the Max 2023 SDK; use `!node->IsSceneXRefNode()` when the actual requirement is excluding XRef-only dependents.
-- Native cross-version builds: `Interface::GetMatLibFileName()` returns `const MCHAR*` in Max 2023–2024 and `MSTR` in Max 2025+; wrap the return behind `MAX_SDK_VERSION` before converting to UTF-8.
-- Native GDI+ capture: initialize lazily outside the DLL loader lock, and do not call `GdiplusShutdown` when a detached capture worker failed to drain during GUP shutdown.
-- Native viewport proof capture: guard viewport, hidden, and selection state with RAII; reserve unique outputs and validate GDI+ status, decoded dimensions, and nonzero file size before returning.
-- Native class discovery: iterate filtered `SubClassList` entries with `GetFirst(ACC_PUBLIC)` / `GetNext(ACC_PUBLIC)` and index `operator[]` with those returned zero-based indices; `1..Count(...)` walks past the end and can surface as an unknown main-thread exception.
-- Native reference cloning: reuse one `RemapDir` for a related object graph and call `Backpatch()` before serializing, but use a fresh `RemapDir` per independent top-level material-library entry or repeated source pointers collapse and change MAXScript `copy` counts.
-- Native class labels: `ClassDesc::InternalName()` is not always `(classOf value) as string` (`OpenPBR` vs `OpenPBR_Material`); on the main thread use the MAXScript C++ `MAXClass` metadata registry inside `ScopedMaxScriptEvaluationContext` for script-visible names without evaluating MAXScript.
-- Native class enumeration from a GUP: `MAXClass::classes`, `MAXClass::n_classes`, and `MAXSuperClass::complete_init()` are declared but not exported by `MaxScrpt.lib`, while `MAXSuperClass::get_classes()` can throw from a GUP; enumerate `SubClassList` public and private entries, resolve each token with `MAXClass::lookup_class` inside `ScopedMaxScriptEvaluationContext`, and sort by unsigned `Class_ID` to match MAXScript `.classes`.
-- Native cross-version MAXScript metadata: Max 2023 only exposes `MAXClass::lookup_class(Class_ID*, ...)`, while 2024+ also accepts const/reference overloads; pass a mutable local `Class_ID` by pointer for one source path across 2023–2027.
-- Native object creation: every returned `ReferenceTarget` needs a persistent owner such as an assigned node, material library, or reference maker before the handler returns.
-- Native capture output: sanitized node names can collide case-insensitively on Windows; disambiguate same-call filenames with the anim handle.
-- Native instance grouping: never use a null base-object pointer as a shared identity key; keep unresolved roots in separate groups.
-- Native MAXScript parity: superclass tokens are case-sensitive contract values such as `material` and `textureMap`, not UI labels like `Material` and `TextureMap`.
-- Standalone chat bypasses Python result postprocessors; native batch/file handlers must emit a top-level error status when any non-skipped item fails.
 
 ### Keyframes (`keyframe_tracks`)
 - **`action=list`** — read-only inspection; pass `from_time`/`to_time` for `loopGaps`. Parent `numKeys` is often 0 — keys live on Bezier Float sub-controllers.
