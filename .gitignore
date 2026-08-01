@@ -29,7 +29,11 @@ native/build-*/
 native/build2027/
 native/generated/
 !native/bin/
+
+# Staged bundle outputs (build.bat / stage_bundle.py); template + .gitkeep stay tracked
 bundle/PackageContents.xml
+bundle/Contents/bin/*.gup
+bundle/Contents/scripts/
 
 # Dev convenience scripts are personal — install.py is the user-facing installer,
 # build.bat/clean.bat stay for devs who want a bare build. Everything else is local.

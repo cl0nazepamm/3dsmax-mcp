@@ -58,6 +58,23 @@ def rmdir(path: Path):
     shutil.rmtree(path, ignore_errors=True)
 
 
+def remove_dir_elevated(path: Path) -> bool:
+    """Remove a directory tree, elevating to admin if needed."""
+    if not path.exists():
+        return True
+    try:
+        shutil.rmtree(path)
+        return True
+    except (PermissionError, OSError):
+        cmd = f'rmdir /S /Q "{path}"'
+        subprocess.run(
+            ["powershell", "-Command",
+             f'Start-Process -FilePath cmd.exe -ArgumentList \'/c {cmd}\' -Verb RunAs -Wait'],
+            capture_output=True, timeout=30,
+        )
+        return not path.exists()
+
+
 def remove_max_deployment(max_dir: Path) -> None:
     """Remove native bridge and MAXScript listener from one Max installation."""
     gup = max_dir / "plugins" / "mcp_bridge.gup"
@@ -86,18 +103,28 @@ def main():
     print("  3dsmax-mcp uninstaller")
     print("=" * 60)
 
-    # 1. Remove native bridge + MAXScript from Max
+    # 1. Remove legacy native bridge + MAXScript copies from Max install dirs
     max_dirs = find_max_installations()
     if max_dirs:
-        print(f"\n[1/4] Removing native bridge + MAXScript from {len(max_dirs)} installation(s)")
+        print(f"\n[1/5] Removing legacy bridge + MAXScript from {len(max_dirs)} installation(s)")
         for max_dir in max_dirs:
             print(f"\n  {max_dir}")
             remove_max_deployment(max_dir)
     else:
-        print("\n[1/4] SKIP: 3ds Max not found")
+        print("\n[1/5] SKIP: 3ds Max not found")
 
-    # 2. remove skill files, symlinks, junctions, and .skill archives
-    print("\n[2/4] Removing skill files")
+    # 2. remove the ApplicationPlugins bundle
+    print(f"\n[2/5] Removing application package")
+    package_dir = install.APPLICATION_PACKAGE_DST
+    if not package_dir.exists():
+        print(f"  Already gone: {package_dir}")
+    elif remove_dir_elevated(package_dir):
+        print(f"  Removed: {package_dir}")
+    else:
+        print(f"  FAILED: {package_dir} (close 3ds Max and re-run)")
+
+    # 3. remove skill files, symlinks, junctions, and .skill archives
+    print("\n[3/5] Removing skill files")
     SKILL_NAME = "3dsmax-mcp-dev"
 
     skill_dirs = [

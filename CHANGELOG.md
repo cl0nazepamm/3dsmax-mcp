@@ -2,80 +2,33 @@
 
 All notable changes to this project are documented here.
 
-## [1.7.0] — 2026-07-31
+## [1.5.0] — 2026-08-01
 
-### Changed
-
-- `boolean_operation action=apply`: inline `cutters` — scratch primitives defined in-call ({name, shape: box|cylinder|sphere, size, pos (bbox center), rot, operation?}), created, named, and consumed atomically; failed appends are deleted on the spot, so no scene litter on any path. `repeat` {count, axis, spacing} arrays every cutter along an axis (`vent_1..N` naming) for vents, ribs, and window grids. `operands` is now optional when `cutters` is given.
-- New `DictValue` coerced type (stringified JSON objects absorbed, same spirit as the list coercions).
-
-### Removed
-
-- Builder mode (`builder_session`, `builder_gate`, builder.md) and the unexposed advanced-vision overlay (Python module + native handler) are out of the tree. Field runs showed builder output quality tracks the driver model too steeply to ship; retrieve from git history if revisited. Native rebuild drops the dead `native:advancedvision` handler — no callers remain.
-
-Modeling release: booleans, splines, vertex fitting — and builder mode taught to use them. Python-side only; no native redeploy needed.
+Modeling tools, faster native inspection/material workflows, and a new install format.
 
 ### Added
 
 - `boolean_operation`: Boolean modifier (BooleanMod) workflows — apply union/subtract/intersect/merge/attach/insert/split operands (imprint/cookie options, mesh/OpenVDB method, live references), list/retune/rename/disable operands, remove or extract them. Non-live operands are consumed and keep their node names in the operand list. Extract handles the Modify-panel context requirement internally.
+- `boolean_operation action=apply`: inline `cutters` — scratch primitives defined in-call ({name, shape: box|cylinder|sphere, size, pos (bbox center), rot, operation?}), created, named, and consumed atomically; failed appends are deleted on the spot, so no scene litter on any path. `repeat` {count, axis, spacing} arrays every cutter along an axis (`vent_1..N` naming) for vents, ribs, and window grids. `operands` is optional when `cutters` is given.
 - `draw_spline`: spline authoring from world-space points (corner/smooth/bezier knots, closed loops, multi-spline holes via add_spline), knot readback with length-uniform samples, knot edits (bezier handles dragged along by default), insert/delete knots, renderable thickness.
 - `edit_vertices`: Editable_Poly vertex reads (index/bbox/radius filters), moves with soft (1-d/r)² falloff, explicit sets, and conform — pull verts onto a spline (axis-masked, e.g. fit the xz silhouette while preserving width) or ray-project onto geometry. World-space; edits the poly base beneath live modifiers.
 
-### Changed (builder mode)
-
-- Form pass gains a deterministic **shaping gate**: geometry components whose base object is still a raw primitive (no shaping modifiers, no Boolean operands) hard-fail until booleaned, spline-built, poly-edited, or deformed — or declared `primitive: true` in the spec. Detection keys off the base-object class (any modifier flips the world-state class to Editable_mesh) and ignores non-silhouette modifiers (UVW map, Smooth, ...). Metrics report the route each component cleared it (`shaped`: base | boolean | modifier | declared-primitive).
-- Boolean operand names count as detail anchors; new detail `via` kinds `boolean` and `spline`.
-- Extruded/lathed splines (mesh output) satisfy geometry coverage; bare profile splines fail with a hint; mesh-producing shapes are now held to the unspecced-geometry gate at finish.
-- Gate metrics include per-component `center_off_root`.
-- builder.md: shaping-toolkit section (boolean cuts, spline profiles, vertex conform); the form rubric now rejects components that still read as their source primitive.
-
-## [1.5.1] — 2026-07-26
-
-Builder-mode hardening from the first external field run (M4 carbine): the pipeline completed but the vision layer self-absolved and two cameras were left at scene root.
-
-### Added
-
-- Session-litter gate: `start` records scene-root nodes in the ledger; any node appearing at scene root afterwards warns during the build and hard-fails at finish. Catches abandoned projection cameras and misfired tool calls that the descendants-only census could not see.
-- Per-detail review: `check` returns `details_to_review` at the detail pass and `record continue` is refused unless the evidence names every detail id — one grid glance cannot verify sixteen features.
-- Hedge-word gate: `record continue` refuses evidence containing self-absolving vocabulary ("stylized", "proxy", "placeholder", "chunky", "acceptable for", "good enough", "for now"); those are `refine-scene` words.
-- Optional `budget.min_tris` underbuild floor, checked at finish.
-
 ### Changed
 
-- Projection recipe requires the camera parented under the root on `_builder`, plus a silhouette-match acceptance test before the map is wired — an unmatched camera projects garbage.
+- Install format: ApplicationPlugins bundle at `%ProgramData%\Autodesk\ApplicationPlugins\3dsmax-mcp\` (PackageContents.xml + per-year GUPs + `mcp_server.ms` as post-start-up script) replaces copying into the Max install directory. `python install.py` migrates automatically — it removes old-format files from every detected Max install before deploying, and elevates when ProgramData or legacy paths need admin rights. One bundle serves Max 2023–2027; the per-version prompt is gone. (PR #17, hardened: uninstall now removes the bundle, elevation fallbacks, staged bundle outputs gitignored.)
+- `native/build.bat` finds the SDK via `ADSK_3DSMAX_SDK_<year>` (falls back to the default SDK path) and stages GUPs into `bundle/Contents/bin/`; `deploy` now defers to `install.py`. New `scripts/stage_bundle.py` + `ADSK_APPLICATION_PLUGINS` for testing a staged bundle without installing.
+- `get_plugin_capabilities`, `get_material_library`, `backup_material_library`, `isolate_and_capture_selected`, and existing-material `create_shell_material` use native SDK routes when available, with compatibility fallback for older bridges.
+- New `DictValue` coerced type (stringified JSON objects absorbed, same spirit as the list coercions).
+- `build_skill.py` bundles `tyflow-graphs.md` into the deployed skill and rewrites its AGENTS.md link.
 
 ### Fixed
 
 - `assign_material` access violation (0xC0000005) on a non-material `material_class`. The native handler's class lookup fell back to an unfiltered `FindClassDescByName` across every superclass and blind-cast the result to `Mtl*`; `material_class="Physical"` therefore instantiated the Physical *Camera* and dispatched `SetName`/`SetMtl`/redraw through the wrong vtable. The lookup now stays inside `MATERIAL_CLASS_ID` and raises a structured `BAD_PARAM` with `hint.didYouMean` (`Physical` → `PhysicalMaterial`). Requires a native redeploy; the same unguarded pattern remains in the modifier and object handlers. See `docs/CRASH_LOG.md`.
+- Native compatibility fixes cover Max 2023–2027 SDK differences in scene-node filtering, material-library paths, class enumeration, reference cloning, class labels, persistent object ownership, and GDI+ capture lifetime.
 
-## [1.5.0] — 2026-07-26
+### Removed
 
-Builder mode: spec-gated staged asset construction from a reference image.
-
-### Added
-
-- `builder_session` (start/spec/status/abandon): sculpt spec + pass state as an AppData ledger on a root assembly node; deterministic validation rejects shallow specs before any geometry (component/detail floors scale with declared complexity).
-- `builder_gate` (check/record): one-census hard gates — coverage, sorted-dims proportion, ratios, symmetry/mirror/ground/touch relations, degenerate scale, material assignment + declared params, detail anchors, tri budget, layer hygiene. Multi-view capture fires only after gates pass; `record continue` re-checks and refuses while violations remain; 3 failed checks per pass escalate to request-input.
-- Skill reference `builder.md`: pass rubrics, spec contract, detail-anchor naming, camera-map projection recipe for patterned surfaces.
-
-Agentic tyFlow graph authoring with a shadow wiring ledger.
-
-### Added
-
-- `main_thread`: main/UI-thread hygiene. Lists redraw-views callbacks, live .NET timers held in globals, general-callback count, and playback state — `callbacks.show()` misses redraw callbacks and timers. `action=native_threads` attributes every process thread to its owning DLL with per-thread CPU sampled over ~500 ms, so a chugging native plugin is visible even though `SetTimer`/`RegisterNotification` have no enumeration API. Kill actions cover redraw callbacks, timers, and callback ids.
-- `get_tyflow_graph`: full event/operator/property readback with structural hash, wiring edges, and ledger staleness (fresh/stale/absent). tyFlow's wiring is not readable at any layer (live-probed), so edges made through MCP are recorded in a ledger stored as AppData on the flow node.
-- `tyflow_apply_patch`: transactional graph edits (11 operation types) with expected-hash concurrency gate, checkpoint clone, empirical sim verification via particle counts at probe frames, and automatic rollback that restores the ledger.
-- Wiring on tyFlow's documented connect API: `connect_tyflow_operator`, `disconnect_tyflow_operator`, `set_tyflow_wiring_ledger` for reconciling foreign flows; `connect_tyflow_events` rewritten off dead property-name guessing.
-- Operator manifest: `harvest_tyflow_manifest` probes all 196 known operator types (property names, defaults, availability, executable flags) cached per tyFlow version; `list_tyflow_operators` queries the cache offline.
-- `tyflow_event_census`: per-event particle counts via temporary Mapping-channel instrumentation (mappingMode 7, live-verified).
-- `capture_tyflow_editor`: tyFlow editor screenshot plus per-event rectangles for visual wiring reconciliation.
-- Skill reference `tyflow-graphs.md`: closed-graph reality, ledger semantics, the agentic loop, and probe-gently rules.
-
-### Changed
-
-- Stability hardening against tyFlow Qt deadlocks: additive-only patches roll back via synthesized inverse operations instead of checkpoint-clone churn, and census/checkpoint/patch scripts pump posted messages at every churn point.
-- tyFlow name handling is canonical on the underscore form (`Send Out` reads back as `Send_Out`); lookups accept both.
-- tyFlow mutation tools (`create_tyflow`, `add_tyflow_event`, `modify_tyflow_operator`, `set_tyflow_shape`, `add_tyflow_collision`, `remove_tyflow_element`) now maintain the wiring ledger and structural hash.
+- `maxscript/startup/mcp_autostart.ms` — the bundle manifest starts `mcp_server.ms` directly.
 
 ## [1.3.1] — 2026-07-20
 

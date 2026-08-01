@@ -252,9 +252,25 @@ def deploy_application_package() -> bool:
     with tempfile.TemporaryDirectory() as tmp:
         staging = Path(tmp) / BUNDLE_PACKAGE_NAME
         included, missing = stage_bundle(staging)
-        if APPLICATION_PACKAGE_DST.exists():
-            shutil.rmtree(APPLICATION_PACKAGE_DST)
-        shutil.copytree(staging, APPLICATION_PACKAGE_DST)
+        try:
+            if APPLICATION_PACKAGE_DST.exists():
+                shutil.rmtree(APPLICATION_PACKAGE_DST)
+            shutil.copytree(staging, APPLICATION_PACKAGE_DST)
+        except (PermissionError, OSError):
+            # ProgramData ACLs can leave an admin-owned tree behind; retry elevated
+            print(f"  Need admin rights for {APPLICATION_PACKAGE_DST}")
+            cmd = (
+                f'rmdir /S /Q "{APPLICATION_PACKAGE_DST}" & '
+                f'xcopy /E /I /Y "{staging}" "{APPLICATION_PACKAGE_DST}"'
+            )
+            subprocess.run(
+                ["powershell", "-Command",
+                 f'Start-Process -FilePath cmd.exe -ArgumentList \'/c {cmd}\' -Verb RunAs -Wait'],
+                capture_output=True, timeout=60,
+            )
+            if not (APPLICATION_PACKAGE_DST / "PackageContents.xml").exists():
+                print(f"  FAILED: could not deploy to {APPLICATION_PACKAGE_DST}")
+                return False
 
     for year in included:
         print(f"  OK: Contents/bin/mcp_bridge_{year}.gup")

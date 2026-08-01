@@ -543,7 +543,7 @@ macroScript MCP_Start category:"MCP" tooltip:"Start MCP TCP fallback (port 8765)
 	(
 		if MCP_Server == undefined then
 		(
-			format "MCP: helpers not loaded; run startup\\mcp_autostart.ms first\n"
+			format "MCP: helpers not loaded; restart Max or fileIn mcp_server.ms\n"
 		)
 		else if MCP_Server.nativeBridgeAvailable() then
 		(

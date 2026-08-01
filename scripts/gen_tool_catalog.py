@@ -13,6 +13,7 @@ OUT_PATH = ROOT / "tool_playground" / "catalog.json"
 
 sys.path.insert(0, str(ROOT))
 from scripts.gen_tool_registry import (  # noqa: E402
+    DISABLED_MODULES,
     build_schema,
     find_cmd_type,
     first_doc_line,
@@ -137,7 +138,6 @@ HIDDEN_ALIAS_TOOLS = {
     "inspect_modifier_properties",
 }
 
-
 def example_for(name: str, schema: dict) -> dict:
     if name in CUSTOM:
         return dict(CUSTOM[name])
@@ -219,6 +219,8 @@ def collect_tools() -> list[dict]:
         except SyntaxError:
             continue
         module = path.stem
+        if module in DISABLED_MODULES:
+            continue
         category = MODULE_CATEGORY.get(module, module.replace("_", " ").title())
         for node in ast.walk(tree):
             if not isinstance(node, ast.FunctionDef):

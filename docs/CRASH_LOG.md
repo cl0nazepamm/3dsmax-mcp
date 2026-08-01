@@ -6,7 +6,7 @@ Append-only. Do not fold these into `SKILL.md` pitfalls unless fixed and general
 
 - **Symptom:** `NativeError` / `SE Exception: Access Violation (0xC0000005)` via named-pipe bridge (`transport: namedpipe`). Bridge still responded to `get_bridge_status` afterward.
 - **Tool:** `assign_material`, called with `material_class="Physical"`.
-- **Context:** builder mode material pass on `m4_carbine` (session root `BLD_m4_carbine`). Two batches faulted; an identical earlier batch returned first — the fault is not deterministic per call.
+- **Context:** multi-object material assignment stress test. Two batches faulted; an identical earlier batch returned first — the fault is not deterministic per call.
 - **Failing calls (batch), as logged:**
   - `material_class="Physical"`, `material_name="metal"`, `names=[buffer_tube, magazine, trigger_guard, delta_ring, front_sight, barrel, flash_hider]`, `params="roughness:0.32 metalness:0.85 base_color:(color 20 20 22)"`
   - same pattern for `metal_matte` on `[lower_receiver, upper_receiver, carry_handle]` with `roughness:0.42 metalness:0.75 base_color:(color 24 24 26)`

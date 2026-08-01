@@ -83,8 +83,9 @@ inline std::string MaxScriptVisibleClassName(
     SClass_ID superClassId,
     const Class_ID& classId) {
     ScopedMaxScriptEvaluationContext evaluationContext;
+    Class_ID lookupId = classId;
     MAXClass* maxClass = MAXClass::lookup_class(
-        classId,
+        &lookupId,
         superClassId,
         true);
     if (maxClass && maxClass->name) {

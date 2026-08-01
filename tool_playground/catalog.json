@@ -3089,7 +3089,9 @@
               "type": "object"
             }
           },
-          "repeat": {},
+          "repeat": {
+            "type": "object"
+          },
           "operation": {
             "type": "string"
           },

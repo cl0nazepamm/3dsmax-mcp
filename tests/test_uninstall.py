@@ -40,6 +40,16 @@ def test_find_max_installations_deduplicates_same_path(monkeypatch, tmp_path: Pa
     assert uninstall.find_max_installations() == [custom]
 
 
+def test_remove_dir_elevated_removes_tree(tmp_path: Path) -> None:
+    target = tmp_path / "3dsmax-mcp"
+    (target / "Contents" / "bin").mkdir(parents=True)
+    (target / "PackageContents.xml").write_text("x", encoding="utf-8")
+
+    assert uninstall.remove_dir_elevated(target)
+    assert not target.exists()
+    assert uninstall.remove_dir_elevated(target)  # already gone is still success
+
+
 def test_remove_max_deployment_calls_delete(tmp_path: Path) -> None:
     max_dir = tmp_path / "max"
     plugins = max_dir / "plugins"

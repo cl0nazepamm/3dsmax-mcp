@@ -32,8 +32,8 @@ When you encounter a bug, unexpected behavior, or discover a MAXScript/3ds Max/M
 - `src/server.py` — FastMCP server entry point
 - `src/max_client.py` — TCP socket client (connects to 127.0.0.1:8765)
 - `src/tools/` — MCP tool implementations (one file per category)
-- `maxscript/mcp_server.ms` — MAXScript listener (runs inside 3ds Max)
-- `maxscript/startup/mcp_autostart.ms` — auto-start loader for 3ds Max
+- `maxscript/mcp_server.ms` — MAXScript listener (runs inside 3ds Max as a bundle post-start-up script)
+- `bundle/PackageContents.xml.in` — ApplicationPlugins manifest template (installed to `%ProgramData%\\Autodesk\\ApplicationPlugins\\3dsmax-mcp`)
 - `native/` — C++ GUP bridge plugin (named pipe, 53 native handlers)
 
 ## Skills & Build
@@ -73,10 +73,11 @@ def generate_agents_md():
             end = skill_text.find("---", 3)
             if end != -1:
                 skill_text = skill_text[end + 3:].lstrip("\n")
-        skill_text = skill_text.replace(
-            "](procedural-graphs.md)",
-            "](skills/3dsmax-mcp-dev/procedural-graphs.md)",
-        )
+        for ref in ("procedural-graphs.md", "tyflow-graphs.md"):
+            skill_text = skill_text.replace(
+                f"]({ref})",
+                f"](skills/3dsmax-mcp-dev/{ref})",
+            )
         parts.append(skill_text)
 
     AGENTS_MD.write_text("\n".join(parts), "utf-8")
@@ -86,6 +87,10 @@ def generate_agents_md():
 def collect_skill_files():
     """Collect the core skill and its bundled reference files."""
     files = [SKILL_SRC, PROCEDURAL_GRAPHS_REF]
+    for ref in ("tyflow-graphs.md",):
+        path = SKILL_DIR / ref
+        if path.exists():
+            files.append(path)
     for md in sorted(SKILL_DIR.glob("maxscript-*.md")):
         files.append(md)
     return files

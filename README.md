@@ -7,7 +7,7 @@
 Connect AI agents to Autodesk 3ds Max through the [Model Context Protocol](https://modelcontextprotocol.io). Ask in natural language; the agent creates objects, builds materials, inspects plugins with dedicated MCP tools instead of MAXScript/Python feedback loops.
 Built-in installer works with Cursor, Claude, Codex and Gemini.
 
-**Current release: 1.4.0** — see [CHANGELOG.md](CHANGELOG.md).
+**Current release: 1.5.0** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Features
 

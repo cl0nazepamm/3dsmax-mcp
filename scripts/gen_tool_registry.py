@@ -24,6 +24,10 @@ ROOT = Path(__file__).resolve().parent.parent
 TOOLS_DIR = ROOT / "src" / "tools"
 OUT_PATH = ROOT / "native" / "generated" / "chat_tool_registry.inc"
 
+# Parked modules must stay out of every generated LLM-facing registry even if
+# their implementation still contains or later regains tool decorators.
+DISABLED_MODULES = {"builder"}
+
 # Heuristic type hint → JSON-schema mapping. Good-enough for the LLM; exact
 # runtime validation happens server-side, not here.
 TYPE_MAP = {
@@ -37,6 +41,7 @@ TYPE_MAP = {
     "IntList": {"type": "array", "items": {"type": "integer"}},
     "FloatList": {"type": "array", "items": {"type": "number"}},
     "DictList": {"type": "array", "items": {"type": "object"}},
+    "DictValue": {"type": "object"},
     "Any": {},
 }
 
@@ -54,6 +59,25 @@ def annotation_to_schema(node: ast.expr | None) -> dict[str, Any]:
         if base == "list" or base == "List":
             inner = annotation_to_schema(node.slice)
             return {"type": "array", "items": inner or {}}
+        if base == "Literal":
+            items = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            values: list[Any] = []
+            for item in items:
+                try:
+                    values.append(ast.literal_eval(item))
+                except (ValueError, TypeError):
+                    return {}
+            schema: dict[str, Any] = {"enum": values}
+            value_types = {type(value) for value in values}
+            if value_types == {str}:
+                schema["type"] = "string"
+            elif value_types == {bool}:
+                schema["type"] = "boolean"
+            elif value_types == {int}:
+                schema["type"] = "integer"
+            elif value_types <= {int, float}:
+                schema["type"] = "number"
+            return schema
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
         # `str | None` style — return the non-None side
         for side in (node.left, node.right):
@@ -179,6 +203,8 @@ STANDALONE_TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
 
 
 def extract_tools(path: Path) -> list[dict]:
+    if path.stem in DISABLED_MODULES:
+        return []
     source = path.read_text(encoding="utf-8")
     try:
         tree = ast.parse(source)

@@ -42,12 +42,11 @@ if not "%MAX_VERSION%"=="2023" if not "%MAX_VERSION%"=="2024" if not "%MAX_VERSI
 
 set "MAXSDK_ENV=ADSK_3DSMAX_SDK_%MAX_VERSION%"
 set "MAXSDK_PATH=!%MAXSDK_ENV%!"
+if not defined MAXSDK_PATH set "MAXSDK_PATH=C:\Program Files\Autodesk\3ds Max %MAX_VERSION% SDK\maxsdk"
 set "BUILD_DIR=%NATIVE_DIR%\build-%MAX_VERSION%"
 set "OUT_DIR=%NATIVE_DIR%\bin"
 set "BUILT_GUP=%BUILD_DIR%\Release\mcp_bridge.gup"
 set "STAGED_GUP=%OUT_DIR%\mcp_bridge_%MAX_VERSION%.gup"
-
-echo %MAXSDK_PATH%
 
 if not exist "%MAXSDK_PATH%\include\max.h" (
     echo Missing 3ds Max %MAX_VERSION% SDK: %MAXSDK_PATH%

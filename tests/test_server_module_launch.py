@@ -27,6 +27,8 @@ class ServerModuleLaunchTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("get_material_library", tool_names)
         self.assertIn("backup_material_library", tool_names)
         self.assertNotIn("mcg_create_graph", tool_names)
+        self.assertNotIn("builder_session", tool_names)
+        self.assertNotIn("builder_gate", tool_names)
         self.assertGreater(len(tool_names), 0)
 
     async def test_full_profile_registers_agentic_mcg_tools(self) -> None:
@@ -37,6 +39,8 @@ class ServerModuleLaunchTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("mcg_create_graph", tool_names)
         self.assertIn("mcg_apply_patch", tool_names)
         self.assertIn("mcg_compile_graph", tool_names)
+        self.assertNotIn("builder_session", tool_names)
+        self.assertNotIn("builder_gate", tool_names)
 
 
 if __name__ == "__main__":
