@@ -1,17 +1,20 @@
 # 3dsmax-mcp
 
 <p align="left">
-  <img src="./images/logo.png" alt="3dsmax-mcp logo" width="220" style="background-color: #ffffff; padding: 16px; border-radius: 8px;">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./images/logo-white.png">
+    <img src="./images/logo.png" alt="3dsmax-mcp logo" width="600">
+  </picture>
 </p>
 
-Connect AI agents to Autodesk 3ds Max through the [Model Context Protocol](https://modelcontextprotocol.io). Ask in natural language; the agent creates objects, builds materials, inspects plugins with dedicated MCP tools instead of MAXScript/Python feedback loops.
-Built-in installer works with Cursor, Claude, Codex and Gemini.
+Connect AI agents to Autodesk 3ds Max through the [Model Context Protocol](https://modelcontextprotocol.io).
+Ask in natural language; the agent creates objects, builds materials, inspects plugins with dedicated MCP tools instead of MAXScript/Python feedback loops.
 
 **Current release: 1.5.0** — see [CHANGELOG.md](docs/CHANGELOG.md).
 
 ## Features
 
-- **138 MCP tools** — (83 in core profile) for scene reads, materials, modifiers, controllers, viewport capture, procedural graphs, and plugin workflows.
+- **151 MCP tools** — (87 in core profile) for scene reads, materials, modifiers, controllers, viewport capture, procedural graphs, and plugin workflows.
 - **Native Bridge** — only 2023-2027 versions.
 - **Introspection** — discover arbitrary Max classes for all kinds of automation and scripting purposes. 
 - **Bundled agent skill** — There is a bundled maxscript documentation if you want to create your own tools.
@@ -32,8 +35,6 @@ uv run python install.py
 ```
 
 Restart 3ds Max, then connect your MCP client. The installer registers the server where it can; see [Advanced configuration](docs/ADVANCED.md) for manual client setup.
-
-I personally use Cursor and Codex.
 
 **Update an existing install:**
 
@@ -88,6 +89,15 @@ uv run python install.py
 | `set_modifier_property` | Set a modifier parameter on one or many objects |
 | `collapse_modifier_stack` | Collapse the stack |
 | `make_modifier_unique` | De-instance a shared modifier |
+| `inspect_modifier_properties` | Compatibility alias for `inspect_properties(target="modifier")` |
+
+### Modeling
+
+| Tool | Description |
+|------|-------------|
+| `boolean_operation` | Apply, inspect, retune, rename, or extract Boolean modifier operands; supports inline repeated cutters |
+| `draw_spline` | Create, read, and edit spline shapes from explicit world-space points and knots |
+| `edit_vertices` | Read, move, set, or conform Editable Poly vertices in world space |
 
 ### Materials & textures
 
@@ -125,6 +135,7 @@ uv run python install.py
 | `map_class_relationships` | ParamBlock2 reference relationships between classes |
 | `watch_scene` | Live event watcher for interactive sessions |
 | `isolate_and_capture_selected` | Per-selection isolated viewport captures |
+| `main_thread` | Inspect or clean up callbacks and timers running on Max's main/UI thread |
 
 ### Plugins & introspection
 
@@ -152,6 +163,7 @@ MCP resources: `resource://3dsmax-mcp/plugins/{name}/manifest|guide|recipes|gotc
 | `inspect_track_view` | Track View-style controller hierarchy |
 | `set_controller_props` | Edit script text or controller properties |
 | `add_controller_target` | Add a target to script/expression/constraint controllers |
+| `keyframe_tracks` | Inspect and edit keyed tracks, match poses, close loops, and configure tangent/out-of-range behavior |
 
 ### Parameter wiring
 
@@ -170,6 +182,7 @@ MCP resources: `resource://3dsmax-mcp/plugins/{name}/manifest|guide|recipes|gotc
 | `manage_groups` | Create, ungroup, open, close, attach, detach groups |
 | `manage_selection_sets` | Named selection sets |
 | `manage_scene` | Hold, fetch, reset, save, scene info |
+| `undo_last` | Undo the last 3ds Max scene operation |
 
 ### Viewport & render
 
@@ -179,6 +192,7 @@ MCP resources: `resource://3dsmax-mcp/plugins/{name}/manifest|guide|recipes|gotc
 | `capture_multi_view` | Front/right/back/top grid stitched into one image |
 | `capture_screen` | Fullscreen capture (explicit opt-in) |
 | `render_scene` | Render the current view |
+| `render_automations` | Arm a completion signal for the next render, then poll or wait for it to finish |
 
 ### External `.max` files
 
@@ -234,7 +248,7 @@ MCP resources: `resource://3dsmax-mcp/plugins/{name}/manifest|guide|recipes|gotc
 
 > **Work in progress** — the plugin and layout integrations below (tyFlow, Forest Pack, RailClone, Floor plan) are early-stage and may be incomplete or change between releases. Everything listed above is stable.
 
-### tyFlow (WIP)
+### tyFlow
 
 | Tool | Description |
 |------|-------------|
@@ -242,6 +256,15 @@ MCP resources: `resource://3dsmax-mcp/plugins/{name}/manifest|guide|recipes|gotc
 | `create_tyflow` | Create tyFlow with events and operators |
 | `create_tyflow_preset` | Presets: rain, snow, fountain, burst, debris |
 | `get_tyflow_info` | Deep flow/event/operator readback |
+| `harvest_tyflow_manifest` | Probe and cache the installed tyFlow operator surface by tyFlow version |
+| `list_tyflow_operators` | Query the cached tyFlow operator manifest without touching Max |
+| `get_tyflow_graph` | Read events, operators, properties, ledger edges, and wiring staleness |
+| `tyflow_apply_patch` | Apply a batch of tyFlow graph operations as one verified transaction |
+| `connect_tyflow_operator` | Connect or retarget a test/Send Out operator to an event |
+| `disconnect_tyflow_operator` | Disconnect an operator output and remove its ledger edge |
+| `set_tyflow_wiring_ledger` | Reconcile recorded graph wiring after external or visual edits |
+| `tyflow_event_census` | Count particles per event at probe frames with temporary instrumentation |
+| `capture_tyflow_editor` | Open and capture the tyFlow editor for visual wire inspection |
 | `modify_tyflow_operator` | Edit operator properties |
 | `set_tyflow_shape` | Configure Shape operator |
 | `set_tyflow_physx` | Object-level PhysX settings |
