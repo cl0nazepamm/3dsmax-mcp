@@ -251,6 +251,5 @@ python scripts/run_live_tool_smoke.py --tier read
 | `native/` | C++ GUP bridge |
 | `maxscript/` | Listener + autostart |
 | `skills/3dsmax-mcp-dev/` | Agent skill source |
-| `docs/MATERIAL_NETWORK_TOOLS.md` | `inspect_material_network` + `replicate_material` spec |
 | `scripts/build_skill.py` | Skill + AGENTS.md generator |
 | `scripts/gen_tool_registry.py` | In-Max chat tool registry |

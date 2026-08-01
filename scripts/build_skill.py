@@ -20,13 +20,11 @@ AGENTS_HEADER = """# 3dsmax-mcp
 
 MCP server for AI agents to control 3ds Max. This file is auto-generated from `scripts/build_skill.py`.
 
-## learn-from-mistakes
+## Skill scope
 
-When you encounter a bug, unexpected behavior, or discover a MAXScript/3ds Max/MCP pitfall:
-1. Fix the issue
-2. Append the lesson to the relevant source: `skills/3dsmax-mcp-dev/SKILL.md` or `skills/3dsmax-mcp-dev/procedural-graphs.md`
-3. One line per lesson — include the pattern or fix
-4. Check for duplicates before adding
+- `skills/3dsmax-mcp-dev/SKILL.md` and its bundled references are exclusively for agent-facing 3ds Max usage: tool selection, scene workflows, and runtime usage pitfalls.
+- Never record software-development bugs, implementation details, build failures, bridge internals, code discoveries, or postmortem lessons in skill files.
+- Keep development knowledge in the relevant code, tests, development documentation, issue, or commit instead.
 
 ## Project Structure
 - `src/server.py` — FastMCP server entry point
@@ -37,8 +35,8 @@ When you encounter a bug, unexpected behavior, or discover a MAXScript/3ds Max/M
 - `native/` — C++ GUP bridge plugin (named pipe, 53 native handlers)
 
 ## Skills & Build
-- `skills/3dsmax-mcp-dev/SKILL.md` — core workflow and reference router
-- `skills/3dsmax-mcp-dev/procedural-graphs.md` — Data Channel and MCG workflows/pitfalls
+- `skills/3dsmax-mcp-dev/SKILL.md` — agent-facing 3ds Max usage guide and reference router
+- `skills/3dsmax-mcp-dev/procedural-graphs.md` — agent-facing Data Channel and MCG usage workflows/pitfalls
 - `scripts/build_skill.py` — builds `.skill` archive, copies to repo `.agents/skills/` plus user-level `.claude/skills/` and `.agents/skills/`, generates `AGENTS.md`
 - `.agents/skills/` and `AGENTS.md` are gitignored — never edit them directly
 

@@ -164,7 +164,7 @@ First stable release. Production-ready MCP bridge for 3ds Max 2023–2027 with p
 - **Live smoke harness** — `run_tool_smoke`, `run_live_tool_smoke.py`, in-Max **MCP Smoke** macro.
 - **Multi-Max** — **MCP Claim This Max** routes clients to the correct instance.
 - **Agent skill** — bundled Max usage guide + MAXScript reference files; installer deploys automatically.
-- **Docs** — user-facing README + [Advanced configuration](docs/ADVANCED.md).
+- **Docs** — user-facing README + [Advanced configuration](ADVANCED.md).
 
 ### Breaking changes (from 0.8.x)
 

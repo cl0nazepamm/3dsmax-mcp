@@ -12,7 +12,6 @@ build/
 AGENTS.md
 TODO.md
 PROJECT_OVERVIEW.md
-docs/CRASH_LOG.md
 *.skill
 nul
 cache/
