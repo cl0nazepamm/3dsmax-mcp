@@ -104,7 +104,7 @@ std::string NativeHandlers::AssignMaterial(const std::string& params, MCPBridgeG
         // which is the Physical *Camera* (the material is "PhysicalMaterial").
         // Instantiating one of those and casting it to Mtl* dispatches through the
         // wrong vtable in SetName()/SetMtl()/redraw and faults with an SE Access
-        // Violation (0xC0000005). See docs/CRASH_LOG.md.
+        // Violation (0xC0000005).
         ClassDesc* cd = FindClassDescByName(matClass, MATERIAL_CLASS_ID);
         if (!cd) {
             ClassDesc* other = FindClassDescByName(matClass);
