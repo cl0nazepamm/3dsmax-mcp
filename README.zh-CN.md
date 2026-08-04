@@ -20,22 +20,42 @@
 
 - Windows
 - [Python 3.12+](https://www.python.org/)
-- [uv](https://docs.astral.sh/uv/)
 - Autodesk **3ds Max 2023–2027**
+- [uv](https://docs.astral.sh/uv/)（仅源代码安装或开发时需要）
 
 ---
 
 ## 安装
 
-### 1. 安装 uv（国内加速）
+### 1. 从 PyPI 安装（推荐，国内加速）
 
-从官方脚本安装可能较慢，可直接用清华 TUNA 镜像通过 pip 安装：
+无需克隆 GitHub 仓库。使用清华 TUNA 镜像安装完整软件包：
 
 ```powershell
-pip install uv -i https://pypi.tuna.tsinghua.edu.cn/simple
+python -m pip install 3dsmax-mcp -i https://pypi.tuna.tsinghua.edu.cn/simple
+3dsmax-mcp-install
 ```
 
-### 2. 克隆并安装
+如果 PowerShell 找不到 `3dsmax-mcp-install`，可直接运行：
+
+```powershell
+python -m maxmcp.installer
+```
+
+安装程序会部署原生桥接插件、写入配置、构建技能包，并尽可能自动注册到已安装的 AI 客户端。
+**必须重启 3ds Max** 插件才会加载。
+
+> 其他可用镜像：阿里云 `https://mirrors.aliyun.com/pypi/simple/`、腾讯云 `https://mirrors.cloud.tencent.com/pypi/simple/`。
+
+### 2. 从源代码安装（开发者）
+
+先通过国内镜像安装 uv：
+
+```powershell
+python -m pip install uv -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+然后克隆仓库并安装：
 
 ```powershell
 git clone https://github.com/cl0nazepamm/3dsmax-mcp.git
@@ -52,16 +72,17 @@ uv sync
 ```
 
 > 较早版本的 uv 使用 `UV_INDEX_URL` 环境变量，若上面这个不生效请改用它。
-> 其他可用镜像：阿里云 `https://mirrors.aliyun.com/pypi/simple/`、腾讯云 `https://mirrors.cloud.tencent.com/pypi/simple/`。
-
-`git clone` 失败或过慢时，可在 GitHub 仓库页面下载 ZIP 包，解压后同样执行 `uv sync` 与 `install.py`。
-
-### 3. 重启 3ds Max
-
-安装脚本会部署原生桥接插件、写入配置、构建技能包，并尽可能自动注册到已安装的 AI 客户端。
-**必须重启 3ds Max** 插件才会加载。
 
 ### 更新
+
+PyPI 安装：
+
+```powershell
+python -m pip install --upgrade 3dsmax-mcp -i https://pypi.tuna.tsinghua.edu.cn/simple
+3dsmax-mcp-install
+```
+
+源代码安装：
 
 ```powershell
 git pull
@@ -86,7 +107,28 @@ uv run python install.py
 %APPDATA%\Code\User\globalStorage\saoudrizwan.claude-dev\settings\cline_mcp_settings.json
 ```
 
-填入（把路径换成你的实际克隆目录）：
+如果使用上面的 PyPI 安装，先查询 Python 的绝对路径：
+
+```powershell
+python -c "import sys; print(sys.executable)"
+```
+
+填入（把 `command` 换成上一步返回的实际路径）：
+
+```json
+{
+  "mcpServers": {
+    "3dsmax-mcp": {
+      "command": "C:/Users/你的用户名/AppData/Local/Programs/Python/Python312/python.exe",
+      "args": ["-m", "maxmcp.server"],
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
+```
+
+如果使用源代码安装，也可以继续使用：
 
 ```json
 {

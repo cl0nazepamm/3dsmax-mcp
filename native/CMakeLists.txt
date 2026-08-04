@@ -45,7 +45,7 @@ if(NOT EXISTS "${MAXSDK_PATH}/include/max.h")
 endif()
 
 # ── Generated chat tool registry ─────────────────────────────────
-# scripts/gen_tool_registry.py walks src/tools/*.py and emits
+# scripts/gen_tool_registry.py walks maxmcp/tools/*.py and emits
 # native/generated/chat_tool_registry.inc — the chat tool surface for v0.7.0.
 # If Python or the script is unavailable, llm_client.cpp falls back to a
 # hand-coded registry so chat still works.
@@ -53,7 +53,7 @@ set(TOOL_REGISTRY_INC "${CMAKE_CURRENT_SOURCE_DIR}/generated/chat_tool_registry.
 set(TOOL_SMOKE_INC "${CMAKE_CURRENT_SOURCE_DIR}/generated/tool_smoke_cases.inc")
 find_package(Python3 QUIET COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
-    file(GLOB_RECURSE PY_TOOL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/*.py")
+    file(GLOB_RECURSE PY_TOOL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../maxmcp/tools/*.py")
     add_custom_command(
         OUTPUT "${TOOL_REGISTRY_INC}"
         COMMAND ${Python3_EXECUTABLE}
@@ -61,7 +61,7 @@ if(Python3_Interpreter_FOUND)
         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_registry.py"
                 ${PY_TOOL_SOURCES}
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
-        COMMENT "Generating chat_tool_registry.inc from src/tools/*.py"
+        COMMENT "Generating chat_tool_registry.inc from maxmcp/tools/*.py"
         VERBATIM
     )
     add_custom_target(gen_tool_registry DEPENDS "${TOOL_REGISTRY_INC}")
@@ -73,7 +73,7 @@ if(Python3_Interpreter_FOUND)
         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_smoke.py"
                 ${PY_TOOL_SOURCES}
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
-        COMMENT "Generating tool_smoke_cases.inc from src/tools/*.py"
+        COMMENT "Generating tool_smoke_cases.inc from maxmcp/tools/*.py"
         VERBATIM
     )
     add_custom_target(gen_tool_smoke DEPENDS "${TOOL_SMOKE_INC}")

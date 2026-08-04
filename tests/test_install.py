@@ -150,3 +150,56 @@ def test_mcp_server_entry_uses_uv_run() -> None:
         "command": "uv",
         "args": ["run", "--directory", r"C:\repo\3dsmax-mcp", "3dsmax-mcp"],
     }
+
+
+def test_packaged_mcp_server_entry_uses_absolute_console_script(monkeypatch, tmp_path: Path) -> None:
+    script = tmp_path / "Python Install" / "Scripts" / "3dsmax-mcp.exe"
+    script.parent.mkdir(parents=True)
+    script.touch()
+    monkeypatch.setattr(install, "IS_PACKAGED", True)
+    monkeypatch.setattr(install, "console_script_path", lambda: script)
+
+    assert install.mcp_server_entry("ignored") == {"command": str(script)}
+
+
+def test_packaged_mcp_server_entry_falls_back_to_installed_module(monkeypatch) -> None:
+    monkeypatch.setattr(install, "IS_PACKAGED", True)
+    monkeypatch.setattr(install, "console_script_path", lambda: None)
+
+    assert install.mcp_server_entry("ignored") == {
+        "command": install.sys.executable,
+        "args": ["-m", "maxmcp.server"],
+    }
+
+
+def test_register_agents_uses_packaged_server_command(monkeypatch, tmp_path: Path) -> None:
+    script = tmp_path / "Python Install" / "Scripts" / "3dsmax-mcp.exe"
+    script.parent.mkdir(parents=True)
+    script.touch()
+    calls: list[tuple[str, dict]] = []
+
+    monkeypatch.setattr(install, "IS_PACKAGED", True)
+    monkeypatch.setattr(install, "console_script_path", lambda: script)
+    monkeypatch.setattr(
+        install.shutil,
+        "which",
+        lambda name: name if name in {"claude", "codex", "gemini"} else None,
+    )
+    monkeypatch.setattr(
+        install.subprocess,
+        "run",
+        lambda args, **kwargs: calls.append((args, kwargs)),
+    )
+    monkeypatch.setattr(install, "register_app_mcp_configs", lambda repo_dir: None)
+
+    assert install.register_agents()
+    expected_commands = [
+        ["claude", "mcp", "add", "--scope", "user", "3dsmax-mcp", "--", str(script)],
+        ["codex", "mcp", "add", "3dsmax-mcp", "--", str(script)],
+        ["gemini", "mcp", "add", "--scope", "user", "3dsmax-mcp", str(script)],
+    ]
+    assert [args for args, _ in calls] == [
+        install.subprocess.list2cmdline(command) for command in expected_commands
+    ]
+    assert all(kwargs["shell"] is True for _, kwargs in calls)
+    assert all("uv" not in args for args, _ in calls)

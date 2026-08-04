@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..tools._pbr_material_builder import RENDERER_LABELS
+from ..tools._pbr_material_builder import RENDERER_LABELS
 
 # One row per wired PBR renderer. ask_as = values users/agents can pass to material_class.
 PBR_RENDERER_REGISTRY: list[dict[str, Any]] = [
