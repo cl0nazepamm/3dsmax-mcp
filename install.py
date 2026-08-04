@@ -20,6 +20,12 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+# Installed from a wheel this file is `maxmcp/installer.py`, so ROOT is the package
+# directory; from a checkout it is `install.py` and ROOT is the repo root. The Max-side
+# payload is shipped at the same relative paths either way (see force-include in
+# pyproject.toml), so only MCP client registration has to know the difference.
+IS_PACKAGED = Path(__file__).name == "installer.py"
+
 GUP_SRCS = {
     2023: ROOT / "native" / "bin" / "mcp_bridge_2023.gup",
     2024: ROOT / "native" / "bin" / "mcp_bridge_2024.gup",
@@ -338,7 +344,23 @@ def build_skills(skip_skill: bool = False) -> bool:
         return False
 
 
+def console_script_path() -> Path | None:
+    """Find the installed `3dsmax-mcp` console script next to the running interpreter."""
+    exe = Path(sys.executable)
+    candidates = (
+        exe.with_name("3dsmax-mcp.exe"),          # venv: Scripts/python.exe next to it
+        exe.parent / "Scripts" / "3dsmax-mcp.exe",  # system install: Scripts/ subdir
+    )
+    return next((c for c in candidates if c.exists()), None)
+
+
 def mcp_server_entry(repo_dir: str) -> dict:
+    # A pip install has no repo to point `uv run --directory` at, so register the
+    # console script by absolute path instead of relying on it being on PATH.
+    if IS_PACKAGED:
+        script = console_script_path()
+        if script is not None:
+            return {"command": str(script)}
     return {"command": "uv", "args": ["run", "--directory", repo_dir, "3dsmax-mcp"]}
 
 

@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.tools.material_ops import create_material_from_textures
+from maxmcp.tools.material_ops import create_material_from_textures
 
 
 def _tripback_message(result):
@@ -18,10 +18,10 @@ class OpenPBRMaterialTests(unittest.TestCase):
 
             with (
                 patch(
-                    "src.tools.material_ops._build_shared_pbr_maxscript",
+                    "maxmcp.tools.material_ops._build_shared_pbr_maxscript",
                     return_value='("openpbr")',
                 ) as build_pbr,
-                patch("src.tools.material_ops.client.send_command", return_value={"result": "ok"}) as send,
+                patch("maxmcp.tools.material_ops.client.send_command", return_value={"result": "ok"}) as send,
             ):
                 result = create_material_from_textures(tmp)
 
@@ -38,10 +38,10 @@ class OpenPBRMaterialTests(unittest.TestCase):
             tex.write_bytes(b"fake")
 
             with patch(
-                "src.tools.material_ops._build_shared_pbr_maxscript",
+                "maxmcp.tools.material_ops._build_shared_pbr_maxscript",
                 return_value='("openpbr")',
             ) as build_pbr, patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": "ok"},
             ):
                 create_material_from_textures(tmp, material_class="OpenPBR_Material")
@@ -58,8 +58,8 @@ class OpenPBRMaterialTests(unittest.TestCase):
             (root / "asset_basecolor.png").write_bytes(b"fake")
             (root / "asset_orm.png").write_bytes(b"fake")
 
-            with patch("src.tools.material_ops._build_shared_pbr_maxscript", return_value="-- mock") as build_pbr, \
-                 patch("src.tools.material_ops.client.send_command",
+            with patch("maxmcp.tools.material_ops._build_shared_pbr_maxscript", return_value="-- mock") as build_pbr, \
+                 patch("maxmcp.tools.material_ops.client.send_command",
                        return_value={"result": '{"status":"success"}'}):
                 create_material_from_textures(tmp, material_name="asset")
 
@@ -75,10 +75,10 @@ class OpenPBRMaterialTests(unittest.TestCase):
             tex.write_bytes(b"fake")
 
             with patch(
-                "src.tools.material_ops._build_shared_pbr_maxscript",
+                "maxmcp.tools.material_ops._build_shared_pbr_maxscript",
                 return_value='("octane")',
             ) as build_pbr, patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": "ok"},
             ):
                 result = create_material_from_textures(tmp, material_class="octane")

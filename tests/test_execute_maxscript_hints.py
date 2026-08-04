@@ -2,8 +2,8 @@ import json
 import unittest
 from unittest.mock import patch
 
-from src.helpers.error_hints import suggest_tools_for_maxscript
-from src.tools.execute import (
+from maxmcp.helpers.error_hints import suggest_tools_for_maxscript
+from maxmcp.tools.execute import (
     _MAXSCRIPT_ERROR_SENTINEL,
     execute_maxscript,
 )
@@ -12,7 +12,7 @@ from src.tools.execute import (
 class ExecuteMaxScriptHintTests(unittest.TestCase):
     def _send_returns(self, value: str):
         return patch(
-            "src.tools.execute.client.send_command",
+            "maxmcp.tools.execute.client.send_command",
             return_value={"result": value},
         )
 

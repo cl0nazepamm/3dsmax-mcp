@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
-from src.tools.data_channel import (
+from maxmcp.tools.data_channel import (
     _format_add_result,
     _mxs_value,
     _operator_lines,
@@ -69,7 +69,7 @@ class DataChannelTests(unittest.TestCase):
             return {"result": "OK|0|1|1|3|3|#(0,1,2)|no output|Box001"}
 
         mock_client.send_command = capture
-        with patch("src.tools.data_channel.client", mock_client):
+        with patch("maxmcp.tools.data_channel.client", mock_client):
             payload = json.loads(add_data_channel(
                 name="Box001",
                 operators=[{"type": "smooth", "params": {"iteration": 2}}],
@@ -85,7 +85,7 @@ class DataChannelTests(unittest.TestCase):
 
     def test_executable_operator_is_blocked_by_default(self) -> None:
         mock_client = MagicMock()
-        with patch("src.tools.data_channel.client", mock_client):
+        with patch("maxmcp.tools.data_channel.client", mock_client):
             payload = json.loads(add_data_channel(
                 name="Box001",
                 operators=[{"type": "maxscript_process"}],
@@ -96,7 +96,7 @@ class DataChannelTests(unittest.TestCase):
     def test_executable_operator_requires_safe_mode_off(self) -> None:
         mock_client = MagicMock()
         mock_client.send_command.return_value = {"result": "true", "meta": {"safeMode": True}}
-        with patch("src.tools.data_channel.client", mock_client):
+        with patch("maxmcp.tools.data_channel.client", mock_client):
             payload = json.loads(add_data_channel(
                 name="Box001",
                 operators=[{"type": "expression_float"}],
@@ -114,7 +114,7 @@ class DataChannelTests(unittest.TestCase):
                 "operators": [{"name": "Vertex Input", "classId": ["1L", "0L"]}],
             })
         }
-        with patch("src.tools.data_channel.client", mock_client):
+        with patch("maxmcp.tools.data_channel.client", mock_client):
             payload = json.loads(list_dc_operators(query="vertex", include_properties=True))
         self.assertEqual(payload["operators"][0]["role"], "input")
         self.assertIn("vertex_input", payload["operators"][0]["aliases"])
@@ -140,7 +140,7 @@ class DataChannelTests(unittest.TestCase):
                 ],
             })
         }
-        with patch("src.tools.data_channel.client", mock_client):
+        with patch("maxmcp.tools.data_channel.client", mock_client):
             payload = json.loads(inspect_data_channel(name="Box001"))
         self.assertEqual(payload["operatorStorageCount"], 4)
         self.assertEqual(payload["operators"][0]["operatorIndex"], 1)
@@ -172,7 +172,7 @@ class DataChannelTests(unittest.TestCase):
                 ],
             })
         }
-        with patch("src.tools.data_channel.client", mock_client):
+        with patch("maxmcp.tools.data_channel.client", mock_client):
             payload = json.loads(inspect_data_channel(name="Box001"))
         self.assertEqual(payload["operators"][0]["blendName"], "none")
         self.assertEqual(payload["validation"]["status"], "invalid")
@@ -184,7 +184,7 @@ class DataChannelTests(unittest.TestCase):
     def test_manage_reorder_maps_visible_positions_to_storage_order(self) -> None:
         mock_client = MagicMock()
         mock_client.send_command.return_value = {"result": '{"operatorCount":3}'}
-        with patch("src.tools.data_channel.client", mock_client):
+        with patch("maxmcp.tools.data_channel.client", mock_client):
             manage_data_channel_stack(
                 name="Box001",
                 action="reorder",
@@ -198,7 +198,7 @@ class DataChannelTests(unittest.TestCase):
 
     def test_manage_reorder_rejects_duplicates_before_max(self) -> None:
         mock_client = MagicMock()
-        with patch("src.tools.data_channel.client", mock_client):
+        with patch("maxmcp.tools.data_channel.client", mock_client):
             payload = json.loads(manage_data_channel_stack(
                 name="Box001", action="reorder", order=[1, 1]
             ))
@@ -208,7 +208,7 @@ class DataChannelTests(unittest.TestCase):
     def test_manage_delete_uses_visible_one_based_index(self) -> None:
         mock_client = MagicMock()
         mock_client.send_command.return_value = {"result": '{"operatorCount":1}'}
-        with patch("src.tools.data_channel.client", mock_client):
+        with patch("maxmcp.tools.data_channel.client", mock_client):
             manage_data_channel_stack(name="Box001", action="delete", operator_index=2)
         script = mock_client.send_command.call_args.args[0]
         self.assertIn("dcIF.DeleteStackOperator 2", script)
@@ -217,7 +217,7 @@ class DataChannelTests(unittest.TestCase):
     def test_set_operator_uses_visible_stack_index_and_rollback(self) -> None:
         mock_client = MagicMock()
         mock_client.send_command.return_value = {"result": '{"updatedProperties":["scale"]}'}
-        with patch("src.tools.data_channel.client", mock_client):
+        with patch("maxmcp.tools.data_channel.client", mock_client):
             set_data_channel_operator(
                 name="Box001", operator_index=2, params={"scale": 3.0}
             )
@@ -233,7 +233,7 @@ class DataChannelTests(unittest.TestCase):
     def test_list_presets_does_not_create_scene_geometry(self) -> None:
         mock_client = MagicMock()
         mock_client.send_command.return_value = {"result": "[]"}
-        with patch("src.tools.data_channel.client", mock_client):
+        with patch("maxmcp.tools.data_channel.client", mock_client):
             list_dc_presets()
         script = mock_client.send_command.call_args.args[0]
         self.assertNotIn("Box name:", script)
@@ -243,7 +243,7 @@ class DataChannelTests(unittest.TestCase):
     def test_load_preset_has_optimistic_count_guard(self) -> None:
         mock_client = MagicMock()
         mock_client.send_command.return_value = {"result": '{"preset":"Dirt Map"}'}
-        with patch("src.tools.data_channel.client", mock_client):
+        with patch("maxmcp.tools.data_channel.client", mock_client):
             load_dc_preset(
                 name="Box001", preset_name="Dirt Map", expected_operator_count=2
             )

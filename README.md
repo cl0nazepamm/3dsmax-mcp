@@ -10,7 +10,9 @@
 Connect AI agents to Autodesk 3ds Max through the [Model Context Protocol](https://modelcontextprotocol.io).
 Ask in natural language; the agent creates objects, builds materials, inspects plugins with dedicated MCP tools instead of MAXScript/Python feedback loops.
 
-**Current release: 1.5.0** — see [CHANGELOG.md](docs/CHANGELOG.md).
+**Current release: 1.5.1** — see [CHANGELOG.md](docs/CHANGELOG.md).
+
+> 中文文档：[README.zh-CN.md](README.zh-CN.md)
 
 ## Features
 
@@ -21,7 +23,7 @@ Ask in natural language; the agent creates objects, builds materials, inspects p
 
 ## Requirements
 
-- [Python 3.10+](https://www.python.org/)
+- [Python 3.12+](https://www.python.org/)
 - [uv](https://docs.astral.sh/uv/)
 - Autodesk **3ds Max 2023–2027**
 

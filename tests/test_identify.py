@@ -3,8 +3,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.max_client import MaxBridgeError
-from src.tools import identify
+from maxmcp.max_client import MaxBridgeError
+from maxmcp.tools import identify
 
 
 class FakeClient:

@@ -24,9 +24,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src import server as _server  # noqa: E402,F401
-from src.max_client import MaxBridgeError, MaxClient  # noqa: E402
-from src.tools import capabilities, identify, material_ops, materials  # noqa: E402
+from maxmcp import server as _server  # noqa: E402,F401
+from maxmcp.max_client import MaxBridgeError, MaxClient  # noqa: E402
+from maxmcp.tools import capabilities, identify, material_ops, materials  # noqa: E402
 
 
 PREFIX = "MCP_PortParity_"

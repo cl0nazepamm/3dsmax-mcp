@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import sys
 
-from src.tools.bridge import get_bridge_status
-from src.tools.scene_manage import manage_scene
-from src.tools.session_context import get_session_context
+from maxmcp.tools.bridge import get_bridge_status
+from maxmcp.tools.scene_manage import manage_scene
+from maxmcp.tools.session_context import get_session_context
 
 
 def main() -> int:

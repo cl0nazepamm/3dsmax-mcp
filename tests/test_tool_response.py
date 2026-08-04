@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from mcp.server.fastmcp.utilities.types import Image
 
-from src.tool_response import (
+from maxmcp.tool_response import (
     ToolEnvelope,
     envelope_result,
     envelope_exception,
@@ -235,7 +235,7 @@ class ToolResponseTests(unittest.TestCase):
             wrapped = make_structured_tool(raw_tool, transport_provider=lambda: {"transport": "tcp"})
 
             self.assertTrue(str(wrapped.__signature__).endswith("-> ToolEnvelope") or
-                            str(wrapped.__signature__).endswith("-> src.tool_response.ToolEnvelope"))
+                            str(wrapped.__signature__).endswith("-> maxmcp.tool_response.ToolEnvelope"))
             self.assertIs(wrapped.__annotations__["return"], ToolEnvelope)
 
             ok_payload = wrapped("x", count=2)

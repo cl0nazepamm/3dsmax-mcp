@@ -20,7 +20,7 @@ class ServerModuleLaunchTests(unittest.IsolatedAsyncioTestCase):
                 return [tool.name for tool in tools]
 
     async def test_module_launch_registers_tools(self) -> None:
-        tool_names = await self._list_tool_names(["-m", "src.server"])
+        tool_names = await self._list_tool_names(["-m", "maxmcp.server"])
 
         self.assertIn("execute_maxscript", tool_names)
         self.assertIn("query_scene", tool_names)
@@ -32,7 +32,7 @@ class ServerModuleLaunchTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(len(tool_names), 0)
 
     async def test_full_profile_registers_agentic_mcg_tools(self) -> None:
-        tool_names = await self._list_tool_names(["-m", "src.server"], profile="full")
+        tool_names = await self._list_tool_names(["-m", "maxmcp.server"], profile="full")
 
         self.assertIn("mcg_get_context", tool_names)
         self.assertIn("mcg_search_operators", tool_names)

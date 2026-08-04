@@ -1,6 +1,6 @@
 import unittest
 
-from src.helpers.maxscript import safe_name, safe_string
+from maxmcp.helpers.maxscript import safe_name, safe_string
 
 
 class MaxscriptHelperTests(unittest.TestCase):

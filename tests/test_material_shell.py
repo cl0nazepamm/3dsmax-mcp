@@ -5,14 +5,14 @@ from pathlib import Path
 from unittest.mock import PropertyMock, patch
 
 from scripts.gen_tool_registry import extract_tools
-from src.max_client import MaxBridgeError
-from src.tools.material_ops import create_shell_material
-from src.tools.material_shell import build_shell_wrap_maxscript
+from maxmcp.max_client import MaxBridgeError
+from maxmcp.tools.material_ops import create_shell_material
+from maxmcp.tools.material_shell import build_shell_wrap_maxscript
 
 
 class ShellMaterialTests(unittest.TestCase):
     def test_standalone_chat_schema_only_exposes_native_wrap_mode(self) -> None:
-        tools = extract_tools(Path("src/tools/material_ops.py"))
+        tools = extract_tools(Path("maxmcp/tools/material_ops.py"))
         shell = next(
             tool for tool in tools
             if tool["name"] == "create_shell_material"
@@ -45,12 +45,12 @@ class ShellMaterialTests(unittest.TestCase):
     def test_create_shell_wraps_by_name(self) -> None:
         with (
             patch(
-                "src.max_client.MaxClient.native_available",
+                "maxmcp.max_client.MaxClient.native_available",
                 new_callable=PropertyMock,
                 return_value=False,
             ),
             patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": '{"status":"success","workflow":"shell_wrap"}'},
             ) as send,
         ):
@@ -69,12 +69,12 @@ class ShellMaterialTests(unittest.TestCase):
     def test_create_shell_uses_native_for_existing_materials(self) -> None:
         with (
             patch(
-                "src.max_client.MaxClient.native_available",
+                "maxmcp.max_client.MaxClient.native_available",
                 new_callable=PropertyMock,
                 return_value=True,
             ),
             patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": '{"status":"success","workflow":"shell_wrap"}'},
             ) as send,
         ):
@@ -97,12 +97,12 @@ class ShellMaterialTests(unittest.TestCase):
         error = "Unknown command type: native:create_shell_material"
         with (
             patch(
-                "src.max_client.MaxClient.native_available",
+                "maxmcp.max_client.MaxClient.native_available",
                 new_callable=PropertyMock,
                 return_value=True,
             ),
             patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 side_effect=[
                     MaxBridgeError(error, {"success": False, "error": error}),
                     {"result": '{"status":"success","workflow":"shell_wrap"}'},
@@ -131,12 +131,12 @@ class ShellMaterialTests(unittest.TestCase):
         )
         with (
             patch(
-                "src.max_client.MaxClient.native_available",
+                "maxmcp.max_client.MaxClient.native_available",
                 new_callable=PropertyMock,
                 return_value=True,
             ),
             patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 side_effect=bridge_error,
             ),
             self.assertRaises(MaxBridgeError) as raised,
@@ -156,12 +156,12 @@ class ShellMaterialTests(unittest.TestCase):
 
             with (
                 patch(
-                    "src.max_client.MaxClient.native_available",
+                    "maxmcp.max_client.MaxClient.native_available",
                     new_callable=PropertyMock,
                     return_value=True,
                 ),
                 patch(
-                    "src.tools.material_ops.client.send_command",
+                    "maxmcp.tools.material_ops.client.send_command",
                     return_value={"result": '{"status":"success"}'},
                 ) as send,
             ):

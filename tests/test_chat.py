@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from src.tools.chat import chat_clear, chat_reload, chat_status, send_to_chat
+from maxmcp.tools.chat import chat_clear, chat_reload, chat_status, send_to_chat
 
 
 class ChatToolTests(unittest.TestCase):
@@ -13,7 +13,7 @@ class ChatToolTests(unittest.TestCase):
             "meta": {"threadMode": "direct"},
         }
 
-        with patch("src.tools.chat.client.send_command", return_value=response) as mocked_send:
+        with patch("maxmcp.tools.chat.client.send_command", return_value=response) as mocked_send:
             result = json.loads(send_to_chat("hello", timeout_ms=1234, silent=True))
 
         mocked_send.assert_called_once_with(
@@ -37,14 +37,14 @@ class ChatToolTests(unittest.TestCase):
             "meta": {},
         }
 
-        with patch("src.tools.chat.client.send_command", return_value=response):
+        with patch("maxmcp.tools.chat.client.send_command", return_value=response):
             with self.assertRaisesRegex(RuntimeError, "Chat error: Chat is busy"):
                 send_to_chat("hello")
 
     def test_chat_status_and_clear_normalize_response(self) -> None:
         with (
             patch(
-                "src.tools.chat.client.send_command",
+                "maxmcp.tools.chat.client.send_command",
                 side_effect=[
                     {
                         "result": '{"visible":true,"configured":true,"processing":false,"conversationLength":2}',
@@ -75,7 +75,7 @@ class ChatToolTests(unittest.TestCase):
             "meta": {"threadMode": "mainThread"},
         }
 
-        with patch("src.tools.chat.client.send_command", return_value=response) as mocked_send:
+        with patch("maxmcp.tools.chat.client.send_command", return_value=response) as mocked_send:
             result = json.loads(chat_reload())
 
         mocked_send.assert_called_once_with(

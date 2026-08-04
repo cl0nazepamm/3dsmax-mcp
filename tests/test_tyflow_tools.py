@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from src.tools.tyflow import (
+from maxmcp.tools.tyflow import (
     SHAPE_3D_IDS,
     create_tyflow,
     create_tyflow_preset,
@@ -21,7 +21,7 @@ class TyFlowToolTests(unittest.TestCase):
         self.assertEqual(SHAPE_3D_IDS["pyramid"], 5)
 
     def test_list_operator_types_parses_json(self) -> None:
-        with patch("src.tools.tyflow.client.send_command", return_value={
+        with patch("maxmcp.tools.tyflow.client.send_command", return_value={
             "result": '{"available":["Birth","Shape"],"unavailable":["Fake Op"]}'
         }):
             result = json.loads(list_tyflow_operator_types())
@@ -31,10 +31,10 @@ class TyFlowToolTests(unittest.TestCase):
 
     def test_create_tyflow_returns_select_result(self) -> None:
         with (
-            patch("src.tools.tyflow.client.send_command", return_value={
+            patch("maxmcp.tools.tyflow.client.send_command", return_value={
                 "result": '{"name":"Flow001","event":"Emit","operatorCount":1,"operators":[]}'
             }),
-            patch("src.tools.selection.select_objects", return_value="Selected 1 of 1 objects"),
+            patch("maxmcp.tools.selection.select_objects", return_value="Selected 1 of 1 objects"),
         ):
             result = json.loads(create_tyflow(name="Flow001", operators=[{"type": "Birth"}]))
 
@@ -54,13 +54,13 @@ class TyFlowToolTests(unittest.TestCase):
             get_tyflow_particles("Flow001", max_particles=0)
 
     def test_particle_count_parses_response(self) -> None:
-        with patch("src.tools.tyflow.client.send_command", return_value={"result": '{"name":"Flow001","particleCount":42}'}):
+        with patch("maxmcp.tools.tyflow.client.send_command", return_value={"result": '{"name":"Flow001","particleCount":42}'}):
             result = json.loads(get_tyflow_particle_count("Flow001"))
 
         self.assertEqual(result["particleCount"], 42)
 
     def test_create_preset_delegates_to_create(self) -> None:
-        with patch("src.tools.tyflow.create_tyflow", return_value='{"name":"ty_rain"}') as mocked_create:
+        with patch("maxmcp.tools.tyflow.create_tyflow", return_value='{"name":"ty_rain"}') as mocked_create:
             result = json.loads(create_tyflow_preset("rain"))
 
         self.assertEqual(result["name"], "ty_rain")
@@ -78,7 +78,7 @@ class TyFlowToolTests(unittest.TestCase):
             "PR|Emit|Birth|birthMode|0\n"
             "WARN|PR_TRUNCATED|Emit|Birth|20|10\n"
         )
-        with patch("src.tools.tyflow.client.send_command", return_value={"result": readback}):
+        with patch("maxmcp.tools.tyflow.client.send_command", return_value={"result": readback}):
             result = json.loads(get_tyflow_info("Flow001", include_operator_properties=True))
 
         self.assertEqual(result["name"], "Flow001")
@@ -92,7 +92,7 @@ class TyFlowToolTests(unittest.TestCase):
         self.assertEqual(result["warnings"][0], ["PR_TRUNCATED", "Emit", "Birth", "20", "10"])
 
     def test_get_tyflow_info_handles_missing_object(self) -> None:
-        with patch("src.tools.tyflow.client.send_command", return_value={"result": "__ERROR__|Object not found: Flow001"}):
+        with patch("maxmcp.tools.tyflow.client.send_command", return_value={"result": "__ERROR__|Object not found: Flow001"}):
             result = json.loads(get_tyflow_info("Flow001"))
         self.assertEqual(result["error"], "Object not found: Flow001")
 

@@ -16,7 +16,7 @@ import re
 import tempfile
 import unittest
 
-import src.tools.builder as b
+import maxmcp.tools.builder as b
 
 
 PNG_BYTES = base64.b64decode(
@@ -166,7 +166,7 @@ def moderate_spec():
 
 
 class FakeClient:
-    """Emulate just the bridge surfaces emitted by ``src.tools.builder``."""
+    """Emulate just the bridge surfaces emitted by ``maxmcp.tools.builder``."""
 
     def __init__(self):
         self.tempdir = tempfile.TemporaryDirectory(prefix="builder-test-")

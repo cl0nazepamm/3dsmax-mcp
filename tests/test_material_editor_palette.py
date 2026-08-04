@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.tools.palette_laydown import palette_laydown
+from maxmcp.tools.palette_laydown import palette_laydown
 
 
 def _tripback_message(result):
@@ -19,7 +19,7 @@ class MaterialEditorPaletteTests(unittest.TestCase):
             (root / "notes.txt").write_text("skip", encoding="utf-8")
 
             with patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": "Loaded 2"},
             ) as send:
                 result = palette_laydown(
@@ -50,7 +50,7 @@ class MaterialEditorPaletteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, "notes.txt").write_text("skip", encoding="utf-8")
 
-            with patch("src.tools.material_ops.client.send_command") as send:
+            with patch("maxmcp.tools.material_ops.client.send_command") as send:
                 result = palette_laydown(tmp)
 
         self.assertIn("No image files found", result)
@@ -62,7 +62,7 @@ class MaterialEditorPaletteTests(unittest.TestCase):
             tex.write_bytes(b"fake")
 
             with patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": "Loaded 1 bitmap"},
             ) as send:
                 result = palette_laydown(tmp, slot_content="bitmap")
@@ -80,7 +80,7 @@ class MaterialEditorPaletteTests(unittest.TestCase):
             tex = Path(tmp) / "wood.png"
             tex.write_bytes(b"fake")
 
-            with patch("src.tools.material_ops.client.send_command") as send:
+            with patch("maxmcp.tools.material_ops.client.send_command") as send:
                 result = palette_laydown(tmp, slot_content="shader")
 
         self.assertIn("Unsupported slot_content", result)
@@ -105,7 +105,7 @@ class MaterialEditorPaletteTests(unittest.TestCase):
             (root / "notes.txt").write_text("skip", encoding="utf-8")
 
             with patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": "Loaded 2 grouped PBR material(s)"},
             ) as send:
                 result = palette_laydown(
@@ -147,7 +147,7 @@ class MaterialEditorPaletteTests(unittest.TestCase):
                 (root / name).write_bytes(b"fake")
 
             with patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": "Loaded 2 grouped PBR material(s)"},
             ) as send:
                 result = palette_laydown(
@@ -174,7 +174,7 @@ class MaterialEditorPaletteTests(unittest.TestCase):
                 (root / name).write_bytes(b"fake")
 
             with patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": "Loaded Arnold"},
             ) as send:
                 result = palette_laydown(
@@ -203,7 +203,7 @@ class MaterialEditorPaletteTests(unittest.TestCase):
             (root / "brick_orm.png").write_bytes(b"fake")
 
             with patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": "Loaded ORM"},
             ) as send:
                 result = palette_laydown(tmp, slot_content="pbr")
@@ -225,7 +225,7 @@ class MaterialEditorPaletteTests(unittest.TestCase):
                 (root / name).write_bytes(b"fake")
 
             with patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": "Loaded no displacement"},
             ) as send:
                 result = palette_laydown(
@@ -250,7 +250,7 @@ class MaterialEditorPaletteTests(unittest.TestCase):
                 (root / name).write_bytes(b"fake")
 
             with patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": "Loaded V-Ray"},
             ) as send:
                 result = palette_laydown(
@@ -277,7 +277,7 @@ class MaterialEditorPaletteTests(unittest.TestCase):
                 (root / name).write_bytes(b"fake")
 
             with patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": "Loaded MaterialX"},
             ) as send:
                 result = palette_laydown(
@@ -310,7 +310,7 @@ class MaterialEditorPaletteTests(unittest.TestCase):
                 (root / name).write_bytes(b"fake")
 
             with patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": "Loaded Octane"},
             ) as send:
                 result = palette_laydown(
@@ -337,7 +337,7 @@ class MaterialEditorPaletteTests(unittest.TestCase):
                 (root / name).write_bytes(b"fake")
 
             with patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": "Loaded 1 grouped PBR material(s)"},
             ) as send:
                 result = palette_laydown(

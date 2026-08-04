@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from src.tools.railclone import get_railclone_style_graph
+from maxmcp.tools.railclone import get_railclone_style_graph
 
 
 class RailCloneToolTests(unittest.TestCase):
@@ -19,7 +19,7 @@ class RailCloneToolTests(unittest.TestCase):
                 "WARN|STYLE_DESC_EMPTY|0|0",
             ]
         )
-        with patch("src.tools.railclone.client.send_command", return_value={"result": payload}):
+        with patch("maxmcp.tools.railclone.client.send_command", return_value={"result": payload}):
             result = json.loads(get_railclone_style_graph("RailClone001"))
 
         self.assertEqual(result["name"], "RailClone001")
@@ -32,7 +32,7 @@ class RailCloneToolTests(unittest.TestCase):
         self.assertTrue(any(edge["type"] == "base_to_segment" for edge in result["graph"]["edges"]))
 
     def test_get_railclone_style_graph_returns_error_when_missing(self) -> None:
-        with patch("src.tools.railclone.client.send_command", return_value={"result": "__ERROR__|Object not found: MissingRC"}):
+        with patch("maxmcp.tools.railclone.client.send_command", return_value={"result": "__ERROR__|Object not found: MissingRC"}):
             result = json.loads(get_railclone_style_graph("MissingRC"))
         self.assertEqual(result["error"], "Object not found: MissingRC")
 

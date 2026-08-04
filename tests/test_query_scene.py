@@ -2,14 +2,14 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
-from src.tools._query_scene_core import (
+from maxmcp.tools._query_scene_core import (
     _previous_snapshot,
     dispatch_query_scene,
     run_delta,
     run_filter,
     run_overview,
 )
-from src.tools.query_scene import query_scene
+from maxmcp.tools.query_scene import query_scene
 
 
 class QuerySceneTests(unittest.TestCase):
@@ -19,14 +19,14 @@ class QuerySceneTests(unittest.TestCase):
         self.assertIn("error", payload)
 
     def test_overview_delegates_to_run_overview(self) -> None:
-        with patch("src.tools.query_scene.dispatch_query_scene", return_value='{"objectCount":1}') as mocked:
+        with patch("maxmcp.tools.query_scene.dispatch_query_scene", return_value='{"objectCount":1}') as mocked:
             result = query_scene(action="overview", max_roots=10)
         self.assertEqual(result, '{"objectCount":1}')
         mocked.assert_called_once()
         self.assertEqual(mocked.call_args.args[1], "overview")
 
     def test_run_overview_wrapper(self) -> None:
-        with patch("src.tools._query_scene_core.fetch_scene_snapshot", return_value={"objectCount": 2}):
+        with patch("maxmcp.tools._query_scene_core.fetch_scene_snapshot", return_value={"objectCount": 2}):
             client = MagicMock()
             client.native_available = True
             client.send_command.return_value = {"result": '{"objectCount":2}'}
@@ -43,7 +43,7 @@ class QuerySceneTests(unittest.TestCase):
         }
         mock_client = MagicMock()
         mock_client.native_available = True
-        with patch("src.tools._query_scene_core.fetch_scene_snapshot", return_value=snapshot):
+        with patch("maxmcp.tools._query_scene_core.fetch_scene_snapshot", return_value=snapshot):
             payload = json.loads(run_filter(mock_client))
         self.assertEqual(payload["totalObjects"], 4)
 

@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from src.tools import organize
+from maxmcp.tools import organize
 
 
 class OrganizeToolTests(unittest.TestCase):

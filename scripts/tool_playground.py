@@ -442,7 +442,7 @@ class ToolInspectorApp:
 
     def _get_mcp(self):
         if self._mcp is None:
-            from src.server import mcp  # noqa: WPS433
+            from maxmcp.server import mcp  # noqa: WPS433
 
             self._mcp = mcp
         return self._mcp

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.tools import viewport
+from maxmcp.tools import viewport
 
 
 class FakeClient:

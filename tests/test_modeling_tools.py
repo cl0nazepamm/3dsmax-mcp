@@ -4,9 +4,9 @@ against a canned fake client."""
 
 import unittest
 
-import src.tools.booleans as booleans
-import src.tools.poly_edit as poly_edit
-import src.tools.splines as splines
+import maxmcp.tools.booleans as booleans
+import maxmcp.tools.poly_edit as poly_edit
+import maxmcp.tools.splines as splines
 
 
 def unwrap(tool):

@@ -2,9 +2,9 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
-from src.tools.material_replace import batch_replace_materials
-from src.tools.modifiers import collapse_modifier_stack
-from src.tools.objects import delete_objects
+from maxmcp.tools.material_replace import batch_replace_materials
+from maxmcp.tools.modifiers import collapse_modifier_stack
+from maxmcp.tools.objects import delete_objects
 
 
 class SharpMCPPayloadTests(unittest.TestCase):
@@ -13,7 +13,7 @@ class SharpMCPPayloadTests(unittest.TestCase):
         mock_client.native_available = True
         mock_client.send_command.return_value = {"result": "{}"}
 
-        with patch("src.tools.objects.client", mock_client):
+        with patch("maxmcp.tools.objects.client", mock_client):
             delete_objects(names=["Box"], handles=[123], dry_run=True)
 
         payload = json.loads(mock_client.send_command.call_args.args[0])
@@ -25,7 +25,7 @@ class SharpMCPPayloadTests(unittest.TestCase):
         mock_client.native_available = True
         mock_client.send_command.return_value = {"result": "{}"}
 
-        with patch("src.tools.modifiers.client", mock_client):
+        with patch("maxmcp.tools.modifiers.client", mock_client):
             collapse_modifier_stack(handle=456, to_index=2, dry_run=True)
 
         payload = json.loads(mock_client.send_command.call_args.args[0])
@@ -37,7 +37,7 @@ class SharpMCPPayloadTests(unittest.TestCase):
         mock_client.native_available = True
         mock_client.send_command.return_value = {"result": "{}"}
 
-        with patch("src.tools.material_replace.client", mock_client):
+        with patch("maxmcp.tools.material_replace.client", mock_client):
             batch_replace_materials(
                 replacements=[{"source": "A", "target": "B"}],
                 dry_run=True,

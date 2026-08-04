@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.helpers.mcg_catalog import (
+from maxmcp.helpers.mcg_catalog import (
     bundled_sample_root,
     parse_compound_metadata,
     parse_operator_metadata,

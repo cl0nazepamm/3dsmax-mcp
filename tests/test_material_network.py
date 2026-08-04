@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from src.tools.material_network import inspect_material_network, replicate_material
+from maxmcp.tools.material_network import inspect_material_network, replicate_material
 
 
 class MaterialNetworkToolTests(unittest.TestCase):
@@ -13,7 +13,7 @@ class MaterialNetworkToolTests(unittest.TestCase):
             "nodes": [],
             "issues": [],
         }
-        with patch("src.tools.material_network.client") as client:
+        with patch("maxmcp.tools.material_network.client") as client:
             client.native_available = True
             client.send_command.return_value = {"result": json.dumps(payload)}
 
@@ -32,7 +32,7 @@ class MaterialNetworkToolTests(unittest.TestCase):
             "preview": True,
             "plannedFiles": [{"oldPath": "C:/old/diffuse.1001.jpg", "newPath": "D:\\tex\\diffuse.1001.jpg"}],
         }
-        with patch("src.tools.material_network.client") as client:
+        with patch("maxmcp.tools.material_network.client") as client:
             client.native_available = True
             client.send_command.return_value = {"result": json.dumps(native)}
 
@@ -53,7 +53,7 @@ class MaterialNetworkToolTests(unittest.TestCase):
         self.assertEqual(result["plannedFiles"][0]["newPath"], "D:\\tex\\diffuse.1001.jpg")
 
     def test_replicate_material_apply_uses_apply_handler(self) -> None:
-        with patch("src.tools.material_network.client") as client:
+        with patch("maxmcp.tools.material_network.client") as client:
             client.native_available = True
             client.send_command.return_value = {"result": '{"ok":true,"preview":false,"status":"applied"}'}
 
@@ -75,7 +75,7 @@ class MaterialNetworkToolTests(unittest.TestCase):
         self.assertEqual(result["status"], "applied")
 
     def test_native_unavailable_returns_clear_error(self) -> None:
-        with patch("src.tools.material_network.client") as client:
+        with patch("maxmcp.tools.material_network.client") as client:
             client.native_available = False
             result = json.loads(inspect_material_network("Mat_A"))
 
@@ -84,7 +84,7 @@ class MaterialNetworkToolTests(unittest.TestCase):
 
 
     def test_replicate_material_blocks_apply_when_texture_folder_missing(self) -> None:
-        with patch("src.tools.material_network.client") as client:
+        with patch("maxmcp.tools.material_network.client") as client:
             client.native_available = True
 
             result = json.loads(
@@ -117,7 +117,7 @@ class MaterialNetworkToolTests(unittest.TestCase):
             "warnings": [{"code": "CIRCULAR_REF"}],
             "hints": {"replicateReady": True},
         }
-        with patch("src.tools.material_network.client") as client:
+        with patch("maxmcp.tools.material_network.client") as client:
             client.native_available = True
             client.send_command.return_value = {"result": json.dumps(payload)}
 

@@ -2,7 +2,7 @@
 
 import unittest
 
-from src.helpers.material_tripback import (
+from maxmcp.helpers.material_tripback import (
     PBR_RENDERER_REGISTRY,
     material_class_hint,
     supported_pbr_renderer_keys,

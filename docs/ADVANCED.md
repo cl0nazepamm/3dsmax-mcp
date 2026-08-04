@@ -14,7 +14,7 @@ The native bridge is a Global Utility Plugin. It reads the scene through the 3ds
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.12+
 - [uv](https://docs.astral.sh/uv/)
 - Autodesk 3ds Max 2023–2027
 
@@ -98,7 +98,7 @@ Config file locations:
 
 ## Tool profiles
 
-The external MCP server defaults to the **full** profile (114 tools). Set **core** for a smaller everyday surface (77 tools) without specialty plugin modules.
+The external MCP server defaults to the **full** profile (151 tools). Set **core** for a smaller everyday surface (87 tools) without specialty plugin modules.
 
 ```powershell
 $env:MCP_TOOL_PROFILE = "core"
@@ -108,9 +108,9 @@ uv run 3dsmax-mcp
 | Profile | Modules |
 |---------|---------|
 | **core** | Scene, objects, materials, modifiers, controllers, viewport, file access, plugins, organization, learning |
-| **full** | Core plus tyFlow, Forest Pack, RailClone, Data Channel, effects, floor plan, state sets, wire params, render, in-Max chat drivers (WIP) |
+| **full** | Core plus tyFlow, MCG, Forest Pack, RailClone, Data Channel, effects, floor plan, state sets, wire params, render, render automations, in-Max chat drivers (WIP) |
 
-Specialty modules in full profile: `chat`, `data_channel`, `effects`, `floor_plan`, `railclone`, `render`, `scattering`, `state_sets`, `tyflow`, `wire_params`.
+Specialty modules in full profile: `chat`, `data_channel`, `effects`, `floor_plan`, `mcg`, `railclone`, `render`, `render_automations`, `scattering`, `state_sets`, `tyflow`, `tyflow_graph`, `tyflow_patch`, `tyflow_manifest`, `tyflow_census`, `wire_params`.
 
 ## Config file
 
@@ -203,7 +203,7 @@ Open **MCP Chat** from Customize UI → MCP, or search the macro globally.
 
 - **API key:** `%LOCALAPPDATA%\3dsmax-mcp\.env` (see `.env.example`; `OPENROUTER_API_KEY`, `LLM_API_KEY`, or `OPENAI_API_KEY`)
 - **Settings:** `[llm]` section in `mcp_config.ini`
-- **Tools:** Auto-generated registry from `src/tools/*.py` (`scripts/gen_tool_registry.py` at build time)
+- **Tools:** Auto-generated registry from `maxmcp/tools/*.py` (`scripts/gen_tool_registry.py` at build time)
 - **Security:** Same `safe_mode` filter as external MCP for `execute_maxscript`
 - **Slash commands:** `/reload`, `/clear`, `/help`
 - **Skill:** Deployed to `%LOCALAPPDATA%\3dsmax-mcp\skill\SKILL.md`; `prompt_mode=full` injects the full skill into the system prompt
@@ -246,8 +246,8 @@ python scripts/run_live_tool_smoke.py --tier read
 
 | Path | Purpose |
 |------|---------|
-| `src/server.py` | FastMCP entry, tool registration |
-| `src/tools/` | MCP tool implementations |
+| `maxmcp/server.py` | FastMCP entry, tool registration |
+| `maxmcp/tools/` | MCP tool implementations |
 | `native/` | C++ GUP bridge |
 | `maxscript/` | Listener + autostart |
 | `skills/3dsmax-mcp-dev/` | Agent skill source |

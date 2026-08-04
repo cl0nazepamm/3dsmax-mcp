@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.tools.smart_import import (
+from maxmcp.tools.smart_import import (
     _filter_mesh_lods,
     _grid_cells,
     _lod_mesh_asset_token,
@@ -11,7 +11,7 @@ from src.tools.smart_import import (
     _mesh_stem_key,
     smart_import,
 )
-from src.tools.material_detection import _DEFAULT_CHANNEL_PATTERNS
+from maxmcp.tools.material_detection import _DEFAULT_CHANNEL_PATTERNS
 
 
 class SmartImportHelperTests(unittest.TestCase):
@@ -114,7 +114,7 @@ class SmartImportToolTests(unittest.TestCase):
             (root / "Lamp.mtlx").write_bytes(b"x")
 
             with patch(
-                "src.tools.smart_import.client.send_command",
+                "maxmcp.tools.smart_import.client.send_command",
                 return_value={"result": "smart_import: 3 imported"},
             ) as send:
                 result = smart_import(tmp, grid_spacing=250.0)
@@ -153,7 +153,7 @@ class SmartImportToolTests(unittest.TestCase):
             (root / "Lamp_BaseColor.png").write_bytes(b"x")
 
             with patch(
-                "src.tools.smart_import.client.send_command",
+                "maxmcp.tools.smart_import.client.send_command",
                 return_value={"result": "ok"},
             ) as send:
                 smart_import(tmp)
@@ -182,7 +182,7 @@ class SmartImportToolTests(unittest.TestCase):
             (root / "OakWood_BaseColor.png").write_bytes(b"x")
 
             with patch(
-                "src.tools.smart_import.client.send_command",
+                "maxmcp.tools.smart_import.client.send_command",
                 return_value={"result": "smart_import: 1 imported"},
             ) as send:
                 result = smart_import(tmp, name_pattern="*wood*")
@@ -200,7 +200,7 @@ class SmartImportToolTests(unittest.TestCase):
             (root / "Stone_BaseColor.png").write_bytes(b"x")
 
             with patch(
-                "src.tools.smart_import.client.send_command",
+                "maxmcp.tools.smart_import.client.send_command",
                 return_value={"result": "smart_import: 1 imported"},
             ) as send:
                 result = smart_import(tmp, material_class="octane")
@@ -278,7 +278,7 @@ class SmartImportToolTests(unittest.TestCase):
             (sub / "Nested_BaseColor.png").write_bytes(b"x")
 
             with patch(
-                "src.tools.smart_import.client.send_command",
+                "maxmcp.tools.smart_import.client.send_command",
                 return_value={"result": "ok"},
             ) as send:
                 # Non-recursive should find nothing
@@ -286,7 +286,7 @@ class SmartImportToolTests(unittest.TestCase):
             self.assertIn("No mesh files found", result)
 
             with patch(
-                "src.tools.smart_import.client.send_command",
+                "maxmcp.tools.smart_import.client.send_command",
                 return_value={"result": "ok"},
             ) as send:
                 # Default recursive=True should find nested meshes.

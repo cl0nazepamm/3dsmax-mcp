@@ -2,15 +2,15 @@ import json
 import unittest
 from unittest.mock import PropertyMock, patch
 
-from src.tools.keyframes import keyframe_tracks
+from maxmcp.tools.keyframes import keyframe_tracks
 
 
 class KeyframeToolTests(unittest.TestCase):
     def test_set_all_tracks_uses_compact_native_payload(self) -> None:
         payload = '{"keyed":3,"samplesOmitted":true}'
         with (
-            patch("src.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
-            patch("src.tools.keyframes.client.send_command", return_value={"result": payload}) as mocked_send,
+            patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
+            patch("maxmcp.tools.keyframes.client.send_command", return_value={"result": payload}) as mocked_send,
         ):
             result = keyframe_tracks(names=["Box001"], tracks="all", time=42, key_type="linear")
 
@@ -28,8 +28,8 @@ class KeyframeToolTests(unittest.TestCase):
     def test_track_paths_do_not_expand_to_all_tracks(self) -> None:
         payload = '{"styledKeys":1,"samplesOmitted":true}'
         with (
-            patch("src.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
-            patch("src.tools.keyframes.client.send_command", return_value={"result": payload}) as mocked_send,
+            patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
+            patch("maxmcp.tools.keyframes.client.send_command", return_value={"result": payload}) as mocked_send,
         ):
             keyframe_tracks(
                 action="style",
@@ -46,8 +46,8 @@ class KeyframeToolTests(unittest.TestCase):
     def test_out_of_range_and_budget_pass_through(self) -> None:
         payload = '{"outOfRangeEdits":6,"samplesOmitted":true}'
         with (
-            patch("src.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
-            patch("src.tools.keyframes.client.send_command", return_value={"result": payload}) as mocked_send,
+            patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
+            patch("maxmcp.tools.keyframes.client.send_command", return_value={"result": payload}) as mocked_send,
         ):
             result = keyframe_tracks(
                 action="ort",
@@ -67,8 +67,8 @@ class KeyframeToolTests(unittest.TestCase):
     def test_value_passes_through_for_animation_safe_keys(self) -> None:
         payload = '{"keyed":1,"samplesOmitted":true}'
         with (
-            patch("src.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
-            patch("src.tools.keyframes.client.send_command", return_value={"result": payload}) as mocked_send,
+            patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
+            patch("maxmcp.tools.keyframes.client.send_command", return_value={"result": payload}) as mocked_send,
         ):
             keyframe_tracks(
                 names=["Sphere001"],
@@ -84,8 +84,8 @@ class KeyframeToolTests(unittest.TestCase):
     def test_move_passes_through_for_animation_safe_keys(self) -> None:
         payload = '{"keyed":1,"samplesOmitted":true}'
         with (
-            patch("src.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
-            patch("src.tools.keyframes.client.send_command", return_value={"result": payload}) as mocked_send,
+            patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
+            patch("maxmcp.tools.keyframes.client.send_command", return_value={"result": payload}) as mocked_send,
         ):
             keyframe_tracks(
                 names=["Sphere001"],
@@ -101,8 +101,8 @@ class KeyframeToolTests(unittest.TestCase):
     def test_list_and_loop_pass_through(self) -> None:
         payload = '{"action":"list","readOnly":true,"tracks":2}'
         with (
-            patch("src.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
-            patch("src.tools.keyframes.client.send_command", return_value={"result": payload}) as mocked_send,
+            patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
+            patch("maxmcp.tools.keyframes.client.send_command", return_value={"result": payload}) as mocked_send,
         ):
             keyframe_tracks(
                 action="list",
@@ -118,8 +118,8 @@ class KeyframeToolTests(unittest.TestCase):
         self.assertEqual(sent["to_time"], 100)
 
         with (
-            patch("src.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
-            patch("src.tools.keyframes.client.send_command", return_value={"result": '{"matched":6}'}) as mocked_send,
+            patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
+            patch("maxmcp.tools.keyframes.client.send_command", return_value={"result": '{"matched":6}'}) as mocked_send,
         ):
             keyframe_tracks(
                 action="loop",
@@ -135,8 +135,8 @@ class KeyframeToolTests(unittest.TestCase):
 
     def test_match_can_request_hierarchy_order(self) -> None:
         with (
-            patch("src.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
-            patch("src.tools.keyframes.client.send_command", return_value={"result": "{}"}) as mocked_send,
+            patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
+            patch("maxmcp.tools.keyframes.client.send_command", return_value={"result": "{}"}) as mocked_send,
         ):
             keyframe_tracks(
                 action="match",
@@ -150,7 +150,7 @@ class KeyframeToolTests(unittest.TestCase):
         self.assertEqual(sent["order"], "hierarchy")
 
     def test_requires_native_bridge(self) -> None:
-        with patch("src.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=False):
+        with patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=False):
             result = keyframe_tracks(names=["Box001"])
 
         self.assertIn("Native bridge is required", result)

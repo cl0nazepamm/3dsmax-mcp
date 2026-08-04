@@ -2,7 +2,7 @@ import json
 import unittest
 from typing import Any
 
-from src.server import mcp
+from maxmcp.server import mcp
 
 
 def _unwrap_call_tool_result(meta: dict[str, Any], content: Any = None) -> dict[str, Any]:

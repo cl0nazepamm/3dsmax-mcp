@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.helpers.mcg_graph import (
+from maxmcp.helpers.mcg_graph import (
     MCGGraphError,
     MCGHashConflict,
     MCGSecurityError,

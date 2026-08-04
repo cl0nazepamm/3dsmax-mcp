@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from src.tools.bridge import get_bridge_status
+from maxmcp.tools.bridge import get_bridge_status
 
 
 class BridgeToolTests(unittest.TestCase):
@@ -12,7 +12,7 @@ class BridgeToolTests(unittest.TestCase):
             "requestId": "abc123",
             "meta": {"protocolVersion": 2, "clientRoundTripMs": 1.5},
         }
-        with patch("src.tools.bridge.client.send_command", return_value=response) as mocked_send:
+        with patch("maxmcp.tools.bridge.client.send_command", return_value=response) as mocked_send:
             result = json.loads(get_bridge_status())
 
         mocked_send.assert_called_once_with("", cmd_type="ping", timeout=5.0)
@@ -25,7 +25,7 @@ class BridgeToolTests(unittest.TestCase):
 
     def test_get_bridge_status_falls_back_for_legacy_listener(self) -> None:
         with (
-            patch("src.tools.bridge.client.send_command", side_effect=[
+            patch("maxmcp.tools.bridge.client.send_command", side_effect=[
                 RuntimeError("MAXScript error: Empty command"),
                 {"result": '{"pong": true, "server": "3dsmax-mcp"}', "requestId": None, "meta": {}},
             ]) as mocked_send,

@@ -3,7 +3,7 @@
 import unittest
 from pathlib import Path
 
-from src.helpers.path_filter import (
+from maxmcp.helpers.path_filter import (
     filter_by_name_pattern,
     matches_name_pattern,
     normalize_name_pattern,

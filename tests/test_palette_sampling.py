@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.helpers.palette_sampling import (
+from maxmcp.helpers.palette_sampling import (
     collect_one_sample_per_subfolder,
     is_preview_asset,
     normalize_overflow_mode,
@@ -61,7 +61,7 @@ class PaletteSamplingHelperTests(unittest.TestCase):
 
 class MaterialEditorPaletteSamplingTests(unittest.TestCase):
     def test_palette_laydown_random_per_subfolder_builds_one_group_per_child(self) -> None:
-        from src.tools.palette_laydown import palette_laydown
+        from maxmcp.tools.palette_laydown import palette_laydown
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -75,7 +75,7 @@ class MaterialEditorPaletteSamplingTests(unittest.TestCase):
             (pack_b / "beta_roughness.png").write_bytes(b"x")
 
             with patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": "Loaded 2 grouped PBR material(s)"},
             ) as send:
                 result = palette_laydown(
@@ -95,7 +95,7 @@ class MaterialEditorPaletteSamplingTests(unittest.TestCase):
         self.assertIn('"tex_beta"', maxscript)
 
     def test_palette_laydown_overflow_puts_extra_groups_in_library(self) -> None:
-        from src.tools.palette_laydown import palette_laydown
+        from maxmcp.tools.palette_laydown import palette_laydown
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -106,7 +106,7 @@ class MaterialEditorPaletteSamplingTests(unittest.TestCase):
                 (folder / f"{label}_roughness.png").write_bytes(b"x")
 
             with patch(
-                "src.tools.material_ops.client.send_command",
+                "maxmcp.tools.material_ops.client.send_command",
                 return_value={"result": "Loaded 2 grouped PBR material(s) | Library: 1 material(s)"},
             ) as send:
                 result = palette_laydown(
@@ -123,10 +123,10 @@ class MaterialEditorPaletteSamplingTests(unittest.TestCase):
         self.assertIn("append currentMaterialLibrary lib_3", maxscript)
 
     def test_palette_laydown_rejects_unknown_sample_mode(self) -> None:
-        from src.tools.palette_laydown import palette_laydown
+        from maxmcp.tools.palette_laydown import palette_laydown
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("src.tools.material_ops.client.send_command") as send:
+            with patch("maxmcp.tools.material_ops.client.send_command") as send:
                 result = palette_laydown(tmp, sample_mode="every_other_tuesday")
 
         self.assertIn("Unsupported sample_mode", result)

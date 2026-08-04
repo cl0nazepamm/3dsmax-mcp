@@ -1,7 +1,7 @@
 import unittest
 
-from src.helpers.native_compat import is_missing_native_route_error
-from src.max_client import MaxBridgeError
+from maxmcp.helpers.native_compat import is_missing_native_route_error
+from maxmcp.max_client import MaxBridgeError
 
 
 class NativeCompatibilityTests(unittest.TestCase):

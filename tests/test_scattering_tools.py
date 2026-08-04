@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from src.tools import scattering
+from maxmcp.tools import scattering
 
 
 class ScatterForestPackTests(unittest.TestCase):

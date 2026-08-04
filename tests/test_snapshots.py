@@ -2,8 +2,8 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
-import src.tools._query_scene_core as core
-from src.tools._query_scene_core import run_delta
+import maxmcp.tools._query_scene_core as core
+from maxmcp.tools._query_scene_core import run_delta
 
 
 class SceneDeltaTests(unittest.TestCase):
@@ -16,7 +16,7 @@ class SceneDeltaTests(unittest.TestCase):
         }
         client = MagicMock()
         client.native_available = False
-        with patch("src.tools._query_scene_core._capture_scene_state", return_value=state):
+        with patch("maxmcp.tools._query_scene_core._capture_scene_state", return_value=state):
             result = json.loads(run_delta(client))
 
         self.assertEqual(result, {"baseline": True, "objectCount": 1})
@@ -33,7 +33,7 @@ class SceneDeltaTests(unittest.TestCase):
         client = MagicMock()
         client.native_available = False
         core._previous_snapshot = previous
-        with patch("src.tools._query_scene_core._capture_scene_state", return_value=current):
+        with patch("maxmcp.tools._query_scene_core._capture_scene_state", return_value=current):
             result = json.loads(run_delta(client))
 
         self.assertEqual(result["added"], [{"name": "Sphere001", "class": "Sphere"}])
@@ -53,7 +53,7 @@ class SceneDeltaTests(unittest.TestCase):
         client = MagicMock()
         client.native_available = False
         core._previous_snapshot = previous
-        with patch("src.tools._query_scene_core._capture_scene_state", return_value=current):
+        with patch("maxmcp.tools._query_scene_core._capture_scene_state", return_value=current):
             result = json.loads(run_delta(client))
 
         self.assertEqual(result["removed"], [{"name": "Tree", "class": "Box"}])

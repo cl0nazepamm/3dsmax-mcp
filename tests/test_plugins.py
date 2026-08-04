@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from src.tools.plugins import (
+from maxmcp.tools.plugins import (
     _build_manifest,
     _plugin_gotchas_markdown,
     _plugin_guide_markdown,
@@ -45,7 +45,7 @@ class PluginToolTests(unittest.TestCase):
         self.assertEqual(parsed["properties"][2]["category"], "node")
 
     def test_list_plugin_classes_filters_by_plugin(self) -> None:
-        with patch("src.tools.plugins._fetch_runtime_classes", return_value=RUNTIME_CLASSES):
+        with patch("maxmcp.tools.plugins._fetch_runtime_classes", return_value=RUNTIME_CLASSES):
             result = json.loads(list_plugin_classes(plugin_name="tyflow", limit=1))
 
         self.assertEqual(result["count"], 1)
@@ -54,9 +54,9 @@ class PluginToolTests(unittest.TestCase):
 
     def test_discover_plugin_surface_summarizes_known_plugin(self) -> None:
         with (
-            patch("src.tools.plugins._fetch_runtime_classes", return_value=RUNTIME_CLASSES),
-            patch("src.tools.plugins._get_scene_instance_counts", return_value={"tyFlow": 2, "tyMesher": 0}),
-            patch("src.tools.plugins.get_plugin_capabilities", return_value='{"maxVersion":2026,"renderer":"Arnold","plugins":{"tyFlow":true}}'),
+            patch("maxmcp.tools.plugins._fetch_runtime_classes", return_value=RUNTIME_CLASSES),
+            patch("maxmcp.tools.plugins._get_scene_instance_counts", return_value={"tyFlow": 2, "tyMesher": 0}),
+            patch("maxmcp.tools.plugins.get_plugin_capabilities", return_value='{"maxVersion":2026,"renderer":"Arnold","plugins":{"tyFlow":true}}'),
         ):
             result = json.loads(discover_plugin_surface(plugin_name="tyflow"))
 
@@ -70,9 +70,9 @@ class PluginToolTests(unittest.TestCase):
 
     def test_discover_plugin_surface_keeps_runtime_detection_when_capabilities_disagree(self) -> None:
         with (
-            patch("src.tools.plugins._fetch_runtime_classes", return_value=RUNTIME_CLASSES),
-            patch("src.tools.plugins._get_scene_instance_counts", return_value={"tyFlow": 1, "tyMesher": 0}),
-            patch("src.tools.plugins.get_plugin_capabilities", return_value='{"plugins":{"tyFlow":false}}'),
+            patch("maxmcp.tools.plugins._fetch_runtime_classes", return_value=RUNTIME_CLASSES),
+            patch("maxmcp.tools.plugins._get_scene_instance_counts", return_value={"tyFlow": 1, "tyMesher": 0}),
+            patch("maxmcp.tools.plugins.get_plugin_capabilities", return_value='{"plugins":{"tyFlow":false}}'),
         ):
             result = json.loads(discover_plugin_surface(plugin_name="tyflow"))
 
@@ -82,8 +82,8 @@ class PluginToolTests(unittest.TestCase):
 
     def test_inspect_plugin_class_uses_showclass_reflection(self) -> None:
         with (
-            patch("src.tools.plugins._fetch_runtime_classes", return_value=RUNTIME_CLASSES),
-            patch("src.tools.plugins._fetch_showclass_lines", return_value=[
+            patch("maxmcp.tools.plugins._fetch_runtime_classes", return_value=RUNTIME_CLASSES),
+            patch("maxmcp.tools.plugins._fetch_showclass_lines", return_value=[
                 "tyFlow : GeometryClass {31322891,70f5b9ca}",
                 "  .simResetMode : integer",
                 "  .allowCustomWirecolor : boolean",
@@ -100,8 +100,8 @@ class PluginToolTests(unittest.TestCase):
 
     def test_inspect_plugin_class_returns_stable_method_schema_when_disabled(self) -> None:
         with (
-            patch("src.tools.plugins._fetch_runtime_classes", return_value=RUNTIME_CLASSES),
-            patch("src.tools.plugins._fetch_showclass_lines", return_value=[
+            patch("maxmcp.tools.plugins._fetch_runtime_classes", return_value=RUNTIME_CLASSES),
+            patch("maxmcp.tools.plugins._fetch_showclass_lines", return_value=[
                 "tyFlow : GeometryClass {31322891,70f5b9ca}",
                 "  .simResetMode : integer",
             ]),
@@ -116,8 +116,8 @@ class PluginToolTests(unittest.TestCase):
             {"name": "RailClone_Pro", "superclass": "GeometryClass", "category": "geometry", "plugin": "RailClone"},
         ]
         with (
-            patch("src.tools.plugins._fetch_runtime_classes", return_value=railclone_classes),
-            patch("src.tools.plugins._fetch_showclass_lines", return_value=[
+            patch("maxmcp.tools.plugins._fetch_runtime_classes", return_value=railclone_classes),
+            patch("maxmcp.tools.plugins._fetch_showclass_lines", return_value=[
                 "RailClone_Pro(RailClone Pro) : GeometryClass {39712def,10a72959}",
                 "  .spline : node",
             ]),
@@ -129,14 +129,14 @@ class PluginToolTests(unittest.TestCase):
 
     def test_build_manifest_merges_overlay_and_runtime_data(self) -> None:
         with (
-            patch("src.tools.plugins._fetch_runtime_classes", return_value=RUNTIME_CLASSES),
-            patch("src.tools.plugins._get_scene_instance_counts", return_value={"tyFlow": 1, "tyMesher": 0}),
-            patch("src.tools.plugins._fetch_showclass_lines", return_value=[
+            patch("maxmcp.tools.plugins._fetch_runtime_classes", return_value=RUNTIME_CLASSES),
+            patch("maxmcp.tools.plugins._get_scene_instance_counts", return_value={"tyFlow": 1, "tyMesher": 0}),
+            patch("maxmcp.tools.plugins._fetch_showclass_lines", return_value=[
                 "tyFlow : GeometryClass {31322891,70f5b9ca}",
                 "  .simResetMode : integer",
                 "  .allowCustomWirecolor : boolean",
             ]),
-            patch("src.tools.plugins.get_plugin_capabilities", return_value='{"plugins":{"tyFlow":true}}'),
+            patch("maxmcp.tools.plugins.get_plugin_capabilities", return_value='{"plugins":{"tyFlow":true}}'),
         ):
             manifest = _build_manifest("tyflow")
 
@@ -161,10 +161,10 @@ class PluginToolTests(unittest.TestCase):
         ]
         scene_counts = {item["name"]: 0 for item in many_classes[:20]}
         with (
-            patch("src.tools.plugins._fetch_runtime_classes", return_value=many_classes),
-            patch("src.tools.plugins._get_scene_instance_counts", return_value=scene_counts),
-            patch("src.tools.plugins._fetch_showclass_lines", return_value=[]),
-            patch("src.tools.plugins.get_plugin_capabilities", return_value='{"plugins":{"tyFlow":true}}'),
+            patch("maxmcp.tools.plugins._fetch_runtime_classes", return_value=many_classes),
+            patch("maxmcp.tools.plugins._get_scene_instance_counts", return_value=scene_counts),
+            patch("maxmcp.tools.plugins._fetch_showclass_lines", return_value=[]),
+            patch("maxmcp.tools.plugins.get_plugin_capabilities", return_value='{"plugins":{"tyFlow":true}}'),
         ):
             manifest = _build_manifest("tyflow")
 
@@ -174,14 +174,14 @@ class PluginToolTests(unittest.TestCase):
         self.assertTrue(any("sampled for the first 20" in warning for warning in manifest["warnings"]))
 
     def test_get_plugin_manifest_returns_json(self) -> None:
-        with patch("src.tools.plugins._build_manifest", return_value={"plugin": "tyFlow", "installed": True}):
+        with patch("maxmcp.tools.plugins._build_manifest", return_value={"plugin": "tyFlow", "installed": True}):
             result = json.loads(get_plugin_manifest("tyflow"))
 
         self.assertEqual(result["plugin"], "tyFlow")
         self.assertEqual(result["installed"], True)
 
     def test_plugin_guide_markdown_renders_sections(self) -> None:
-        with patch("src.tools.plugins._build_manifest", return_value={
+        with patch("maxmcp.tools.plugins._build_manifest", return_value={
             "plugin": "tyFlow",
             "installed": True,
             "category": "mixed",
@@ -199,7 +199,7 @@ class PluginToolTests(unittest.TestCase):
         self.assertIn("Nested graphs need care.", guide)
 
     def test_recipe_and_gotcha_markdown_render_lists(self) -> None:
-        with patch("src.tools.plugins._build_manifest", return_value={
+        with patch("maxmcp.tools.plugins._build_manifest", return_value={
             "plugin": "tyFlow",
             "recipes": ["Create a basic flow."],
             "gotchas": ["Events are not easily rediscoverable after creation."],
@@ -214,11 +214,11 @@ class PluginToolTests(unittest.TestCase):
 
     def test_plugin_resources_delegate_to_tooling(self) -> None:
         with (
-            patch("src.tools.plugins.discover_plugin_surface", return_value='{"plugins":[{"plugin":"tyFlow"}]}'),
-            patch("src.tools.plugins.get_plugin_manifest", return_value='{"plugin":"tyFlow","installed":true}'),
-            patch("src.tools.plugins._plugin_guide_markdown", return_value="# tyFlow"),
-            patch("src.tools.plugins._plugin_recipe_markdown", return_value="# tyFlow Recipes"),
-            patch("src.tools.plugins._plugin_gotchas_markdown", return_value="# tyFlow Gotchas"),
+            patch("maxmcp.tools.plugins.discover_plugin_surface", return_value='{"plugins":[{"plugin":"tyFlow"}]}'),
+            patch("maxmcp.tools.plugins.get_plugin_manifest", return_value='{"plugin":"tyFlow","installed":true}'),
+            patch("maxmcp.tools.plugins._plugin_guide_markdown", return_value="# tyFlow"),
+            patch("maxmcp.tools.plugins._plugin_recipe_markdown", return_value="# tyFlow Recipes"),
+            patch("maxmcp.tools.plugins._plugin_gotchas_markdown", return_value="# tyFlow Gotchas"),
         ):
             index_payload = json.loads(plugin_index_resource())
             manifest_payload = json.loads(plugin_manifest_resource("tyflow"))
@@ -234,9 +234,9 @@ class PluginToolTests(unittest.TestCase):
 
     def test_inspect_plugin_instance_adds_manifest_for_detected_plugin(self) -> None:
         with (
-            patch("src.tools.inspect.inspect_object", return_value='{"name":"Flow001","class":"tyFlow","baseObject":"tyFlow","modifiers":[],"material":null}'),
-            patch("src.tools.inspect.inspect_properties", return_value='{"class":"tyFlow","propertyCount":2,"properties":[{"name":"simResetMode","value":"0","declaredType":"integer","runtimeType":"Integer"},{"name":"allowCustomWirecolor","value":"true","declaredType":"boolean","runtimeType":"BooleanClass"}]}'),
-            patch("src.tools.plugins._build_manifest", return_value={"plugin": "tyFlow", "installed": True}),
+            patch("maxmcp.tools.inspect.inspect_object", return_value='{"name":"Flow001","class":"tyFlow","baseObject":"tyFlow","modifiers":[],"material":null}'),
+            patch("maxmcp.tools.inspect.inspect_properties", return_value='{"class":"tyFlow","propertyCount":2,"properties":[{"name":"simResetMode","value":"0","declaredType":"integer","runtimeType":"Integer"},{"name":"allowCustomWirecolor","value":"true","declaredType":"boolean","runtimeType":"BooleanClass"}]}'),
+            patch("maxmcp.tools.plugins._build_manifest", return_value={"plugin": "tyFlow", "installed": True}),
         ):
             result = json.loads(inspect_plugin_instance("Flow001"))
 
@@ -249,9 +249,9 @@ class PluginToolTests(unittest.TestCase):
 
     def test_inspect_plugin_instance_reports_multiple_plugin_sources(self) -> None:
         with (
-            patch("src.tools.inspect.inspect_object", return_value='{"name":"Hybrid001","class":"tyFlow","baseObject":"tyFlow","modifiers":[{"class":"Forest_Pro"}],"material":{"class":"RailClone_Pro"}}'),
-            patch("src.tools.inspect.inspect_properties", return_value='{"class":"tyFlow","propertyCount":1,"properties":[{"name":"simResetMode","value":"0","declaredType":"integer","runtimeType":"Integer"}]}'),
-            patch("src.tools.plugins._build_manifest", side_effect=lambda plugin: {"plugin": plugin}),
+            patch("maxmcp.tools.inspect.inspect_object", return_value='{"name":"Hybrid001","class":"tyFlow","baseObject":"tyFlow","modifiers":[{"class":"Forest_Pro"}],"material":{"class":"RailClone_Pro"}}'),
+            patch("maxmcp.tools.inspect.inspect_properties", return_value='{"class":"tyFlow","propertyCount":1,"properties":[{"name":"simResetMode","value":"0","declaredType":"integer","runtimeType":"Integer"}]}'),
+            patch("maxmcp.tools.plugins._build_manifest", side_effect=lambda plugin: {"plugin": plugin}),
         ):
             result = json.loads(inspect_plugin_instance("Hybrid001"))
 

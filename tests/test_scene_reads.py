@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from src.tools._query_scene_core import scene_info_summary_from_snapshot, run_filter
+from maxmcp.tools._query_scene_core import scene_info_summary_from_snapshot, run_filter
 
 
 class SceneReadsTests(unittest.TestCase):
@@ -28,7 +28,7 @@ class SceneReadsTests(unittest.TestCase):
         }
         mock_client = unittest.mock.MagicMock()
         mock_client.native_available = True
-        with patch("src.tools._query_scene_core.fetch_scene_snapshot", return_value=snapshot) as mocked:
+        with patch("maxmcp.tools._query_scene_core.fetch_scene_snapshot", return_value=snapshot) as mocked:
             payload = json.loads(run_filter(mock_client))
         mocked.assert_called_once()
         self.assertEqual(payload["totalObjects"], 4)

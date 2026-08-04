@@ -4,8 +4,8 @@ from pathlib import Path
 from unittest.mock import PropertyMock, patch
 
 from scripts.gen_tool_registry import extract_tools
-from src.helpers.spatial import normalize_pos_mode, type_axis_hints
-from src.tools.objects import create_object
+from maxmcp.helpers.spatial import normalize_pos_mode, type_axis_hints
+from maxmcp.tools.objects import create_object
 
 
 class CreateObjectToolTests(unittest.TestCase):
@@ -18,9 +18,9 @@ class CreateObjectToolTests(unittest.TestCase):
             "bbox": {"min": [-12.5, -12.5, 0], "max": [12.5, 12.5, 25]},
         }
         with (
-            patch("src.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
+            patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
             patch(
-                "src.tools.objects.client.send_command",
+                "maxmcp.tools.objects.client.send_command",
                 return_value={"result": json.dumps(spatial_result)},
             ) as mocked_send,
         ):
@@ -36,9 +36,9 @@ class CreateObjectToolTests(unittest.TestCase):
 
     def test_create_object_defaults_to_ground_pos_mode(self) -> None:
         with (
-            patch("src.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
+            patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
             patch(
-                "src.tools.objects.client.send_command",
+                "maxmcp.tools.objects.client.send_command",
                 return_value={"result": json.dumps({"name": "Box001", "type": "box"})},
             ) as mocked_send,
         ):
@@ -49,9 +49,9 @@ class CreateObjectToolTests(unittest.TestCase):
 
     def test_create_object_keeps_explicit_size_and_backfills_missing_ones(self) -> None:
         with (
-            patch("src.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
+            patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
             patch(
-                "src.tools.objects.client.send_command",
+                "maxmcp.tools.objects.client.send_command",
                 return_value={"result": json.dumps({"name": "BoxWide", "type": "box"})},
             ) as mocked_send,
         ):
@@ -64,7 +64,7 @@ class CreateObjectToolTests(unittest.TestCase):
         self.assertIn("height:25", payload["params"])
 
     def test_tool_registry_exposes_structured_create_object_fields(self) -> None:
-        tools = extract_tools(Path("src/tools/objects.py"))
+        tools = extract_tools(Path("maxmcp/tools/objects.py"))
         create_schema = next(t["schema"] for t in tools if t["name"] == "create_object")
         props = create_schema["properties"]
 

@@ -4,22 +4,22 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.coerce import DictList, IntList, StrList  # noqa: F401 — annotation check
-from src.tools._tyflow_core import (
+from maxmcp.coerce import DictList, IntList, StrList  # noqa: F401 — annotation check
+from maxmcp.tools._tyflow_core import (
     graph_payload,
     parse_ledger,
     read_graph,
     structural_hash,
 )
-from src.tools.tyflow_census import tyflow_event_census
-from src.tools.tyflow_graph import (
+from maxmcp.tools.tyflow_census import tyflow_event_census
+from maxmcp.tools.tyflow_graph import (
     connect_tyflow_operator,
     disconnect_tyflow_operator,
     get_tyflow_graph,
     set_tyflow_wiring_ledger,
 )
-from src.tools.tyflow_manifest import harvest_tyflow_manifest, list_tyflow_operators
-from src.tools.tyflow_patch import tyflow_apply_patch
+from maxmcp.tools.tyflow_manifest import harvest_tyflow_manifest, list_tyflow_operators
+from maxmcp.tools.tyflow_patch import tyflow_apply_patch
 
 
 def graph_fixture(ledger: str = "") -> str:
@@ -39,7 +39,7 @@ def graph_fixture(ledger: str = "") -> str:
 
 def _fixture_hash() -> str:
     with patch(
-        "src.tools.tyflow.client.send_command",
+        "maxmcp.tools.tyflow.client.send_command",
         return_value={"result": graph_fixture()},
     ):
         graph = read_graph("Flow001")
@@ -69,7 +69,7 @@ class LedgerCoreTests(unittest.TestCase):
 
     def test_structural_hash_stable_and_sensitive(self) -> None:
         with patch(
-            "src.tools.tyflow.client.send_command",
+            "maxmcp.tools.tyflow.client.send_command",
             return_value={"result": graph_fixture()},
         ):
             graph_one = read_graph("Flow001")
@@ -84,7 +84,7 @@ class LedgerCoreTests(unittest.TestCase):
 class GraphReadTests(unittest.TestCase):
     def test_get_graph_parses_structure(self) -> None:
         with patch(
-            "src.tools.tyflow.client.send_command",
+            "maxmcp.tools.tyflow.client.send_command",
             return_value={"result": graph_fixture()},
         ):
             payload = json.loads(get_tyflow_graph("Flow001", include_properties=True))
@@ -98,7 +98,7 @@ class GraphReadTests(unittest.TestCase):
 
     def test_properties_stripped_by_default_but_hashed(self) -> None:
         with patch(
-            "src.tools.tyflow.client.send_command",
+            "maxmcp.tools.tyflow.client.send_command",
             return_value={"result": graph_fixture()},
         ):
             slim = json.loads(get_tyflow_graph("Flow001"))
@@ -112,7 +112,7 @@ class GraphReadTests(unittest.TestCase):
             {"v": 1, "hash": fixture_hash, "edges": [], "ops": {}}
         ).replace("|", "")
         with patch(
-            "src.tools.tyflow.client.send_command",
+            "maxmcp.tools.tyflow.client.send_command",
             return_value={"result": graph_fixture(ledger=fresh_ledger)},
         ):
             payload = json.loads(get_tyflow_graph("Flow001"))
@@ -120,7 +120,7 @@ class GraphReadTests(unittest.TestCase):
 
         stale_ledger = json.dumps({"v": 1, "hash": "0" * 40, "edges": [], "ops": {}})
         with patch(
-            "src.tools.tyflow.client.send_command",
+            "maxmcp.tools.tyflow.client.send_command",
             return_value={"result": graph_fixture(ledger=stale_ledger)},
         ):
             payload = json.loads(get_tyflow_graph("Flow001"))
@@ -128,7 +128,7 @@ class GraphReadTests(unittest.TestCase):
 
     def test_error_passthrough(self) -> None:
         with patch(
-            "src.tools.tyflow.client.send_command",
+            "maxmcp.tools.tyflow.client.send_command",
             return_value={"result": "__ERROR__|Object not found: Flow001"},
         ):
             payload = json.loads(get_tyflow_graph("Flow001"))
@@ -143,7 +143,7 @@ class ConnectLedgerTests(unittest.TestCase):
             {"result": "OK"},
         ]
         with patch(
-            "src.tools.tyflow.client.send_command", side_effect=responses
+            "maxmcp.tools.tyflow.client.send_command", side_effect=responses
         ) as mock_send:
             payload = json.loads(
                 connect_tyflow_operator("Flow001", "EvA", "Send Out", "EvB")
@@ -171,7 +171,7 @@ class ConnectLedgerTests(unittest.TestCase):
             {"result": graph_fixture(ledger=old_ledger)},
             {"result": "OK"},
         ]
-        with patch("src.tools.tyflow.client.send_command", side_effect=responses):
+        with patch("maxmcp.tools.tyflow.client.send_command", side_effect=responses):
             payload = json.loads(
                 connect_tyflow_operator("Flow001", "EvA", "Send Out", "EvB")
             )
@@ -192,14 +192,14 @@ class ConnectLedgerTests(unittest.TestCase):
             {"result": graph_fixture(ledger=old_ledger)},
             {"result": "OK"},
         ]
-        with patch("src.tools.tyflow.client.send_command", side_effect=responses):
+        with patch("maxmcp.tools.tyflow.client.send_command", side_effect=responses):
             payload = json.loads(disconnect_tyflow_operator("Flow001", "EvA", "Send Out"))
         self.assertTrue(payload["disconnected"])
         self.assertEqual(payload["edges"], [])
 
     def test_connect_error_stops_before_ledger(self) -> None:
         with patch(
-            "src.tools.tyflow.client.send_command",
+            "maxmcp.tools.tyflow.client.send_command",
             return_value={"result": '{"error":"Operator not found: Send Out"}'},
         ) as mock_send:
             payload = json.loads(
@@ -215,7 +215,7 @@ class WiringLedgerToolTests(unittest.TestCase):
             {"result": graph_fixture()},
             {"result": "OK"},
         ]
-        with patch("src.tools.tyflow.client.send_command", side_effect=responses):
+        with patch("maxmcp.tools.tyflow.client.send_command", side_effect=responses):
             payload = json.loads(
                 set_tyflow_wiring_ledger(
                     "Flow001",
@@ -237,7 +237,7 @@ class WiringLedgerToolTests(unittest.TestCase):
 
 class ApplyPatchTests(unittest.TestCase):
     def test_unknown_op_rejected_before_maxscript(self) -> None:
-        with patch("src.tools.tyflow.client.send_command") as mock_send:
+        with patch("maxmcp.tools.tyflow.client.send_command") as mock_send:
             payload = json.loads(
                 tyflow_apply_patch("Flow001", [{"op": "explode"}])
             )
@@ -252,7 +252,7 @@ class ApplyPatchTests(unittest.TestCase):
 
     def test_hash_gate_refuses_conflict(self) -> None:
         with patch(
-            "src.tools.tyflow.client.send_command",
+            "maxmcp.tools.tyflow.client.send_command",
             return_value={"result": graph_fixture()},
         ) as mock_send:
             payload = json.loads(
@@ -266,7 +266,7 @@ class ApplyPatchTests(unittest.TestCase):
         self.assertEqual(mock_send.call_count, 1)
 
     def test_script_operator_blocked_without_authorization(self) -> None:
-        with patch("src.tools.tyflow.client.send_command") as mock_send:
+        with patch("maxmcp.tools.tyflow.client.send_command") as mock_send:
             payload = json.loads(
                 tyflow_apply_patch(
                     "Flow001",
@@ -278,7 +278,7 @@ class ApplyPatchTests(unittest.TestCase):
 
     def test_script_operator_blocked_in_safe_mode(self) -> None:
         with patch(
-            "src.tools.tyflow_patch.client.send_command",
+            "maxmcp.tools.tyflow_patch.client.send_command",
             return_value={"result": "true", "meta": {"safeMode": True}},
         ):
             payload = json.loads(
@@ -307,7 +307,7 @@ class ApplyPatchTests(unittest.TestCase):
             {"result": "OK"},  # ledger restore (clone drops appdata)
         ]
         with patch(
-            "src.tools.tyflow.client.send_command", side_effect=responses
+            "maxmcp.tools.tyflow.client.send_command", side_effect=responses
         ) as mock_send:
             payload = json.loads(
                 tyflow_apply_patch(
@@ -339,7 +339,7 @@ class ApplyPatchTests(unittest.TestCase):
             {"result": "OK"},  # ledger write
         ]
         with patch(
-            "src.tools.tyflow.client.send_command", side_effect=responses
+            "maxmcp.tools.tyflow.client.send_command", side_effect=responses
         ) as mock_send:
             payload = json.loads(
                 tyflow_apply_patch(
@@ -376,7 +376,7 @@ class ApplyPatchTests(unittest.TestCase):
             {"op": "add_operator", "event": "EvC", "type": "NopeOp"},
         ]
         with patch(
-            "src.tools.tyflow.client.send_command", side_effect=responses
+            "maxmcp.tools.tyflow.client.send_command", side_effect=responses
         ) as mock_send:
             payload = json.loads(tyflow_apply_patch("Flow001", operations))
         self.assertTrue(payload["failed"])
@@ -399,7 +399,7 @@ class ApplyPatchTests(unittest.TestCase):
             {"result": "OK"},  # ledger write
         ]
         with patch(
-            "src.tools.tyflow.client.send_command", side_effect=responses
+            "maxmcp.tools.tyflow.client.send_command", side_effect=responses
         ) as mock_send:
             payload = json.loads(
                 tyflow_apply_patch(
@@ -417,7 +417,7 @@ class ApplyPatchTests(unittest.TestCase):
             {"result": "CNT|0|0\nCNT|50|0"},  # verification counts
             {"result": "OPRES|1|ok||"},  # inverse rollback (remove_event EvC)
         ]
-        with patch("src.tools.tyflow.client.send_command", side_effect=responses):
+        with patch("maxmcp.tools.tyflow.client.send_command", side_effect=responses):
             payload = json.loads(
                 tyflow_apply_patch(
                     "Flow001",
@@ -472,7 +472,7 @@ class ManifestTests(unittest.TestCase):
             self._write_cache(tmp)
             with (
                 patch.dict(os.environ, {"LOCALAPPDATA": tmp}),
-                patch("src.tools.tyflow_manifest.client.send_command") as mock_send,
+                patch("maxmcp.tools.tyflow_manifest.client.send_command") as mock_send,
             ):
                 payload = json.loads(list_tyflow_operators(query="birthmode"))
         self.assertEqual(mock_send.call_count, 0)
@@ -500,7 +500,7 @@ class ManifestTests(unittest.TestCase):
             with (
                 patch.dict(os.environ, {"LOCALAPPDATA": tmp}),
                 patch(
-                    "src.tools.tyflow_manifest.client.send_command",
+                    "maxmcp.tools.tyflow_manifest.client.send_command",
                     return_value={"result": "200500"},
                 ) as mock_send,
             ):
@@ -520,7 +520,7 @@ class CensusTests(unittest.TestCase):
             ]
         )
         with patch(
-            "src.tools.tyflow_census.client.send_command", return_value={"result": raw}
+            "maxmcp.tools.tyflow_census.client.send_command", return_value={"result": raw}
         ):
             payload = json.loads(tyflow_event_census("Flow001", frames=[0]))
         self.assertEqual(payload["frames"]["0"]["EvA"], 10)
@@ -530,7 +530,7 @@ class CensusTests(unittest.TestCase):
 
     def test_census_reports_main_error(self) -> None:
         with patch(
-            "src.tools.tyflow_census.client.send_command",
+            "maxmcp.tools.tyflow_census.client.send_command",
             return_value={"result": "MAINERR|Flow has no events\nRESOLVED||"},
         ):
             payload = json.loads(tyflow_event_census("Flow001"))
@@ -542,7 +542,7 @@ class CensusTests(unittest.TestCase):
 
     def test_cleanup_always_in_script(self) -> None:
         with patch(
-            "src.tools.tyflow_census.client.send_command",
+            "maxmcp.tools.tyflow_census.client.send_command",
             return_value={"result": "RESOLVED||"},
         ) as mock_send:
             tyflow_event_census("Flow001")

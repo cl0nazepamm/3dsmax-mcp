@@ -7,9 +7,9 @@ import json
 import sys
 from typing import Any
 
-from src.tools.bridge import get_bridge_status
-from src.tools.plugins import discover_plugin_surface, get_plugin_manifest, inspect_plugin_class, inspect_plugin_instance
-from src.tools.railclone import get_railclone_style_graph
+from maxmcp.tools.bridge import get_bridge_status
+from maxmcp.tools.plugins import discover_plugin_surface, get_plugin_manifest, inspect_plugin_class, inspect_plugin_instance
+from maxmcp.tools.railclone import get_railclone_style_graph
 
 
 def _load_json(raw: str) -> dict[str, Any]:

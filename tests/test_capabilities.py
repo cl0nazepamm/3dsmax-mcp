@@ -5,9 +5,9 @@ from unittest.mock import PropertyMock, patch
 
 # Import the registration host first so capabilities is loaded through the same
 # module order used by the real server (and not as a circular partial import).
-from src import server as _server  # noqa: F401
-from src.max_client import MaxBridgeError
-from src.tools.capabilities import get_plugin_capabilities
+from maxmcp import server as _server  # noqa: F401
+from maxmcp.max_client import MaxBridgeError
+from maxmcp.tools.capabilities import get_plugin_capabilities
 
 
 class PluginCapabilitiesToolTests(unittest.TestCase):
@@ -31,12 +31,12 @@ class PluginCapabilitiesToolTests(unittest.TestCase):
 
         with (
             patch(
-                "src.max_client.MaxClient.native_available",
+                "maxmcp.max_client.MaxClient.native_available",
                 new_callable=PropertyMock,
                 return_value=True,
             ),
             patch(
-                "src.tools.capabilities.client.send_command",
+                "maxmcp.tools.capabilities.client.send_command",
                 return_value={"result": raw},
             ) as mocked_send,
         ):
@@ -53,12 +53,12 @@ class PluginCapabilitiesToolTests(unittest.TestCase):
         raw = '{"maxVersion":2026,"renderer":"Arnold"}'
         with (
             patch(
-                "src.max_client.MaxClient.native_available",
+                "maxmcp.max_client.MaxClient.native_available",
                 new_callable=PropertyMock,
                 return_value=False,
             ),
             patch(
-                "src.tools.capabilities.client.send_command",
+                "maxmcp.tools.capabilities.client.send_command",
                 return_value={"result": raw},
             ) as mocked_send,
         ):
@@ -75,12 +75,12 @@ class PluginCapabilitiesToolTests(unittest.TestCase):
         error = "Unknown command type: native:get_plugin_capabilities"
         with (
             patch(
-                "src.max_client.MaxClient.native_available",
+                "maxmcp.max_client.MaxClient.native_available",
                 new_callable=PropertyMock,
                 return_value=True,
             ),
             patch(
-                "src.tools.capabilities.client.send_command",
+                "maxmcp.tools.capabilities.client.send_command",
                 side_effect=[
                     MaxBridgeError(error, {"success": False, "error": error}),
                     {"result": '{"maxVersion":2026}'},
@@ -105,12 +105,12 @@ class PluginCapabilitiesToolTests(unittest.TestCase):
         )
         with (
             patch(
-                "src.max_client.MaxClient.native_available",
+                "maxmcp.max_client.MaxClient.native_available",
                 new_callable=PropertyMock,
                 return_value=True,
             ),
             patch(
-                "src.tools.capabilities.client.send_command",
+                "maxmcp.tools.capabilities.client.send_command",
                 side_effect=bridge_error,
             ),
             self.assertRaises(MaxBridgeError) as raised,

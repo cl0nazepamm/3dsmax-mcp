@@ -22,8 +22,8 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.max_client import MaxClient  # noqa: E402
-from src.tool_response import _json_or_raw  # noqa: E402
+from maxmcp.max_client import MaxClient  # noqa: E402
+from maxmcp.tool_response import _json_or_raw  # noqa: E402
 
 NATIVE_JSON = ROOT / "native" / "generated" / "tool_smoke_cases.json"
 FULL_JSON = ROOT / "native" / "generated" / "full_tool_smoke_cases.json"
@@ -221,10 +221,10 @@ def _run_native_smoke(client: MaxClient, tier: str, include_skipped: bool, dry_r
 
 
 def _resolve_python_tool(module_name: str, tool_name: str) -> Callable[..., str]:
-    mod = importlib.import_module(f"src.tools.{module_name}")
+    mod = importlib.import_module(f"maxmcp.tools.{module_name}")
     fn = getattr(mod, tool_name, None)
     if fn is None or not callable(fn):
-        raise AttributeError(f"src.tools.{module_name}.{tool_name} not found")
+        raise AttributeError(f"maxmcp.tools.{module_name}.{tool_name} not found")
     return fn
 
 

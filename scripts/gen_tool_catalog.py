@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TOOLS_DIR = ROOT / "src" / "tools"
+TOOLS_DIR = ROOT / "maxmcp" / "tools"
 OUT_PATH = ROOT / "tool_playground" / "catalog.json"
 
 sys.path.insert(0, str(ROOT))

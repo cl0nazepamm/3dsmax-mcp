@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
-from src.tools.modifiers import (
+from maxmcp.tools.modifiers import (
     _maxscript_property_value,
     _modifier_property_payload,
     set_modifier_property,
@@ -32,7 +32,7 @@ class ModifierPropertyTests(unittest.TestCase):
         mock_client.send_command.return_value = {
             "result": json.dumps({"modified": 1, "property": "autosmooth", "value": "true", "hits": []}),
         }
-        with patch("src.tools.modifiers.client", mock_client):
+        with patch("maxmcp.tools.modifiers.client", mock_client):
             result = set_modifier_property(
                 name="Box001",
                 modifier_index=1,

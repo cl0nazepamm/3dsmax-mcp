@@ -5,20 +5,20 @@ from pathlib import Path
 from unittest.mock import PropertyMock, patch
 
 from scripts.gen_tool_registry import extract_tools
-from src.max_client import MaxBridgeError
-from src.tools.materials import backup_material_library, get_material_library
+from maxmcp.max_client import MaxBridgeError
+from maxmcp.tools.materials import backup_material_library, get_material_library
 
 
 class MaterialLibraryToolTests(unittest.TestCase):
     def test_get_material_library_uses_native_route_when_available(self) -> None:
         with (
             patch(
-                "src.max_client.MaxClient.native_available",
+                "maxmcp.max_client.MaxClient.native_available",
                 new_callable=PropertyMock,
                 return_value=True,
             ),
             patch(
-                "src.tools.materials.client.send_command",
+                "maxmcp.tools.materials.client.send_command",
                 return_value={"result": '{"source":"current"}'},
             ) as mocked_send,
         ):
@@ -41,12 +41,12 @@ class MaterialLibraryToolTests(unittest.TestCase):
     def test_get_material_library_reads_temporary_library_alias(self) -> None:
         with (
             patch(
-                "src.max_client.MaxClient.native_available",
+                "maxmcp.max_client.MaxClient.native_available",
                 new_callable=PropertyMock,
                 return_value=False,
             ),
             patch(
-                "src.tools.materials.client.send_command",
+                "maxmcp.tools.materials.client.send_command",
                 return_value={"result": '{"source":"current"}'},
             ) as mocked_send,
         ):
@@ -61,12 +61,12 @@ class MaterialLibraryToolTests(unittest.TestCase):
     def test_get_material_library_falls_back_on_unknown_native_runtime_error(self) -> None:
         with (
             patch(
-                "src.max_client.MaxClient.native_available",
+                "maxmcp.max_client.MaxClient.native_available",
                 new_callable=PropertyMock,
                 return_value=True,
             ),
             patch(
-                "src.tools.materials.client.send_command",
+                "maxmcp.tools.materials.client.send_command",
                 side_effect=[
                     RuntimeError("Unknown native command"),
                     {"result": '{"source":"medit"}'},
@@ -90,12 +90,12 @@ class MaterialLibraryToolTests(unittest.TestCase):
         error = "Unknown command type: native:get_material_library"
         with (
             patch(
-                "src.max_client.MaxClient.native_available",
+                "maxmcp.max_client.MaxClient.native_available",
                 new_callable=PropertyMock,
                 return_value=True,
             ),
             patch(
-                "src.tools.materials.client.send_command",
+                "maxmcp.tools.materials.client.send_command",
                 side_effect=[
                     MaxBridgeError(error, {"success": False, "error": error}),
                     {"result": '{"source":"current"}'},
@@ -115,12 +115,12 @@ class MaterialLibraryToolTests(unittest.TestCase):
         )
         with (
             patch(
-                "src.max_client.MaxClient.native_available",
+                "maxmcp.max_client.MaxClient.native_available",
                 new_callable=PropertyMock,
                 return_value=True,
             ),
             patch(
-                "src.tools.materials.client.send_command",
+                "maxmcp.tools.materials.client.send_command",
                 side_effect=bridge_error,
             ),
             self.assertRaises(MaxBridgeError) as raised,
@@ -146,12 +146,12 @@ class MaterialLibraryToolTests(unittest.TestCase):
             exact_path = Path(tmp) / "nested" / "combined.mat"
             with (
                 patch(
-                    "src.max_client.MaxClient.native_available",
+                    "maxmcp.max_client.MaxClient.native_available",
                     new_callable=PropertyMock,
                     return_value=False,
                 ),
                 patch(
-                    "src.tools.materials.client.send_command",
+                    "maxmcp.tools.materials.client.send_command",
                     return_value={"result": '{"source":"combined","saved":[]}'},
                 ) as mocked_send,
             ):
@@ -173,12 +173,12 @@ class MaterialLibraryToolTests(unittest.TestCase):
             exact_path = Path(tmp) / "nested" / "medit.mat"
             with (
                 patch(
-                    "src.max_client.MaxClient.native_available",
+                    "maxmcp.max_client.MaxClient.native_available",
                     new_callable=PropertyMock,
                     return_value=True,
                 ),
                 patch(
-                    "src.tools.materials.client.send_command",
+                    "maxmcp.tools.materials.client.send_command",
                     return_value={"result": '{"source":"medit","saved":[]}'},
                 ) as mocked_send,
             ):
@@ -205,12 +205,12 @@ class MaterialLibraryToolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with (
                 patch(
-                    "src.max_client.MaxClient.native_available",
+                    "maxmcp.max_client.MaxClient.native_available",
                     new_callable=PropertyMock,
                     return_value=True,
                 ),
                 patch(
-                    "src.tools.materials.client.send_command",
+                    "maxmcp.tools.materials.client.send_command",
                     side_effect=[
                         MaxBridgeError(error, {"success": False, "error": error}),
                         {"result": '{"source":"current","saved":[]}'},
@@ -249,12 +249,12 @@ class MaterialLibraryToolTests(unittest.TestCase):
             }
             with (
                 patch(
-                    "src.max_client.MaxClient.native_available",
+                    "maxmcp.max_client.MaxClient.native_available",
                     new_callable=PropertyMock,
                     return_value=True,
                 ),
                 patch(
-                    "src.tools.materials.client.send_command",
+                    "maxmcp.tools.materials.client.send_command",
                     return_value={"result": json.dumps(failed_result)},
                 ),
             ):
@@ -292,7 +292,7 @@ class MaterialLibraryToolTests(unittest.TestCase):
         self.assertNotIn("RunMAXScript", source)
 
     def test_standalone_chat_backup_schema_matches_native_public_args(self) -> None:
-        tools = extract_tools(Path("src/tools/materials.py"))
+        tools = extract_tools(Path("maxmcp/tools/materials.py"))
         backup = next(
             tool for tool in tools
             if tool["name"] == "backup_material_library"

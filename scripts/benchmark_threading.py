@@ -10,7 +10,7 @@ import sys
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from src.max_client import MaxClient
+from maxmcp.max_client import MaxClient
 
 
 def send_raw(client: MaxClient, cmd_type: str, command: str = "",

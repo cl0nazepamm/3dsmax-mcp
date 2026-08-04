@@ -10,15 +10,15 @@ from pydantic import TypeAdapter, ValidationError
 
 from scripts.gen_tool_registry import extract_tools
 
-from src.helpers.mcg_graph import (
+from maxmcp.helpers.mcg_graph import (
     MCGSecurityError,
     MCGValidationError,
     graph_hash,
     inspect_graph,
     patch_graph,
 )
-from src.helpers.mcg_models import MCGPatchOperation, MCGVerificationSpec
-from src.tools import mcg
+from maxmcp.helpers.mcg_models import MCGPatchOperation, MCGVerificationSpec
+from maxmcp.tools import mcg
 
 
 GRAPH_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -559,7 +559,7 @@ class MCGToolTests(unittest.TestCase):
         self.assertEqual(inspected["instance"]["modifier"]["index"], 3)
 
     def test_native_instance_inspection_keeps_python_orchestration_out_of_chat_registry(self) -> None:
-        tools = extract_tools(Path("src/tools/mcg.py"))
+        tools = extract_tools(Path("maxmcp/tools/mcg.py"))
         names = {tool["name"] for tool in tools}
         self.assertNotIn("mcg_apply_modifier", names)
         self.assertNotIn("mcg_inspect_instance", names)
