@@ -219,7 +219,9 @@ inline std::string StructuredErrorPayload(
     payload["type"] = "NativeError";
     payload["message"] = message;
     payload["code"] = code;
-    payload["retryable"] = (code == "BRIDGE_DOWN" || code == "RENDER_BUSY");
+    payload["retryable"] = (
+        code == "BRIDGE_DOWN" || code == "RENDER_BUSY" ||
+        code == "SCENE_CONFLICT" || code == "TRANSACTION_BUSY");
     if (!hint.is_null() && !hint.empty()) {
         payload["hint"] = hint;
     }

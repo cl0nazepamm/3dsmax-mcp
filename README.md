@@ -10,7 +10,7 @@
 Connect AI agents to Autodesk 3ds Max through the [Model Context Protocol](https://modelcontextprotocol.io).
 Ask in natural language; the agent creates objects, builds materials, inspects plugins with dedicated MCP tools instead of MAXScript/Python feedback loops.
 
-**Current release: 1.5.1** — see [CHANGELOG.md](docs/CHANGELOG.md).
+**Current release: 1.5.5** — see [CHANGELOG.md](docs/CHANGELOG.md).
 
 > 中文文档：[README.zh-CN.md](README.zh-CN.md)
 
@@ -36,6 +36,8 @@ uv sync
 uv run python install.py
 ```
 
+Choose the MCP tool profile when prompted. **Full** is the default for maximum client compatibility. **Progressive** exposes three discovery tools and loads exact operational schemas only when needed, which can substantially reduce context use for local or smaller models. For an unattended context-efficient install, use `--tool-profile progressive`.
+
 Restart 3ds Max, then connect your MCP client. The installer registers the server where it can; see [Advanced configuration](docs/ADVANCED.md) for manual client setup.
 
 **Update an existing install:**
@@ -56,11 +58,14 @@ uv run python install.py
 | `get_session_context` | Bundle bridge status, capabilities, scene summary, and selection in one call |
 | `get_plugin_capabilities` | Max version, renderers, installed plugins, and class counts |
 
-### Scene query
+### Scene state & transactions
 
 | Tool | Description |
 |------|-------------|
 | `query_scene` | Unified reads: `overview`, `filter`, `class`, `property`, `selection`, `delta` |
+| `resolve_node_refs` | Resolve names, handles, or hierarchy paths to canonical, cross-checked NodeRefs |
+| `scene_qa` | Scan scene-graph hygiene and apply explicit safe naming repairs; never analyzes meshes |
+| `scene_patch` | Preflight and atomically apply up to 256 mechanical node edits in one native undo step |
 | `get_hierarchy` | Recursive child tree for an object |
 | `get_instances` | All instances sharing the same base object |
 | `get_dependencies` | Reference graph via dependents / dependent nodes |
@@ -165,7 +170,7 @@ MCP resources: `resource://3dsmax-mcp/plugins/{name}/manifest|guide|recipes|gotc
 | `inspect_track_view` | Track View-style controller hierarchy |
 | `set_controller_props` | Edit script text or controller properties |
 | `add_controller_target` | Add a target to script/expression/constraint controllers |
-| `keyframe_tracks` | Inspect and edit keyed tracks, match poses, close loops, and configure tangent/out-of-range behavior |
+| `keyframe_tracks` | Timeline control; bounded delete/move/scale, bake/resample, tangent normalization, pose matching, and loops |
 
 ### Parameter wiring
 
@@ -296,16 +301,6 @@ MCP resources: `resource://3dsmax-mcp/plugins/{name}/manifest|guide|recipes|gotc
 |------|-------------|
 | `build_floor_plan` | Generate a 2D floor plan from grid-based room definitions |
 
-### Standalone chat (WIP)
-
-Experimental in-Max chat — see [Advanced configuration — Standalone chat](docs/ADVANCED.md#standalone-chat-in-max). Prefer external MCP for production use.
-
-| Tool | Description |
-|------|-------------|
-| `send_to_chat` | Send a message to the in-Max chat and wait for the reply |
-| `chat_status` | Chat window status and model info |
-| `chat_reload` | Reload config without restarting Max |
-| `chat_clear` | Clear conversation history |
 
 ### Scripting & diagnostics
 

@@ -1,3 +1,4 @@
+import configparser
 import logging
 import os
 import sys
@@ -6,11 +7,16 @@ from functools import lru_cache
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from .max_client import MaxClient
+from .tool_discovery import register_progressive_tools
 from .tool_response import make_structured_tool
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 mcp = FastMCP("3dsmax-mcp")
+# Operational tools loaded by the progressive profile live here.  This server
+# is never run, so its tools remain callable without being advertised by the
+# public MCP list_tools surface.
+_progressive_mcp = FastMCP("3dsmax-mcp-progressive-hidden")
 client = MaxClient()
 
 if __name__ == "__main__" and __spec__ is not None:
@@ -21,6 +27,7 @@ _READ_ONLY_TOOLS = {
     "get_bridge_status",
     "get_plugin_capabilities",
     "query_scene",
+    "resolve_node_refs",
     "get_object_properties",
     "analyze_node_orientation",
     "get_hierarchy",
@@ -62,6 +69,8 @@ _READ_ONLY_TOOLS = {
 }
 
 _DESTRUCTIVE_TOOLS = {
+    "scene_patch",
+    "scene_qa",
     "delete_objects",
     "collapse_modifier_stack",
     "batch_replace_materials",
@@ -83,6 +92,7 @@ _IDEMPOTENT_TOOLS = {
     "get_bridge_status",
     "get_plugin_capabilities",
     "query_scene",
+    "resolve_node_refs",
     "get_object_properties",
     "analyze_node_orientation",
     "get_hierarchy",
@@ -142,6 +152,10 @@ def _raw_tool_decorator(raw_tool, decorator_args, decorator_kwargs, annotations:
 def _install_structured_tool_results() -> None:
     """Register MCP tools with stable JSON envelopes while keeping raw callables."""
     raw_tool = mcp.tool
+    progressive_raw_tool = _progressive_mcp.tool
+
+    def registration_tool():
+        return progressive_raw_tool if _tool_profile() == "progressive" else raw_tool
 
     def structured_tool(*decorator_args, **decorator_kwargs):
         if decorator_args and callable(decorator_args[0]) and len(decorator_args) == 1 and not decorator_kwargs:
@@ -152,13 +166,13 @@ def _install_structured_tool_results() -> None:
                 before_call=client.clear_last_response,
                 transport_provider=client.get_last_transport,
             )
-            _register_raw_tool(raw_tool, wrapped, annotations)
+            _register_raw_tool(registration_tool(), wrapped, annotations)
             return fn
 
         def decorate(fn):
             annotations = _tool_annotations(getattr(fn, "__name__", "") or "")
             raw_decorator = _raw_tool_decorator(
-                raw_tool,
+                registration_tool(),
                 decorator_args,
                 decorator_kwargs,
                 annotations,
@@ -186,6 +200,8 @@ CORE_TOOL_MODULES = (
     "query_scene",
     "scene_query",
     "scene_manage",
+    "scene_patch",
+    "scene_qa",
     "objects",
     "transform",
     "orientation",
@@ -237,12 +253,38 @@ SPECIALTY_TOOL_MODULES = (
 
 
 def _tool_profile() -> str:
-    value = os.environ.get("MCP_TOOL_PROFILE") or os.environ.get("THREEDSMAX_MCP_TOOL_PROFILE") or "full"
-    value = value.strip().lower()
-    return value if value in {"core", "full"} else "full"
+    value = os.environ.get("MCP_TOOL_PROFILE") or os.environ.get("THREEDSMAX_MCP_TOOL_PROFILE")
+    if value is not None:
+        normalized = value.strip().lower()
+        return normalized if normalized in {"core", "full", "progressive"} else "full"
+
+    local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
+    if local_appdata:
+        config_path = Path(local_appdata) / "3dsmax-mcp" / "mcp_config.ini"
+        parser = configparser.ConfigParser()
+        try:
+            parser.read(config_path, encoding="utf-8")
+            normalized = parser.get("mcp", "tool_profile", fallback="").strip().lower()
+            if normalized in {"core", "full", "progressive"}:
+                return normalized
+        except (OSError, configparser.Error):
+            pass
+    return "full"
 
 
 def _register_tool_modules() -> None:
+    if _tool_profile() == "progressive":
+        register_progressive_tools(
+            public_mcp=mcp,
+            hidden_mcp=_progressive_mcp,
+            package=__package__,
+            tools_dir=Path(__file__).resolve().parent / "tools",
+            allowed_modules=CORE_TOOL_MODULES + SPECIALTY_TOOL_MODULES,
+            before_call=client.clear_last_response,
+            transport_provider=client.get_last_transport,
+        )
+        return
+
     modules = list(CORE_TOOL_MODULES)
     if _tool_profile() == "full":
         modules.extend(SPECIALTY_TOOL_MODULES)
@@ -251,7 +293,8 @@ def _register_tool_modules() -> None:
 
 
 # Import tool modules to trigger @mcp.tool() registration. Default is full;
-# set MCP_TOOL_PROFILE=core to limit registration to everyday tool modules.
+# set MCP_TOOL_PROFILE=core for everyday tools or progressive for the three
+# lazy discovery/dispatch meta-tools.
 _register_tool_modules()
 
 
@@ -294,9 +337,20 @@ def get_skill() -> str:
 @mcp.prompt()
 def max_assistant() -> str:
     """Default assistant instructions for MCP clients like Claude Desktop."""
+    scene_call_rule = (
+        "For user requests about the live 3ds Max scene, call the MCP tool that matches the task directly.\n"
+    )
+    if _tool_profile() == "progressive":
+        scene_call_rule = (
+            "This server uses the progressive tool profile. Only list_toolsets, "
+            "describe_toolset, and call_tool are advertised.\n"
+            "Use list_toolsets to choose a capability group, describe_toolset to load its exact "
+            "schemas, then invoke the selected operational tool through call_tool. Never call a "
+            "hidden operational name as a top-level MCP tool.\n"
+        )
     base_rules = (
         "You are a 3ds Max assistant connected via MCP.\n"
-        "For user requests about the live 3ds Max scene, call the MCP tool that matches the task directly.\n"
+        f"{scene_call_rule}"
         "Do not inspect repository source files, run Python imports, or run repository tests for live scene requests unless the user explicitly asks for repo/debug/test work or direct MCP tools are unavailable.\n"
         "Do not call get_bridge_status or get_session_context as a session preamble or before every task.\n"
         "Use get_bridge_status only when a tool fails with a connection/transport error and you need to diagnose the bridge.\n"

@@ -11,6 +11,7 @@ namespace NativeHandlers {
     std::string SelectionSnapshot(const std::string& params, MCPBridgeGUP* gup);
     std::string FindClassInstances(const std::string& params, MCPBridgeGUP* gup);
     std::string GetHierarchy(const std::string& params, MCPBridgeGUP* gup);
+    std::string ResolveNodeRefs(const std::string& params, MCPBridgeGUP* gup);
     std::string SceneDelta(
         const std::string& params,
         MCPBridgeGUP* gup,
@@ -18,6 +19,14 @@ namespace NativeHandlers {
     );
     void ResetSceneDeltaSessions();
     void ReleaseSceneDeltaSession(const std::string& session_id);
+
+    // Preflighted multi-node mutations in one strict native undo hold.
+    std::string ScenePatch(const std::string& params, MCPBridgeGUP* gup);
+
+    // Deterministic scene-graph QA. Scan is read-only; fix has its own route so
+    // dispatcher mutation/undo classification cannot be bypassed by payload.
+    std::string SceneQAScan(const std::string& params, MCPBridgeGUP* gup);
+    std::string SceneQAFix(const std::string& params, MCPBridgeGUP* gup);
 
     // Phase 1: Object operations
     std::string GetObjectProperties(const std::string& params, MCPBridgeGUP* gup);

@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <limits>
 #include <set>
 #include <unordered_set>
 #include <vector>
@@ -30,15 +31,25 @@ static std::string TrimHash(std::string value) {
     return value;
 }
 
-static TimeValue ToTimeValue(double value, const std::string& unit) {
-    std::string u = LowerCopy(unit);
-    if (u == "tick" || u == "ticks") {
-        return static_cast<TimeValue>(std::llround(value));
+static TimeValue CheckedTimeValue(double value, const char* field) {
+    if (!std::isfinite(value) ||
+        value < static_cast<double>(std::numeric_limits<TimeValue>::lowest()) ||
+        value > static_cast<double>(std::numeric_limits<TimeValue>::max())) {
+        throw std::runtime_error(std::string(field) + " produces a time outside the 3ds Max TimeValue range.");
     }
-    if (u == "second" || u == "seconds" || u == "sec" || u == "secs") {
-        return SecToTicks(value);
+    return static_cast<TimeValue>(std::llround(value));
+}
+
+static TimeValue ToCheckedTimeValue(double value, const std::string& unit, const char* field) {
+    const std::string loweredUnit = LowerCopy(unit);
+    if (loweredUnit == "tick" || loweredUnit == "ticks") {
+        return CheckedTimeValue(value, field);
     }
-    return static_cast<TimeValue>(std::llround(value * GetTicksPerFrame()));
+    if (loweredUnit == "second" || loweredUnit == "seconds" ||
+        loweredUnit == "sec" || loweredUnit == "secs") {
+        return CheckedTimeValue(value * static_cast<double>(SecToTicks(1.0)), field);
+    }
+    return CheckedTimeValue(value * static_cast<double>(GetTicksPerFrame()), field);
 }
 
 static bool JsonIsArray(const json& value) {
@@ -228,17 +239,67 @@ static std::vector<TimeValue> TimesForSet(const json& p, Interface* ip) {
     std::string unit = p.value("time_unit", "frames");
     if (p.contains("times") && JsonIsArray(p["times"])) {
         for (const auto& item : p["times"]) {
-            if (JsonIsNumber(item)) times.push_back(ToTimeValue(item.get<double>(), unit));
+            if (JsonIsNumber(item)) times.push_back(ToCheckedTimeValue(item.get<double>(), unit, "times"));
         }
     }
     if (p.contains("time") && JsonIsNumber(p["time"])) {
-        times.push_back(ToTimeValue(p["time"].get<double>(), unit));
+        times.push_back(ToCheckedTimeValue(p["time"].get<double>(), unit, "time"));
     }
     if (times.empty()) times.push_back(ip->GetTime());
 
     std::sort(times.begin(), times.end());
     times.erase(std::unique(times.begin(), times.end()), times.end());
     return times;
+}
+
+static bool HasExactTimeSelector(const json& p) {
+    if (p.contains("time") && JsonIsNumber(p["time"])) return true;
+    if (p.contains("times") && JsonIsArray(p["times"])) {
+        for (const auto& value : p["times"]) {
+            if (JsonIsNumber(value)) return true;
+        }
+    }
+    return false;
+}
+
+static bool HasRangeTimeSelector(const json& p) {
+    return (p.contains("from_time") && JsonIsNumber(p["from_time"])) ||
+           (p.contains("to_time") && JsonIsNumber(p["to_time"]));
+}
+
+static bool HasAnyTimeSelector(const json& p) {
+    return HasExactTimeSelector(p) || HasRangeTimeSelector(p);
+}
+
+static bool HasBoundedTimeSelector(const json& p) {
+    return HasExactTimeSelector(p) ||
+           ((p.contains("from_time") && JsonIsNumber(p["from_time"])) &&
+            (p.contains("to_time") && JsonIsNumber(p["to_time"])));
+}
+
+static bool TimeMatchesRequest(TimeValue time, const json& p, Interface* ip) {
+    const std::string unit = p.value("time_unit", "frames");
+
+    if (HasExactTimeSelector(p)) {
+        bool exactMatch = false;
+        for (TimeValue requested : TimesForSet(p, ip)) {
+            if (time == requested) {
+                exactMatch = true;
+                break;
+            }
+        }
+        if (!exactMatch) return false;
+    }
+
+    if (p.contains("from_time") && JsonIsNumber(p["from_time"]) &&
+        time < ToCheckedTimeValue(p["from_time"].get<double>(), unit, "from_time")) {
+        return false;
+    }
+    if (p.contains("to_time") && JsonIsNumber(p["to_time"]) &&
+        time > ToCheckedTimeValue(p["to_time"].get<double>(), unit, "to_time")) {
+        return false;
+    }
+    return true;
 }
 
 static std::vector<int> KeyIndicesForStyle(Control* ctrl, const json& p, Interface* ip) {
@@ -249,18 +310,15 @@ static std::vector<int> KeyIndicesForStyle(Control* ctrl, const json& p, Interfa
     const int keyCount = keyControl->GetNumKeys();
     if (keyCount <= 0) return indices;
 
-    const bool hasTimeFilter = p.contains("time") || p.contains("times");
+    const bool hasTimeFilter = HasAnyTimeSelector(p);
     if (!hasTimeFilter) {
         for (int i = 0; i < keyCount; ++i) indices.push_back(i);
         return indices;
     }
 
-    for (TimeValue t : TimesForSet(p, ip)) {
-        int idx = ctrl->GetKeyIndex(t);
-        if (idx >= 0 && idx < keyCount) indices.push_back(idx);
+    for (int i = 0; i < keyCount; ++i) {
+        if (TimeMatchesRequest(ctrl->GetKeyTime(i), p, ip)) indices.push_back(i);
     }
-    std::sort(indices.begin(), indices.end());
-    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
     return indices;
 }
 
@@ -533,6 +591,180 @@ static bool AddCurrentValueKey(Control* ctrl, TimeValue t) {
     return WriteSampledValue(ctrl, t, t);
 }
 
+static void CollectKeyControllers(Control* ctrl, std::vector<Control*>& out,
+                                  std::unordered_set<Control*>& visited) {
+    if (!ctrl || !visited.insert(ctrl).second) return;
+    if (GetKeyControlInterface(ctrl)) out.push_back(ctrl);
+    const bool recurseKnownComposite =
+        LooksLikeAxisComposite(ctrl) || ctrl->SuperClassID() == CTRL_MATRIX3_CLASS_ID;
+    if (recurseKnownComposite) {
+        for (int i = 0; i < ctrl->NumSubs(); ++i) {
+            if (Control* child = ControlFromAnimatable(ctrl->SubAnim(i))) {
+                CollectKeyControllers(child, out, visited);
+            }
+        }
+    }
+}
+
+static std::vector<Control*> CollectKeyControllers(const std::vector<TrackRef>& tracks) {
+    std::vector<Control*> controllers;
+    std::unordered_set<Control*> visited;
+    for (const TrackRef& tr : tracks) {
+        CollectKeyControllers(tr.ctrl, controllers, visited);
+    }
+    return controllers;
+}
+
+struct ControllerKeySelection {
+    Control* ctrl = nullptr;
+    IKeyControl* keys = nullptr;
+    std::vector<int> indices;
+};
+
+static std::vector<ControllerKeySelection> SelectControllerKeys(
+    const std::vector<TrackRef>& tracks, const json& p, Interface* ip, int& selectedCount) {
+    std::vector<ControllerKeySelection> selected;
+    selectedCount = 0;
+    for (Control* ctrl : CollectKeyControllers(tracks)) {
+        IKeyControl* keys = GetKeyControlInterface(ctrl);
+        if (!keys) continue;
+        std::vector<int> indices = KeyIndicesForStyle(ctrl, p, ip);
+        if (indices.empty()) continue;
+        selectedCount += static_cast<int>(indices.size());
+        selected.push_back({ctrl, keys, std::move(indices)});
+    }
+    return selected;
+}
+
+static void ValidateEditTimeSelection(const json& p) {
+    if (!HasBoundedTimeSelector(p)) {
+        throw std::runtime_error(
+            "Key-time edits require time/times or both from_time and to_time; refusing an unbounded edit.");
+    }
+    if (p.contains("from_time") && JsonIsNumber(p["from_time"]) &&
+        p.contains("to_time") && JsonIsNumber(p["to_time"])) {
+        const std::string unit = p.value("time_unit", "frames");
+        const TimeValue from = ToCheckedTimeValue(p["from_time"].get<double>(), unit, "from_time");
+        const TimeValue to = ToCheckedTimeValue(p["to_time"].get<double>(), unit, "to_time");
+        if (from > to) throw std::runtime_error("from_time must be less than or equal to to_time.");
+    }
+}
+
+static void EnforceKeyBudget(int keyCount, const KeyframeBudget& budget, const char* operation) {
+    if (keyCount > budget.maxKeys) {
+        throw std::runtime_error(
+            std::string(operation) + " would touch " + std::to_string(keyCount) +
+            " controller keys, over budget.max_keys=" + std::to_string(budget.maxKeys) +
+            ". Narrow the time window/tracks or raise budget.max_keys.");
+    }
+}
+
+static int DeleteControllerKeys(const std::vector<ControllerKeySelection>& selections) {
+    int deleted = 0;
+    for (const ControllerKeySelection& selection : selections) {
+        for (auto it = selection.indices.rbegin(); it != selection.indices.rend(); ++it) {
+            selection.ctrl->DeleteKeyByIndex(*it);
+            deleted++;
+        }
+    }
+    return deleted;
+}
+
+struct PendingKeyTimeEdit {
+    IKeyControl* keys = nullptr;
+    std::vector<std::pair<int, TimeValue>> edits;
+};
+
+static std::vector<PendingKeyTimeEdit> BuildKeyTimeEdits(
+    const std::vector<ControllerKeySelection>& selections,
+    const json& p,
+    const std::string& action) {
+    const std::string unit = p.value("time_unit", "frames");
+    TimeValue offset = 0;
+    double scale = 1.0;
+    TimeValue pivot = 0;
+
+    if (action == "move_keys") {
+        if (!p.contains("time_offset") || !JsonIsNumber(p["time_offset"])) {
+            throw std::runtime_error("move_keys requires numeric time_offset.");
+        }
+        offset = ToCheckedTimeValue(p["time_offset"].get<double>(), unit, "time_offset");
+        if (offset == 0) throw std::runtime_error("time_offset rounds to zero ticks.");
+    } else {
+        if (!p.contains("time_scale") || !JsonIsNumber(p["time_scale"])) {
+            throw std::runtime_error("scale_keys requires numeric time_scale.");
+        }
+        scale = p["time_scale"].get<double>();
+        if (!std::isfinite(scale) || scale <= 0.0) {
+            throw std::runtime_error("time_scale must be finite and greater than zero.");
+        }
+        if (p.contains("pivot_time") && JsonIsNumber(p["pivot_time"])) {
+            pivot = ToCheckedTimeValue(p["pivot_time"].get<double>(), unit, "pivot_time");
+        } else if (p.contains("from_time") && JsonIsNumber(p["from_time"])) {
+            pivot = ToCheckedTimeValue(p["from_time"].get<double>(), unit, "from_time");
+        }
+    }
+
+    std::vector<PendingKeyTimeEdit> pending;
+    pending.reserve(selections.size());
+    for (const ControllerKeySelection& selection : selections) {
+        std::set<int> selectedIndices(selection.indices.begin(), selection.indices.end());
+        std::set<TimeValue> unselectedTimes;
+        const int keyCount = selection.keys->GetNumKeys();
+        for (int i = 0; i < keyCount; ++i) {
+            if (selectedIndices.find(i) == selectedIndices.end()) {
+                unselectedTimes.insert(selection.ctrl->GetKeyTime(i));
+            }
+        }
+
+        PendingKeyTimeEdit controllerEdit;
+        controllerEdit.keys = selection.keys;
+        std::set<TimeValue> destinations;
+        for (int index : selection.indices) {
+            const TimeValue oldTime = selection.ctrl->GetKeyTime(index);
+            TimeValue newTime = oldTime;
+            if (action == "move_keys") {
+                newTime = CheckedTimeValue(static_cast<double>(oldTime) + static_cast<double>(offset), "time_offset");
+            } else {
+                newTime = CheckedTimeValue(
+                    static_cast<double>(pivot) +
+                    (static_cast<double>(oldTime) - static_cast<double>(pivot)) * scale,
+                    "time_scale");
+            }
+
+            if (!destinations.insert(newTime).second) {
+                throw std::runtime_error(
+                    "Key retime would collapse multiple keys onto the same tick; choose a different offset/scale.");
+            }
+            if (unselectedTimes.find(newTime) != unselectedTimes.end()) {
+                throw std::runtime_error(
+                    "Key retime destination collides with an unselected key; narrow or expand the selected time window.");
+            }
+            controllerEdit.edits.push_back({index, newTime});
+        }
+        pending.push_back(std::move(controllerEdit));
+    }
+    return pending;
+}
+
+static int ApplyKeyTimeEdits(const std::vector<PendingKeyTimeEdit>& pending) {
+    int changed = 0;
+    for (const PendingKeyTimeEdit& controllerEdit : pending) {
+        const int keySize = controllerEdit.keys->GetKeySize();
+        if (keySize <= 0) continue;
+        for (const auto& edit : controllerEdit.edits) {
+            std::vector<unsigned char> bytes(static_cast<size_t>(keySize), 0);
+            IKey* key = reinterpret_cast<IKey*>(bytes.data());
+            controllerEdit.keys->GetKey(edit.first, key);
+            key->time = edit.second;
+            controllerEdit.keys->SetKey(edit.first, key);
+            changed++;
+        }
+        if (!controllerEdit.edits.empty()) controllerEdit.keys->SortKeys();
+    }
+    return changed;
+}
+
 class AnimateGuard {
 public:
     AnimateGuard() : wasAnimating_(Animating() != 0) {
@@ -544,6 +776,274 @@ public:
 private:
     bool wasAnimating_;
 };
+
+static bool SupportsResampleValue(Control* ctrl) {
+    if (!ctrl || ctrl->IsKeyable() == 0) return false;
+    const std::string controllerClass = LowerCopy(ControllerClass(ctrl));
+    if (controllerClass.find("list") != std::string::npos ||
+        controllerClass.find("constraint") != std::string::npos ||
+        controllerClass.find("expression") != std::string::npos ||
+        controllerClass.find("script") != std::string::npos ||
+        controllerClass.find("motion capture") != std::string::npos) {
+        return false;
+    }
+    const SClass_ID sid = ctrl->SuperClassID();
+    return sid == CTRL_FLOAT_CLASS_ID || sid == CTRL_POINT3_CLASS_ID ||
+           sid == CTRL_POSITION_CLASS_ID || sid == CTRL_ROTATION_CLASS_ID ||
+           sid == CTRL_SCALE_CLASS_ID || sid == CTRL_MATRIX3_CLASS_ID;
+}
+
+static bool ReadResampleValue(Control* ctrl, TimeValue time, json& value) {
+    if (!ctrl) return false;
+    Interval valid = FOREVER;
+    const SClass_ID sid = ctrl->SuperClassID();
+    if (sid == CTRL_FLOAT_CLASS_ID) {
+        float scalar = 0.0f;
+        ctrl->GetValue(time, &scalar, valid, CTRL_ABSOLUTE);
+        value = scalar;
+        return true;
+    }
+    if (sid == CTRL_POINT3_CLASS_ID || sid == CTRL_POSITION_CLASS_ID) {
+        Point3 point(0, 0, 0);
+        ctrl->GetValue(time, &point, valid, CTRL_ABSOLUTE);
+        value = json::array({point.x, point.y, point.z});
+        return true;
+    }
+    if (sid == CTRL_ROTATION_CLASS_ID) {
+        Quat rotation;
+        rotation.Identity();
+        ctrl->GetValue(time, &rotation, valid, CTRL_ABSOLUTE);
+        value = json::array({rotation.x, rotation.y, rotation.z, rotation.w});
+        return true;
+    }
+    if (sid == CTRL_SCALE_CLASS_ID) {
+        ScaleValue scale;
+        ctrl->GetValue(time, &scale, valid, CTRL_ABSOLUTE);
+        value = json::array({scale.s.x, scale.s.y, scale.s.z});
+        return true;
+    }
+    if (sid == CTRL_MATRIX3_CLASS_ID) {
+        Matrix3 matrix(TRUE);
+        ctrl->GetValue(time, &matrix, valid, CTRL_ABSOLUTE);
+        value = json::array();
+        for (int row = 0; row < 4; ++row) {
+            const Point3 point = matrix.GetRow(row);
+            value.push_back(json::array({point.x, point.y, point.z}));
+        }
+        return true;
+    }
+    return false;
+}
+
+static bool WriteResampleValue(Control* ctrl, TimeValue time, const json& value) {
+    if (!ctrl) return false;
+    const SClass_ID sid = ctrl->SuperClassID();
+    if (sid == CTRL_FLOAT_CLASS_ID) {
+        if (!JsonIsNumber(value)) return false;
+        float scalar = value.get<float>();
+        ctrl->AddNewKey(time, ADDKEY_INTERP);
+        ctrl->SetValue(time, &scalar, TRUE, CTRL_ABSOLUTE);
+        return true;
+    }
+    if (sid == CTRL_POINT3_CLASS_ID || sid == CTRL_POSITION_CLASS_ID) {
+        Point3 point;
+        if (!JsonPoint3Value(value, point)) return false;
+        ctrl->AddNewKey(time, ADDKEY_INTERP);
+        ctrl->SetValue(time, &point, TRUE, CTRL_ABSOLUTE);
+        return true;
+    }
+    if (sid == CTRL_ROTATION_CLASS_ID) {
+        if (!JsonIsArray(value) || value.size() < 4 ||
+            !JsonIsNumber(value[0]) || !JsonIsNumber(value[1]) ||
+            !JsonIsNumber(value[2]) || !JsonIsNumber(value[3])) return false;
+        Quat rotation(value[0].get<float>(), value[1].get<float>(),
+                      value[2].get<float>(), value[3].get<float>());
+        ctrl->AddNewKey(time, ADDKEY_INTERP);
+        ctrl->SetValue(time, &rotation, TRUE, CTRL_ABSOLUTE);
+        return true;
+    }
+    if (sid == CTRL_SCALE_CLASS_ID) {
+        Point3 point;
+        if (!JsonPoint3Value(value, point)) return false;
+        ScaleValue scale(point);
+        ctrl->AddNewKey(time, ADDKEY_INTERP);
+        ctrl->SetValue(time, &scale, TRUE, CTRL_ABSOLUTE);
+        return true;
+    }
+    if (sid == CTRL_MATRIX3_CLASS_ID) {
+        if (!JsonIsArray(value) || value.size() < 4) return false;
+        Matrix3 matrix(TRUE);
+        for (int row = 0; row < 4; ++row) {
+            Point3 point;
+            if (!JsonPoint3Value(value[row], point)) return false;
+            matrix.SetRow(row, point);
+        }
+        ctrl->AddNewKey(time, ADDKEY_INTERP);
+        ctrl->SetValue(time, &matrix, TRUE, CTRL_ABSOLUTE);
+        return true;
+    }
+    return false;
+}
+
+static bool CollectResampleControllers(
+    Control* ctrl,
+    std::vector<Control*>& out,
+    std::unordered_set<Control*>& walked,
+    std::unordered_set<Control*>& covered) {
+    if (!ctrl) return false;
+    if (!walked.insert(ctrl).second) return covered.find(ctrl) != covered.end();
+
+    bool childCovered = false;
+    const std::string controllerClass = LowerCopy(ControllerClass(ctrl));
+    const bool blockedComposite =
+        controllerClass.find("list") != std::string::npos ||
+        controllerClass.find("constraint") != std::string::npos ||
+        controllerClass.find("expression") != std::string::npos ||
+        controllerClass.find("script") != std::string::npos ||
+        controllerClass.find("motion capture") != std::string::npos;
+    const bool recurseKnownComposite =
+        !blockedComposite &&
+        (LooksLikeAxisComposite(ctrl) || ctrl->SuperClassID() == CTRL_MATRIX3_CLASS_ID);
+    if (recurseKnownComposite) {
+        for (int i = 0; i < ctrl->NumSubs(); ++i) {
+            if (Control* child = ControlFromAnimatable(ctrl->SubAnim(i))) {
+                childCovered = CollectResampleControllers(child, out, walked, covered) || childCovered;
+            }
+        }
+    }
+
+    if (!childCovered && SupportsResampleValue(ctrl)) {
+        out.push_back(ctrl);
+        covered.insert(ctrl);
+        return true;
+    }
+    if (childCovered) covered.insert(ctrl);
+    return childCovered;
+}
+
+static std::vector<Control*> CollectResampleControllers(const std::vector<TrackRef>& tracks) {
+    std::vector<Control*> controllers;
+    std::unordered_set<Control*> walked;
+    std::unordered_set<Control*> covered;
+    for (const TrackRef& tr : tracks) {
+        CollectResampleControllers(tr.ctrl, controllers, walked, covered);
+    }
+    return controllers;
+}
+
+static std::vector<TimeValue> ResampleTimesFromRequest(const json& p, int maxSamples) {
+    if (!p.contains("from_time") || !JsonIsNumber(p["from_time"]) ||
+        !p.contains("to_time") || !JsonIsNumber(p["to_time"])) {
+        throw std::runtime_error("resample/bake requires numeric from_time and to_time.");
+    }
+    const std::string unit = p.value("time_unit", "frames");
+    const TimeValue from = ToCheckedTimeValue(p["from_time"].get<double>(), unit, "from_time");
+    const TimeValue to = ToCheckedTimeValue(p["to_time"].get<double>(), unit, "to_time");
+    if (from > to) throw std::runtime_error("from_time must be less than or equal to to_time.");
+
+    const double requestedStep = p.value("sample_step", 1.0);
+    if (!std::isfinite(requestedStep) || requestedStep <= 0.0) {
+        throw std::runtime_error("sample_step must be finite and greater than zero.");
+    }
+    const TimeValue step = ToCheckedTimeValue(requestedStep, unit, "sample_step");
+    if (step <= 0) throw std::runtime_error("sample_step rounds to zero ticks.");
+
+    std::vector<TimeValue> times;
+    TimeValue current = from;
+    while (true) {
+        if (static_cast<int>(times.size()) >= maxSamples) {
+            throw std::runtime_error(
+                "resample/bake sample count exceeds budget.max_keys before controller expansion.");
+        }
+        times.push_back(current);
+        if (current == to) break;
+        const long long next = static_cast<long long>(current) + static_cast<long long>(step);
+        if (next >= static_cast<long long>(to)) {
+            current = to;
+        } else {
+            current = static_cast<TimeValue>(next);
+        }
+    }
+    return times;
+}
+
+struct PendingResample {
+    Control* ctrl = nullptr;
+    std::vector<std::pair<TimeValue, json>> samples;
+    std::vector<int> deleteIndices;
+};
+
+static int CountKeysInWindow(
+    const std::vector<Control*>& controllers, TimeValue from, TimeValue to) {
+    int count = 0;
+    for (Control* ctrl : controllers) {
+        if (IKeyControl* keys = GetKeyControlInterface(ctrl)) {
+            const int keyCount = keys->GetNumKeys();
+            for (int i = 0; i < keyCount; ++i) {
+                const TimeValue keyTime = ctrl->GetKeyTime(i);
+                if (keyTime >= from && keyTime <= to) count++;
+            }
+        }
+    }
+    return count;
+}
+
+static std::vector<PendingResample> BuildResamplePlan(
+    const std::vector<Control*>& controllers,
+    const std::vector<TimeValue>& times,
+    bool replaceKeys,
+    int& keysToDelete) {
+    std::vector<PendingResample> plan;
+    keysToDelete = 0;
+    const TimeValue from = times.front();
+    const TimeValue to = times.back();
+
+    for (Control* ctrl : controllers) {
+        PendingResample pending;
+        pending.ctrl = ctrl;
+        pending.samples.reserve(times.size());
+        for (TimeValue time : times) {
+            json value;
+            if (!ReadResampleValue(ctrl, time, value)) {
+                throw std::runtime_error(
+                    "Controller cannot be sampled safely for native resampling: " + ControllerClass(ctrl));
+            }
+            pending.samples.push_back({time, std::move(value)});
+        }
+
+        if (replaceKeys) {
+            if (IKeyControl* keys = GetKeyControlInterface(ctrl)) {
+                const int keyCount = keys->GetNumKeys();
+                for (int i = 0; i < keyCount; ++i) {
+                    const TimeValue keyTime = ctrl->GetKeyTime(i);
+                    if (keyTime >= from && keyTime <= to) pending.deleteIndices.push_back(i);
+                }
+                keysToDelete += static_cast<int>(pending.deleteIndices.size());
+            }
+        }
+        plan.push_back(std::move(pending));
+    }
+    return plan;
+}
+
+static int ApplyResamplePlan(const std::vector<PendingResample>& plan, bool replaceKeys) {
+    int written = 0;
+    for (const PendingResample& pending : plan) {
+        if (replaceKeys) {
+            for (auto it = pending.deleteIndices.rbegin(); it != pending.deleteIndices.rend(); ++it) {
+                pending.ctrl->DeleteKeyByIndex(*it);
+            }
+        }
+        for (const auto& sample : pending.samples) {
+            if (!WriteResampleValue(pending.ctrl, sample.first, sample.second)) {
+                throw std::runtime_error(
+                    "Controller value write failed during native resampling: " + ControllerClass(pending.ctrl));
+            }
+            written++;
+        }
+    }
+    return written;
+}
 
 static int TangentTypeFromName(std::string value) {
     value = LowerCopy(TrimHash(value));
@@ -719,7 +1219,7 @@ static int CountStyleKeys(Control* ctrl, const json& p, Interface* ip, std::unor
 
     int total = 0;
     if (IKeyControl* keyControl = GetKeyControlInterface(ctrl)) {
-        if (p.contains("time") || p.contains("times")) {
+        if (HasAnyTimeSelector(p)) {
             total += static_cast<int>(KeyIndicesForStyle(ctrl, p, ip).size());
         } else {
             total += std::max(0, keyControl->GetNumKeys());
@@ -795,10 +1295,10 @@ static int CountLogicalStyleKeys(Control* ctrl, const json& p, Interface* ip) {
     CollectKeyTimes(ctrl, times, visited);
     if (times.empty()) return 0;
 
-    if (p.contains("time") || p.contains("times")) {
+    if (HasAnyTimeSelector(p)) {
         int count = 0;
-        for (TimeValue t : TimesForSet(p, ip)) {
-            if (times.find(t) != times.end()) count++;
+        for (TimeValue t : times) {
+            if (TimeMatchesRequest(t, p, ip)) count++;
         }
         return count;
     }
@@ -854,6 +1354,106 @@ static json LoopGapEntry(const TrackRef& tr, TimeValue src, TimeValue dst) {
     return entry;
 }
 
+static json ManageTimeline(const json& p, Interface* ip) {
+    const std::string unit = p.value("time_unit", "frames");
+    const bool setFrameRate = p.contains("frame_rate");
+    const bool setCurrent = p.contains("current_frame");
+    const bool setRangeStart = p.contains("range_start");
+    const bool setRangeEnd = p.contains("range_end");
+
+    int requestedFrameRate = GetFrameRate();
+    if (setFrameRate) {
+        if (!JsonIsNumber(p["frame_rate"])) throw std::runtime_error("frame_rate must be an integer.");
+        const double raw = p["frame_rate"].get<double>();
+        if (!std::isfinite(raw) || std::floor(raw) != raw || raw < 1.0 || raw > 1000.0) {
+            throw std::runtime_error("frame_rate must be an integer between 1 and 1000.");
+        }
+        requestedFrameRate = static_cast<int>(raw);
+        if (!LegalFrameRate(requestedFrameRate)) {
+            throw std::runtime_error("frame_rate is not supported by 3ds Max time configuration.");
+        }
+    }
+    auto validateNumeric = [&](const char* field, bool present) {
+        if (!present) return;
+        if (!JsonIsNumber(p[field]) || !std::isfinite(p[field].get<double>())) {
+            throw std::runtime_error(std::string(field) + " must be a finite number.");
+        }
+    };
+    validateNumeric("current_frame", setCurrent);
+    validateNumeric("range_start", setRangeStart);
+    validateNumeric("range_end", setRangeEnd);
+    if (setRangeStart && setRangeEnd &&
+        p["range_start"].get<double>() > p["range_end"].get<double>()) {
+        throw std::runtime_error("range_start must be less than or equal to range_end.");
+    }
+
+    int prospectiveTicksPerFrame = GetTicksPerFrame();
+    if (setFrameRate) {
+        const int ticksPerSecond = SecToTicks(1.0);
+        prospectiveTicksPerFrame = ticksPerSecond / requestedFrameRate;
+    }
+    auto requestedTime = [&](const char* field) -> TimeValue {
+        const double value = p[field].get<double>();
+        const std::string loweredUnit = LowerCopy(unit);
+        if (loweredUnit == "tick" || loweredUnit == "ticks") {
+            return CheckedTimeValue(value, field);
+        }
+        if (loweredUnit == "second" || loweredUnit == "seconds" ||
+            loweredUnit == "sec" || loweredUnit == "secs") {
+            return CheckedTimeValue(value * static_cast<double>(SecToTicks(1.0)), field);
+        }
+        return CheckedTimeValue(value * static_cast<double>(prospectiveTicksPerFrame), field);
+    };
+
+    const Interval oldRange = ip->GetAnimRange();
+    const TimeValue requestedRangeStart = setRangeStart ? requestedTime("range_start") : oldRange.Start();
+    const TimeValue requestedRangeEnd = setRangeEnd ? requestedTime("range_end") : oldRange.End();
+    const TimeValue requestedCurrent = setCurrent ? requestedTime("current_frame") : ip->GetTime();
+    if (requestedRangeStart > requestedRangeEnd) {
+        throw std::runtime_error("The resulting animation range would be inverted.");
+    }
+
+    json applied = json::array();
+    if (setFrameRate) {
+        SetFrameRate(requestedFrameRate);
+        applied.push_back("frame_rate");
+    }
+
+    if (setRangeStart || setRangeEnd) {
+        ip->SetAnimRange(Interval(requestedRangeStart, requestedRangeEnd));
+        if (setRangeStart) applied.push_back("range_start");
+        if (setRangeEnd) applied.push_back("range_end");
+    }
+    if (setCurrent) {
+        ip->SetTime(requestedCurrent, TRUE);
+        applied.push_back("current_frame");
+    } else if (!applied.empty()) {
+        ip->RedrawViews(ip->GetTime());
+    }
+
+    const Interval range = ip->GetAnimRange();
+    json result;
+    result["action"] = "timeline";
+    result["readOnly"] = applied.empty();
+    result["frameRate"] = GetFrameRate();
+    result["ticksPerFrame"] = GetTicksPerFrame();
+    result["currentFrame"] = TimeValueToFrame(ip->GetTime());
+    result["range"] = {
+        {"start", TimeValueToFrame(range.Start())},
+        {"end", TimeValueToFrame(range.End())}
+    };
+    if (!applied.empty()) result["applied"] = applied;
+    return result;
+}
+
+struct MechanicalEditStats {
+    int deletedKeys = 0;
+    int movedKeys = 0;
+    int scaledKeys = 0;
+    int resampledKeys = 0;
+    int replacedKeys = 0;
+};
+
 static json BuildKeyframeResult(
     const std::string& action,
     const std::vector<INode*>& nodes,
@@ -867,6 +1467,7 @@ static json BuildKeyframeResult(
     int rangedControllerEdits,
     int styleKeyCount,
     int styleControllerKeyCount,
+    const MechanicalEditStats& mechanical,
     const json& samples,
     const json& loopGaps,
     bool readOnly) {
@@ -887,6 +1488,11 @@ static json BuildKeyframeResult(
     result["outOfRangeControllerEdits"] = rangedControllerEdits;
     result["styleKeyCandidates"] = styleKeyCount;
     result["styleControllerKeyCandidates"] = styleControllerKeyCount;
+    result["deletedKeys"] = mechanical.deletedKeys;
+    result["movedKeys"] = mechanical.movedKeys;
+    result["scaledKeys"] = mechanical.scaledKeys;
+    result["resampledKeys"] = mechanical.resampledKeys;
+    result["replacedKeys"] = mechanical.replacedKeys;
     if (!loopGaps.empty()) result["loopGaps"] = loopGaps;
     if (budget.includeSamples) result["samples"] = samples;
     else result["samplesOmitted"] = true;
@@ -916,13 +1522,32 @@ std::string NativeHandlers::KeyframeTracks(const std::string& params, MCPBridgeG
         if (p.is_discarded()) throw std::runtime_error("Invalid JSON payload");
 
         Interface* ip = GetCOREInterface();
-        std::string action = LowerCopy(p.value("action", "set"));
+        const std::string requestedAction = LowerCopy(p.value("action", "set"));
+        std::string action = requestedAction;
         if (action == "add" || action == "key") action = "set";
         if (action == "match_first_last" || action == "match_endpoints") action = "match";
         if (action == "tangent" || action == "tangents" || action == "key_type") action = "style";
+        if (action == "normalize" || action == "normalize_tangent" || action == "normalize_tangents") {
+            if (!HasBoundedTimeSelector(p)) {
+                throw std::runtime_error(
+                    "normalize_tangents requires time/times or both from_time and to_time; refusing an unbounded edit.");
+            }
+            action = "style";
+            if (!HasStyleRequest(p)) p["key_type"] = "smooth";
+        }
         if (action == "range" || action == "out_of_range") action = "ort";
         if (action == "inspect" || action == "query" || action == "summary") action = "list";
         if (action == "loop_close" || action == "close_loop" || action == "loop_match") action = "loop";
+        if (action == "delete" || action == "remove_keys") action = "delete_keys";
+        if (action == "move") action = p.contains("move") ? "set" : "move_keys";
+        if (action == "offset_keys" || action == "retime") action = "move_keys";
+        if (action == "scale" || action == "retime_scale") action = "scale_keys";
+        if (action == "bake" || action == "sample" || action == "resample_keys") action = "resample";
+        if (action == "time_config" || action == "timeline_config") action = "timeline";
+
+        if (action == "timeline") {
+            return ManageTimeline(p, ip).dump();
+        }
 
         std::vector<INode*> nodes;
         CollectNodesForRequest(p, ip, nodes);
@@ -949,8 +1574,8 @@ std::string NativeHandlers::KeyframeTracks(const std::string& params, MCPBridgeG
             TimeValue loopSrc = 0;
             TimeValue loopDst = 0;
             if (hasLoopWindow) {
-                loopSrc = ToTimeValue(p["from_time"].get<double>(), unit);
-                loopDst = ToTimeValue(p["to_time"].get<double>(), unit);
+                loopSrc = ToCheckedTimeValue(p["from_time"].get<double>(), unit, "from_time");
+                loopDst = ToCheckedTimeValue(p["to_time"].get<double>(), unit, "to_time");
                 for (const TrackRef& tr : tracks) {
                     if (!tr.ctrl || UniqueKeyTimeCount(tr.ctrl) <= 0) continue;
                     json gap = LoopGapEntry(tr, loopSrc, loopDst);
@@ -977,9 +1602,11 @@ std::string NativeHandlers::KeyframeTracks(const std::string& params, MCPBridgeG
                 }
             }
 
+            MechanicalEditStats mechanical;
             return BuildKeyframeResult(
                 action, nodes, tracks, budget,
                 0, 0, 0, 0, 0, 0, 0, 0,
+                mechanical,
                 samples, loopGaps, true).dump();
         }
 
@@ -1028,14 +1655,16 @@ std::string NativeHandlers::KeyframeTracks(const std::string& params, MCPBridgeG
         int styledControllerKeys = 0;
         int ranged = 0;
         int rangedControllerEdits = 0;
+        int mechanicalTouchedKeys = 0;
+        MechanicalEditStats mechanical;
         json samples = json::array();
         json loopGaps = json::array();
 
         if (action == "loop") {
             AnimateGuard anim;
             std::string unit = p.value("time_unit", "frames");
-            TimeValue src = ToTimeValue(p.value("from_time", 1.0), unit);
-            TimeValue dst = ToTimeValue(p.value("to_time", 100.0), unit);
+            TimeValue src = ToCheckedTimeValue(p.value("from_time", 1.0), unit, "from_time");
+            TimeValue dst = ToCheckedTimeValue(p.value("to_time", 100.0), unit, "to_time");
             SortNodesByHierarchy(nodes);
 
             for (INode* node : nodes) {
@@ -1091,10 +1720,10 @@ std::string NativeHandlers::KeyframeTracks(const std::string& params, MCPBridgeG
                         dst = first;
                     }
                     if (p.contains("from_time") && JsonIsNumber(p["from_time"])) {
-                        src = ToTimeValue(p["from_time"].get<double>(), unit);
+                        src = ToCheckedTimeValue(p["from_time"].get<double>(), unit, "from_time");
                     }
                     if (p.contains("to_time") && JsonIsNumber(p["to_time"])) {
-                        dst = ToTimeValue(p["to_time"].get<double>(), unit);
+                        dst = ToCheckedTimeValue(p["to_time"].get<double>(), unit, "to_time");
                     }
 
                     if (WriteSampledValue(tr.ctrl, src, dst)) {
@@ -1119,8 +1748,58 @@ std::string NativeHandlers::KeyframeTracks(const std::string& params, MCPBridgeG
             } else {
                 runMatchForTracks(tracks);
             }
+        } else if (action == "delete_keys") {
+            ValidateEditTimeSelection(p);
+            int selectedCount = 0;
+            const auto selections = SelectControllerKeys(tracks, p, ip, selectedCount);
+            EnforceKeyBudget(selectedCount, budget, "delete_keys");
+            mechanical.deletedKeys = DeleteControllerKeys(selections);
+            mechanicalTouchedKeys = selectedCount;
+        } else if (action == "move_keys" || action == "scale_keys") {
+            ValidateEditTimeSelection(p);
+            int selectedCount = 0;
+            const auto selections = SelectControllerKeys(tracks, p, ip, selectedCount);
+            EnforceKeyBudget(selectedCount, budget, action.c_str());
+            const auto pending = BuildKeyTimeEdits(selections, p, action);
+            const int changed = ApplyKeyTimeEdits(pending);
+            if (action == "move_keys") mechanical.movedKeys = changed;
+            else mechanical.scaledKeys = changed;
+            mechanicalTouchedKeys = selectedCount;
+        } else if (action == "resample") {
+            const std::vector<TimeValue> resampleTimes = ResampleTimesFromRequest(p, budget.maxKeys);
+            const bool replaceKeys = p.contains("replace_keys")
+                ? p.value("replace_keys", false)
+                : requestedAction == "bake";
+            const std::vector<Control*> resampleControllers = CollectResampleControllers(tracks);
+            if (resampleControllers.empty()) {
+                throw std::runtime_error("No safely sampleable float/point/rotation/scale/transform controllers found.");
+            }
+            const int keysToDelete = replaceKeys
+                ? CountKeysInWindow(resampleControllers, resampleTimes.front(), resampleTimes.back())
+                : 0;
+            const long long writeCount =
+                static_cast<long long>(resampleControllers.size()) * static_cast<long long>(resampleTimes.size());
+            const long long touchCount = writeCount + static_cast<long long>(keysToDelete);
+            if (touchCount > static_cast<long long>(std::numeric_limits<int>::max())) {
+                throw std::runtime_error("resample/bake key count exceeds the native integer range.");
+            }
+            EnforceKeyBudget(static_cast<int>(touchCount), budget, replaceKeys ? "bake" : "resample");
+            int plannedDeletes = 0;
+            const auto plan = BuildResamplePlan(
+                resampleControllers, resampleTimes, replaceKeys, plannedDeletes);
+            if (plannedDeletes != keysToDelete) {
+                throw std::runtime_error("Controller key count changed while preparing the resample plan.");
+            }
+            AnimateGuard anim;
+            mechanical.resampledKeys = ApplyResamplePlan(plan, replaceKeys);
+            mechanical.replacedKeys = replaceKeys ? keysToDelete : 0;
+            if (replaceKeys) mechanical.deletedKeys = keysToDelete;
+            mechanicalTouchedKeys = static_cast<int>(touchCount);
         } else if (action != "style" && action != "ort") {
-            throw std::runtime_error("Unknown action: " + action + ". Use list, set, match, loop, style, or ort.");
+            throw std::runtime_error(
+                "Unknown action: " + action +
+                ". Use timeline, list, set, delete_keys, move_keys, scale_keys, resample/bake, "
+                "normalize_tangents/style, match, loop, or ort.");
         }
 
         if ((action == "style" || HasStyleRequest(styleParams)) && HasStyleRequest(styleParams)) {
@@ -1129,6 +1808,12 @@ std::string NativeHandlers::KeyframeTracks(const std::string& params, MCPBridgeG
             for (const TrackRef& tr : tracks) {
                 styleKeyCount += CountLogicalStyleKeys(tr.ctrl, styleParams, ip);
                 styleControllerKeyCount += CountStyleKeys(tr.ctrl, styleParams, ip);
+            }
+            EnforceKeyBudget(
+                mechanicalTouchedKeys + styleControllerKeyCount,
+                budget,
+                action == "style" ? "style" : "combined key/style operation");
+            for (const TrackRef& tr : tracks) {
                 int rawStyled = StyleOneController(tr.ctrl, styleParams, ip);
                 if (rawStyled > 0) {
                     styled += CountLogicalStyleKeys(tr.ctrl, styleParams, ip);
@@ -1154,8 +1839,8 @@ std::string NativeHandlers::KeyframeTracks(const std::string& params, MCPBridgeG
         if (p.contains("from_time") && JsonIsNumber(p["from_time"]) &&
             p.contains("to_time") && JsonIsNumber(p["to_time"])) {
             std::string unit = p.value("time_unit", "frames");
-            TimeValue loopSrc = ToTimeValue(p["from_time"].get<double>(), unit);
-            TimeValue loopDst = ToTimeValue(p["to_time"].get<double>(), unit);
+            TimeValue loopSrc = ToCheckedTimeValue(p["from_time"].get<double>(), unit, "from_time");
+            TimeValue loopDst = ToCheckedTimeValue(p["to_time"].get<double>(), unit, "to_time");
             for (const TrackRef& tr : tracks) {
                 if (!tr.ctrl || UniqueKeyTimeCount(tr.ctrl) <= 0) continue;
                 json gap = LoopGapEntry(tr, loopSrc, loopDst);
@@ -1171,6 +1856,7 @@ std::string NativeHandlers::KeyframeTracks(const std::string& params, MCPBridgeG
             keyed, matched, styled, styledControllerKeys,
             ranged, rangedControllerEdits,
             styleKeyCount, styleControllerKeyCount,
+            mechanical,
             samples, loopGaps, false).dump();
     });
 }

@@ -5,6 +5,12 @@ description: Tool choices, workflows, and MAXScript pitfalls for controlling 3ds
 
 # 3ds Max MCP — Agent Guide
 
+## Tool Profile Routing
+
+- **Full/core:** Operational tools such as `query_scene` and `create_object` are advertised directly; call the matching tool by name.
+- **Progressive:** If the advertised surface contains only `list_toolsets`, `describe_toolset`, and `call_tool`, never call an operational name as a top-level MCP tool. Choose the relevant capability with `list_toolsets`, load only that group with `describe_toolset`, then invoke the selected operation through `call_tool(name=..., arguments=...)`.
+- Do not describe every toolset up front. Load only the group needed for the current request; if the exact operational tool and arguments are already known, `call_tool` can dispatch it directly.
+
 Principles:
 - Match the user's request. Do not run setup, discovery, or scene analysis by habit.
 - Do not call `get_bridge_status` or `get_session_context` as a session preamble.
@@ -17,6 +23,8 @@ Principles:
 Scene reads — use **`query_scene(action=...)`**:
 - `overview` | `filter` | `class` | `property` | `selection` | `delta`
 - **`get_instances`** / **`get_dependencies`** — instancing and reference graph
+- **`resolve_node_refs`** — turn a name, handle, or absolute JSON-Pointer hierarchy path into a canonical handle/name/path identity; multiple selectors are cross-checked
+- **`scene_qa(action="scan")`** — deterministic naming, transform, hierarchy/group, and timeline checks only; it never analyzes meshes, UVs, topology, normals, skinning, or visual quality
 - **`get_session_context`** — bridge + capabilities + overview + selection (on demand only)
 
 Object/material/plugin inspection:
@@ -27,6 +35,8 @@ Object/material/plugin inspection:
 
 Mutation:
 - Use object, modifier, material, controller, organization, and viewport tools when they match.
+- Use `scene_patch` for a preflighted batch of rename, relative transform, visibility/freeze/render flags, or parenting edits that must commit as one native undo step. Pass the mutation-only `expected_scene_seq` from `resolve_node_refs` when stale targeting matters; selection and sub-object selection do not invalidate it.
+- Use `scene_qa(action="fix")` only for its explicit deterministic naming fixes; preview with `dry_run=true` when the caller has not already approved the repair.
 - Verify after meaningful edits with `query_scene(action=delta)`, re-inspection, or viewport capture.
 
 Debugging:
@@ -49,7 +59,11 @@ Debugging:
 ## Tool Reference
 
 ### Scene reads
-`query_scene` `get_hierarchy` `get_instances` `get_dependencies`
+`query_scene` `resolve_node_refs` `scene_qa` `get_hierarchy` `get_instances` `get_dependencies`
+
+### Atomic scene edits
+- `scene_patch` — accepts NodeRefs (`handle`, `name`, or JSON-Pointer `path`), validates every operation before editing, rejects hierarchy/name conflicts, supports mutation-only stale-sequence guards and dry-run, and rolls back the whole native hold on apply failure; activity-only selection events remain observable without blocking writes
+- Node handles are stable only within the current loaded scene/session. Cross-check a cached handle with `name` and/or `path`, and refresh after a scene reset/load.
 
 ### Objects
 `get_object_properties` `analyze_node_orientation` `set_object_property` `create_object` `delete_objects` `transform_object` `select_objects` `set_visibility` `clone_objects` `set_parent` `batch_rename_objects`
@@ -120,7 +134,7 @@ For Data Channel or Max Creation Graph work, read [procedural-graphs.md](procedu
 ## When to Use `execute_maxscript`
 
 **Almost never.** Only when there is genuinely no dedicated tool:
-- Animation keyframing, render/environment settings, custom one-off scripted operations
+- Unsupported controller operations, render/environment settings, custom one-off scripted operations
 
 **Do not use for:** anything a dedicated tool already does — properties, objects, materials, selection, batch ops, inspection.
 
@@ -155,7 +169,11 @@ The `code` string is delivered as a JSON value, so it is **un-escaped once befor
 - Never issue mutating native tool calls concurrently: pre-guard bridges interleaved `theHold` transactions via nested message pumps (0xC0000005, then persistent corruption — phantom successes, wrong handles, bad class resolution). The main-thread executor now defers work items that arrive mid-item, but keep agent-side mutations sequential regardless.
 
 ### Keyframes (`keyframe_tracks`)
+- **`action=timeline`** — targetless read/set of `frame_rate`, `current_frame`, and `range_start`/`range_end`; omit setters for a read-only query.
 - **`action=list`** — read-only inspection; pass `from_time`/`to_time` for `loopGaps`. Parent `numKeys` is often 0 — keys live on Bezier Float sub-controllers.
+- **`delete_keys` / `move_keys` / `scale_keys`** — deterministic key-time edits. They require `time`/`times` or both `from_time` and `to_time`; retimes reject destination collisions. Use `time_offset`, or `time_scale` with optional `pivot_time`.
+- **`resample` / `bake`** — native sampled keys over a required `from_time`/`to_time` window. `sample_step` defaults to one frame; `bake` replaces keys in-window by default, while `resample` preserves existing keys unless `replace_keys=true`. List, constraint, expression, script, and motion-capture controllers are intentionally skipped.
+- **`normalize_tangents`** — normalizes bounded Bezier keys to smooth tangents by default; pass `key_type`, `in_type`, or `out_type` to choose another deterministic tangent style.
 - **`action=loop`** — copies evaluated pose from `from_time` to `to_time` parent-first; use for parented reflection rigs (e.g. `Plane001` → children). Defaults: frames 1→100.
 - **`action=match`** with `order=hierarchy` — same parent-first copy as `loop` when closing endpoints on rigged hierarchies.
 - Prefer **`value`/`move` on keyed tracks** over `transform_object` for animated objects — `transform_object` rewrites keys at the current slider frame.

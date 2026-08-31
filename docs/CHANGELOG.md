@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here.
 
+## [1.5.5] — 2026-08-31
+
+Progressive tool discovery, atomic scene operations, and expanded native animation tooling.
+
+### Added
+
+- **Progressive MCP profile.** Advertises only `list_toolsets`, `describe_toolset`, and `call_tool`, then loads exact operational schemas on demand. The installer now offers progressive, full, and core profiles and persists the choice in user configuration.
+- Native canonical NodeRefs and `scene_patch` for preflighted rename, relative-transform, flag, and parenting operations committed as one undo step with mutation-only stale-scene guards.
+- Deterministic, non-mesh `scene_qa` checks and narrowly scoped naming repairs.
+- Native keyframe timeline, delete/move/scale, bake/resample, tangent-normalization, hierarchy-aware match, and loop operations.
+
+### Changed
+
+- Scene journaling separates persistent mutation sequence changes from selection activity, so normal viewport interaction does not invalidate guarded scene patches.
+- Native mutation dispatch defers nested work arriving during an active main-thread item, and node flag edits now have explicit undo/redo restore records.
+- Generated tool registries, smoke cases, documentation, and the bundled agent skill include the new discovery, scene, and animation surfaces.
+
 ## [1.5.1] — 2026-08-04
 
 Packaging fixes and Chinese docs.

@@ -1,5 +1,6 @@
 import json
 import unittest
+from pathlib import Path
 from unittest.mock import PropertyMock, patch
 
 from maxmcp.tools.keyframes import keyframe_tracks
@@ -148,6 +149,116 @@ class KeyframeToolTests(unittest.TestCase):
 
         sent = json.loads(mocked_send.call_args.args[0])
         self.assertEqual(sent["order"], "hierarchy")
+
+    def test_timeline_management_uses_same_compact_native_route(self) -> None:
+        payload = '{"action":"timeline","frameRate":24,"currentFrame":12,"range":{"start":0,"end":96}}'
+        with (
+            patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
+            patch("maxmcp.tools.keyframes.client.send_command", return_value={"result": payload}) as mocked_send,
+        ):
+            result = keyframe_tracks(
+                action="timeline",
+                frame_rate=24,
+                current_frame=12,
+                range_start=0,
+                range_end=96,
+            )
+
+        self.assertEqual(json.loads(result)["frameRate"], 24)
+        sent = json.loads(mocked_send.call_args.args[0])
+        self.assertEqual(mocked_send.call_args.kwargs["cmd_type"], "native:keyframe_tracks")
+        self.assertEqual(sent["frame_rate"], 24)
+        self.assertEqual(sent["current_frame"], 12)
+        self.assertEqual(sent["range_start"], 0)
+        self.assertEqual(sent["range_end"], 96)
+
+    def test_bounded_key_time_edits_pass_native_contract_fields(self) -> None:
+        cases = [
+            ("delete_keys", {}, {}),
+            ("move_keys", {"time_offset": 8}, {"time_offset": 8}),
+            ("scale_keys", {"time_scale": 0.5, "pivot_time": 10}, {"time_scale": 0.5, "pivot_time": 10}),
+        ]
+        for action, kwargs, expected in cases:
+            with self.subTest(action=action):
+                with (
+                    patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
+                    patch("maxmcp.tools.keyframes.client.send_command", return_value={"result": "{}"}) as mocked_send,
+                ):
+                    keyframe_tracks(
+                        action=action,
+                        names=["RigRoot"],
+                        tracks="position",
+                        from_time=10,
+                        to_time=40,
+                        **kwargs,
+                    )
+
+                sent = json.loads(mocked_send.call_args.args[0])
+                self.assertEqual(sent["action"], action)
+                self.assertEqual(sent["from_time"], 10)
+                self.assertEqual(sent["to_time"], 40)
+                for key, value in expected.items():
+                    self.assertEqual(sent[key], value)
+
+    def test_resample_replace_and_step_pass_through(self) -> None:
+        with (
+            patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
+            patch("maxmcp.tools.keyframes.client.send_command", return_value={"result": "{}"}) as mocked_send,
+        ):
+            keyframe_tracks(
+                action="bake",
+                names=["CameraPath"],
+                tracks="position",
+                from_time=0,
+                to_time=100,
+                sample_step=2,
+                replace_keys=True,
+                key_type="linear",
+            )
+
+        sent = json.loads(mocked_send.call_args.args[0])
+        self.assertEqual(sent["sample_step"], 2)
+        self.assertTrue(sent["replace_keys"])
+        self.assertEqual(sent["key_type"], "linear")
+
+    def test_tangent_normalization_carries_explicit_bounds(self) -> None:
+        with (
+            patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=True),
+            patch("maxmcp.tools.keyframes.client.send_command", return_value={"result": "{}"}) as mocked_send,
+        ):
+            keyframe_tracks(
+                action="normalize_tangents",
+                names=["CameraPath"],
+                tracks="position",
+                from_time=0,
+                to_time=100,
+            )
+
+        sent = json.loads(mocked_send.call_args.args[0])
+        self.assertEqual(sent["action"], "normalize_tangents")
+        self.assertEqual(sent["from_time"], 0)
+        self.assertEqual(sent["to_time"], 100)
+
+    def test_native_mechanical_animation_contract_uses_sdk_apis(self) -> None:
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "native"
+            / "src"
+            / "handlers"
+            / "keyframe_handlers.cpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("ManageTimeline", source)
+        self.assertIn("GetAnimRange()", source)
+        self.assertIn("SetAnimRange", source)
+        self.assertIn("SetFrameRate", source)
+        self.assertIn("DeleteKeyByIndex", source)
+        self.assertIn("key->time = edit.second", source)
+        self.assertIn("SortKeys()", source)
+        self.assertIn("BuildResamplePlan", source)
+        self.assertIn("normalize_tangents", source)
+        self.assertIn("refusing an unbounded edit", source)
+        self.assertNotIn("ExecuteMAXScriptScript", source)
 
     def test_requires_native_bridge(self) -> None:
         with patch("maxmcp.max_client.MaxClient.native_available", new_callable=PropertyMock, return_value=False):

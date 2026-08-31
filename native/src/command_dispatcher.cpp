@@ -62,6 +62,7 @@ static bool IsDirectHandler(const std::string& cmd_type) {
         "native:find_class_instances",
         "native:get_hierarchy",
         "native:scene_delta",
+        "native:scene_qa_scan",
         // Object reads
         "native:get_object_properties",
         "native:analyze_node_orientation",
@@ -150,6 +151,8 @@ static bool IsMutatingNativeHandler(const std::string& cmd_type) {
         "native:unwire_params",
         "native:invoke_interface",
         "native:run_macroscript",
+        "native:scene_patch",
+        "native:scene_qa_fix",
     };
     return kMutating.count(cmd_type) > 0;
 }
@@ -452,6 +455,14 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::GetHierarchy(command, gup);
         } else if (cmd_type == "native:scene_delta") {
             result = NativeHandlers::SceneDelta(command, gup, client_session_id);
+        } else if (cmd_type == "native:resolve_node_refs") {
+            result = NativeHandlers::ResolveNodeRefs(command, gup);
+        } else if (cmd_type == "native:scene_patch") {
+            result = NativeHandlers::ScenePatch(command, gup);
+        } else if (cmd_type == "native:scene_qa_scan") {
+            result = NativeHandlers::SceneQAScan(command, gup);
+        } else if (cmd_type == "native:scene_qa_fix") {
+            result = NativeHandlers::SceneQAFix(command, gup);
         // Phase 1: Object operations
         } else if (cmd_type == "native:get_object_properties") {
             result = NativeHandlers::GetObjectProperties(command, gup);
@@ -667,9 +678,13 @@ std::string CommandDispatcher::Dispatch(
         };
 
         std::string result;
+        // scene_patch owns a strict hold so it can reject an already-open user
+        // transaction and report rollback only after Cancel() has completed.
+        const bool handlerOwnsTransaction = cmd_type == "native:scene_patch";
         const bool transact =
             IsMutatingNativeHandler(cmd_type) &&
-            !RequestIsDryRunOrPreview(command);
+            !RequestIsDryRunOrPreview(command) &&
+            !handlerOwnsTransaction;
 
         if (transact) {
             result = gup->GetExecutor().ExecuteSync([&]() -> std::string {

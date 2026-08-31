@@ -101,6 +101,7 @@ CUSTOM: dict[str, dict] = {
     "manage_selection_sets": {"action": "list"},
     "watch_scene": {"action": "poll", "limit": 5},
     "query_scene": {"action": "overview", "max_roots": 5},
+    "scene_qa": {"max_issues": 20},
     "discover_plugin_classes": {"limit": 10},
     "list_plugin_classes": {"limit": 10},
     "introspect_class": {"class_name": "Box"},
