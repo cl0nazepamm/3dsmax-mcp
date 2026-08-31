@@ -44,6 +44,7 @@ MS_SERVER = ROOT / "maxscript" / "mcp_server.ms"
 CONFIG_SRC = ROOT / "mcp_config.ini"
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "3dsmax-mcp"
 CONFIG_DST = CONFIG_DIR / "mcp_config.ini"
+TOOL_PROFILES = ("full", "progressive", "core")
 
 
 def pkg_version() -> str:
@@ -90,6 +91,60 @@ def installer_banner() -> str:
     if sys.stdout.isatty():
         return banner
     return ANSI_CSI_RE.sub("", banner).translate(REDIRECTED_BANNER_TRANSLATION)
+
+
+def choose_tool_profile(requested: str | None = None) -> str:
+    """Select the external MCP tool exposure profile."""
+    if requested:
+        normalized = requested.strip().lower()
+        if normalized not in TOOL_PROFILES:
+            raise ValueError(f"Unsupported tool profile: {requested}")
+        return normalized
+
+    print("\nMCP tool profile:")
+    print("  1) Full (default) - advertise every tool for maximum client compatibility")
+    print("  2) Progressive - 3 discovery tools; saves context for local/smaller models")
+    print("  3) Core - advertise the smaller everyday tool subset")
+    try:
+        choice = input("  Choice [1]: ").strip()
+    except EOFError:
+        choice = ""
+    return {"2": "progressive", "3": "core"}.get(choice, "full")
+
+
+def set_ini_value(path: Path, section: str, key: str, value: str) -> None:
+    """Update one INI value while preserving unrelated comments and formatting."""
+    text = path.read_text("utf-8") if path.exists() else ""
+    lines = text.splitlines()
+    section_start: int | None = None
+    section_end = len(lines)
+    section_pattern = re.compile(r"^\s*\[([^]]+)]\s*(?:[#;].*)?$", re.IGNORECASE)
+    key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=", re.IGNORECASE)
+
+    for index, line in enumerate(lines):
+        match = section_pattern.match(line)
+        if not match:
+            continue
+        if section_start is not None:
+            section_end = index
+            break
+        if match.group(1).strip().lower() == section.lower():
+            section_start = index
+
+    replacement = f"{key} = {value}"
+    if section_start is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.extend((f"[{section}]", replacement))
+    else:
+        for index in range(section_start + 1, section_end):
+            if key_pattern.match(lines[index]):
+                lines[index] = replacement
+                break
+        else:
+            lines.insert(section_end, replacement)
+
+    path.write_text("\n".join(lines) + "\n", "utf-8")
 
 # Extract list of supported years from GUP_SRCS
 MAX_YEARS = sorted(GUP_SRCS.keys(), reverse=True)
@@ -287,7 +342,7 @@ def deploy_application_package() -> bool:
     return True
 
 
-def deploy_config(skip_skill: bool = False) -> bool:
+def deploy_config(skip_skill: bool = False, tool_profile: str = "full") -> bool:
     print(f"\n[1/4] User config -> {CONFIG_DIR}")
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -299,6 +354,9 @@ def deploy_config(skip_skill: bool = False) -> bool:
     else:
         CONFIG_DST.write_text("[mcp]\nsafe_mode = true\n", "utf-8")
         print("  mcp_config.ini: created default (safe_mode=true)")
+
+    set_ini_value(CONFIG_DST, "mcp", "tool_profile", tool_profile)
+    print(f"  MCP tools:       {tool_profile}")
 
     if ENV_DST.exists():
         print("  .env:           preserved (already exists)")
@@ -506,6 +564,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip copying SKILL.md to the chat config and skip build_skill.py.",
     )
+    parser.add_argument(
+        "--tool-profile",
+        choices=TOOL_PROFILES,
+        help="MCP tool exposure profile; omit to choose interactively.",
+    )
     return parser.parse_args()
 
 
@@ -525,10 +588,12 @@ def main() -> int:
     else:
         print("\nNo 3ds Max installations detected (2023–2027).")
 
+    tool_profile = choose_tool_profile(args.tool_profile)
+
     if not remove_legacy_installations():
         return 1
 
-    deploy_config(skip_skill=args.skip_skill)
+    deploy_config(skip_skill=args.skip_skill, tool_profile=tool_profile)
     package_ok = deploy_application_package()
     build_skills(skip_skill=args.skip_skill)
     register_agents()
@@ -543,6 +608,7 @@ def main() -> int:
     if not package_ok:
         print("\n  application package install failed; see messages above.")
     print("  the MCP server starts automatically when your agent connects.")
+    print(f"  MCP tool profile: {tool_profile}")
     print("\n ")
     print("\n  and thank you for installing 3dsmax-mcp! I hope you enjoy it! 3dsmax forever!!")
     print("\n  clone // Metaverse Makers. 2026")

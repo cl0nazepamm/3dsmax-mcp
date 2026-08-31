@@ -3,6 +3,50 @@ from pathlib import Path
 import install
 
 
+def test_choose_tool_profile_defaults_to_full(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda _prompt: "")
+    assert install.choose_tool_profile() == "full"
+
+
+def test_choose_tool_profile_accepts_prompt_and_cli_choices(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda _prompt: "2")
+    assert install.choose_tool_profile() == "progressive"
+    assert install.choose_tool_profile("CORE") == "core"
+
+
+def test_set_ini_value_keeps_external_and_standalone_profiles_separate(tmp_path: Path) -> None:
+    config = tmp_path / "mcp_config.ini"
+    config.write_text(
+        "[mcp]\n"
+        "safe_mode = true\n"
+        "tool_profile = full\n"
+        "\n"
+        "[llm]\n"
+        "# Standalone chat profile\n"
+        "tool_profile = full\n",
+        encoding="utf-8",
+    )
+
+    install.set_ini_value(config, "mcp", "tool_profile", "progressive")
+
+    text = config.read_text(encoding="utf-8")
+    assert "[mcp]\nsafe_mode = true\ntool_profile = progressive" in text
+    assert "[llm]\n# Standalone chat profile\ntool_profile = full" in text
+
+
+def test_deploy_config_persists_selected_tool_profile(monkeypatch, tmp_path: Path) -> None:
+    config_dir = tmp_path / "3dsmax-mcp"
+    config_dst = config_dir / "mcp_config.ini"
+    monkeypatch.setattr(install, "CONFIG_DIR", config_dir)
+    monkeypatch.setattr(install, "CONFIG_DST", config_dst)
+    monkeypatch.setattr(install, "CONFIG_SRC", tmp_path / "missing-config.ini")
+    monkeypatch.setattr(install, "ENV_DST", config_dir / ".env")
+    monkeypatch.setattr(install, "ENV_SRC", tmp_path / "missing-env")
+
+    assert install.deploy_config(skip_skill=True, tool_profile="core")
+    assert "tool_profile = core" in config_dst.read_text(encoding="utf-8")
+
+
 def test_max_year_for_reads_standard_install_folder_names() -> None:
     assert install.max_year_for(Path(r"C:\Program Files\Autodesk\3ds Max 2023")) == 2023
     assert install.max_year_for(Path(r"C:\Program Files\Autodesk\3ds Max 2027")) == 2027

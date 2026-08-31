@@ -22,6 +22,15 @@ def keyframe_tracks(
     match: str = "first_to_last",
     from_time: Optional[float] = None,
     to_time: Optional[float] = None,
+    time_offset: Optional[float] = None,
+    time_scale: Optional[float] = None,
+    pivot_time: Optional[float] = None,
+    sample_step: Optional[float] = None,
+    replace_keys: Optional[bool] = None,
+    current_frame: Optional[float] = None,
+    range_start: Optional[float] = None,
+    range_end: Optional[float] = None,
+    frame_rate: Optional[int] = None,
     key_type: Optional[str] = None,
     in_type: Optional[str] = None,
     out_type: Optional[str] = None,
@@ -37,7 +46,7 @@ def keyframe_tracks(
     max_results: int = 50,
     include_samples: bool = False,
 ) -> str:
-    """Native keyframing: list inspects tracks read-only; set keys at time/times; value or move writes keyed poses without transform_object; match copies between times; loop closes f1->f100 on parented rigs (order=hierarchy); style sets tangents; ort sets out-of-range."""
+    """Deterministic native animation edits. Actions: timeline; list/set; delete_keys/move_keys/scale_keys; resample or bake; normalize_tangents/style; match/loop; ort. Key-time edits use time/times or from_time/to_time. bake replaces keys in its sample window by default; resample preserves them unless replace_keys is true."""
     if not client.native_available:
         return "Native bridge is required for keyframe_tracks."
 
@@ -72,6 +81,24 @@ def keyframe_tracks(
         payload["from_time"] = from_time
     if to_time is not None:
         payload["to_time"] = to_time
+    if time_offset is not None:
+        payload["time_offset"] = time_offset
+    if time_scale is not None:
+        payload["time_scale"] = time_scale
+    if pivot_time is not None:
+        payload["pivot_time"] = pivot_time
+    if sample_step is not None:
+        payload["sample_step"] = sample_step
+    if replace_keys is not None:
+        payload["replace_keys"] = replace_keys
+    if current_frame is not None:
+        payload["current_frame"] = current_frame
+    if range_start is not None:
+        payload["range_start"] = range_start
+    if range_end is not None:
+        payload["range_end"] = range_end
+    if frame_rate is not None:
+        payload["frame_rate"] = frame_rate
     if key_type:
         payload["key_type"] = key_type
     if in_type:

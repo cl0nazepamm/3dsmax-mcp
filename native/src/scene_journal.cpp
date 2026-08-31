@@ -16,9 +16,13 @@ constexpr size_t kMaxJournalEntries = 4096;
 std::mutex g_mutex;
 std::deque<json> g_entries;
 unsigned long long g_seq = 0;
+unsigned long long g_mutationSeq = 0;
 SceneEventNamespace::CallbackKey g_callbackKey = 0;
 
-void AppendEvent(const std::string& type, INodeEventCallback::NodeKeyTab& nodes) {
+void AppendEvent(
+    const std::string& type,
+    INodeEventCallback::NodeKeyTab& nodes,
+    bool mutation = true) {
     std::lock_guard<std::mutex> lock(g_mutex);
     for (int i = 0; i < nodes.Count(); ++i) {
         const auto key = nodes[i];
@@ -27,6 +31,7 @@ void AppendEvent(const std::string& type, INodeEventCallback::NodeKeyTab& nodes)
         json entry;
         entry["seq"] = ++g_seq;
         entry["type"] = type;
+        if (mutation) entry["mutationSeq"] = ++g_mutationSeq;
         entry["handle"] = static_cast<unsigned long long>(key);
         if (node) {
             entry["name"] = WideToUtf8(node->GetName());
@@ -67,8 +72,12 @@ public:
     void DisplayPropertiesChanged(NodeKeyTab& nodes) override { AppendEvent("display_properties_changed", nodes); }
     void UserPropertiesChanged(NodeKeyTab& nodes) override { AppendEvent("user_properties_changed", nodes); }
     void PropertiesOtherEvent(NodeKeyTab& nodes) override { AppendEvent("properties_changed", nodes); }
-    void SubobjectSelectionChanged(NodeKeyTab& nodes) override { AppendEvent("subobject_selection_changed", nodes); }
-    void SelectionChanged(NodeKeyTab& nodes) override { AppendEvent("selection_changed", nodes); }
+    void SubobjectSelectionChanged(NodeKeyTab& nodes) override {
+        AppendEvent("subobject_selection_changed", nodes, false);
+    }
+    void SelectionChanged(NodeKeyTab& nodes) override {
+        AppendEvent("selection_changed", nodes, false);
+    }
     void HideChanged(NodeKeyTab& nodes) override { AppendEvent("hide_changed", nodes); }
     void FreezeChanged(NodeKeyTab& nodes) override { AppendEvent("freeze_changed", nodes); }
     void DisplayOtherEvent(NodeKeyTab& nodes) override { AppendEvent("display_changed", nodes); }
@@ -98,10 +107,19 @@ void Reset() {
     std::lock_guard<std::mutex> lock(g_mutex);
     g_entries.clear();
     ++g_seq;
+    ++g_mutationSeq;
 }
 
 bool IsRegistered() {
     return g_callbackKey != 0;
+}
+
+bool FlushPending() {
+    if (g_callbackKey == 0) return false;
+    ISceneEventManager* manager = GetISceneEventManager();
+    if (!manager) return false;
+    manager->TriggerMessages(g_callbackKey);
+    return true;
 }
 
 unsigned long long CurrentSeq() {
@@ -109,11 +127,40 @@ unsigned long long CurrentSeq() {
     return g_seq;
 }
 
+unsigned long long CurrentMutationSeq() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_mutationSeq;
+}
+
+unsigned long long AppendSynthetic(const std::string& type, const json& details) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    json entry;
+    entry["seq"] = ++g_seq;
+    entry["mutationSeq"] = ++g_mutationSeq;
+    entry["type"] = type;
+    if (details.is_object() && !details.empty()) entry["details"] = details;
+    g_entries.push_back(entry);
+    while (g_entries.size() > kMaxJournalEntries) g_entries.pop_front();
+    return g_mutationSeq;
+}
+
 json ChangesSince(unsigned long long since, size_t limit) {
     std::lock_guard<std::mutex> lock(g_mutex);
     json changes = json::array();
     for (const json& entry : g_entries) {
         if (entry.value("seq", 0ULL) <= since) continue;
+        changes.push_back(entry);
+        if (changes.size() >= limit) break;
+    }
+    return changes;
+}
+
+json MutationChangesSince(unsigned long long since, size_t limit) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    json changes = json::array();
+    for (const json& entry : g_entries) {
+        if (!entry.contains("mutationSeq")) continue;
+        if (entry.value("mutationSeq", 0ULL) <= since) continue;
         changes.push_back(entry);
         if (changes.size() >= limit) break;
     }

@@ -91,6 +91,8 @@ set(SOURCES
     src/gdiplus_runtime.cpp
     src/scene_journal.cpp
     src/handlers/scene_handlers.cpp
+    src/handlers/scene_patch_handlers.cpp
+    src/handlers/scene_qa_handlers.cpp
     src/spatial_snapshot.cpp
     src/handlers/object_handlers.cpp
     src/handlers/orientation_handlers.cpp

@@ -32,7 +32,7 @@ MCP server for AI agents to control 3ds Max. This file is auto-generated from `s
 - `maxmcp/tools/` — MCP tool implementations (one file per category)
 - `maxscript/mcp_server.ms` — MAXScript listener (runs inside 3ds Max as a bundle post-start-up script)
 - `bundle/PackageContents.xml.in` — ApplicationPlugins manifest template (installed to `%ProgramData%\\Autodesk\\ApplicationPlugins\\3dsmax-mcp`)
-- `native/` — C++ GUP bridge plugin (named pipe, 53 native handlers)
+- `native/` — C++ GUP bridge plugin (named pipe, direct SDK handlers)
 
 ## Skills & Build
 - `skills/3dsmax-mcp-dev/SKILL.md` — agent-facing 3ds Max usage guide and reference router
@@ -42,10 +42,10 @@ MCP server for AI agents to control 3ds Max. This file is auto-generated from `s
 
 ## Key Patterns
 - Tools registered via `@mcp.tool()` in `maxmcp/tools/*.py`
-- External MCP defaults to `MCP_TOOL_PROFILE=full`, registering core and specialty modules (`data_channel`, `effects`, `floor_plan`, `mcg`, `railclone`, `render`, `scattering`, `state_sets`, `tyflow`, `wire_params`, `chat`); set `MCP_TOOL_PROFILE=core` to expose only common scene/object/material/inspection tools.
+- External MCP keeps `MCP_TOOL_PROFILE=full` as the eager compatibility default. Use `MCP_TOOL_PROFILE=progressive` for context-limited local or smaller models that benefit from the compact `list_toolsets` / `describe_toolset` / `call_tool` surface with lazy operational schemas; `core` remains the smaller eager profile.
 - Direct scene reads use `query_scene` and `get_session_context`; use repo/source inspection only for code, build, packaging, or debugging requests.
-- All tools send MAXScript strings to 3ds Max via `client.send_command()`
-- MAXScript results returned as JSON strings via manual concatenation
+- Tool wrappers send either native JSON commands or MAXScript fallback strings through `client.send_command()`
+- Prefer native C++ handlers for deterministic scene, identity, transaction, and animation operations
 - Prefer OpenPBR for neutral PBR material creation/conversion; use PhysicalMaterial only as fallback or when explicitly requested.
 - Viewport capture: `gw.getViewportDib()` → save to temp → `Read` tool to view
 - Do not RENDER unless user explicitly asks — but `capture_multi_view` (quad view) is encouraged after scene changes

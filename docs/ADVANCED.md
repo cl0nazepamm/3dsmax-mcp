@@ -33,11 +33,18 @@ Skip skill deployment:
 uv run python install.py --skip-skill
 ```
 
+The installer prompts for the external MCP tool profile and defaults to `full` for maximum
+client compatibility. Context-limited local or smaller models can use the progressive surface:
+
+```powershell
+uv run python install.py --tool-profile progressive
+```
+
 After install, restart 3ds Max. The installer:
 
 1. Removes any **legacy** files copied into the Max install directory (`plugins\mcp_bridge.gup`, `scripts\mcp\`, `scripts\startup\mcp_autostart.ms`) from older installs.
 2. Deploys an **ApplicationPlugins bundle** to `%ProgramData%\Autodesk\ApplicationPlugins\3dsmax-mcp\` (native GUPs in `Contents\bin\`, MAXScript in `Contents\scripts\`).
-3. Writes user config under `%LOCALAPPDATA%\3dsmax-mcp\`, builds the agent skill, and registers MCP entries where it can (Claude Desktop, Cursor, Gemini, CLI agents).
+3. Writes user config under `%LOCALAPPDATA%\3dsmax-mcp\`, including the selected `[mcp] tool_profile`, builds the agent skill, and registers MCP entries where it can (Claude Desktop, Cursor, Gemini, CLI agents).
 
 ### Application package layout
 
@@ -98,19 +105,48 @@ Config file locations:
 
 ## Tool profiles
 
-The external MCP server defaults to the **full** profile (151 tools). Set **core** for a smaller everyday surface (87 tools) without specialty plugin modules.
+The installer defaults to **full**, which advertises every operational tool directly for maximum MCP client compatibility. For context-limited local or smaller models, **progressive** advertises only `list_toolsets`, `describe_toolset`, and `call_tool`, then lazy-loads exact operational schemas on demand. **Core** remains the smaller eager profile. A server launched without an installed setting or environment override also falls back to **full**.
+
+```powershell
+$env:MCP_TOOL_PROFILE = "progressive"
+uv run 3dsmax-mcp
+```
+
+The installer persists the choice as `[mcp] tool_profile` in
+`%LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini`. `MCP_TOOL_PROFILE` (or
+`THREEDSMAX_MCP_TOOL_PROFILE`) overrides that setting for a specific launch. This is separate
+from `[llm] tool_profile`, which controls only the experimental standalone in-Max chat.
+
+| Profile | Advertised surface |
+|---------|--------------------|
+| **progressive** (context-efficient) | Three discovery/dispatch meta-tools; operational modules and schemas load only when described or called; useful for local or smaller models |
+| **core** | Eager scene, object, material, modifier, controller, viewport, file, plugin, organization, and learning tools |
+| **full** (installer default) | Eager core plus tyFlow, MCG, Forest Pack, RailClone, Data Channel, effects, floor plan, state sets, wire params, render, render automations, and in-Max chat drivers (WIP) |
+
+Progressive workflow:
+
+1. Call `list_toolsets` to choose a capability group.
+2. Call `describe_toolset` for that group’s exact tool names and input schemas.
+3. Call `call_tool` with the selected name and argument object.
+
+Operational tools stay in a private registry, so `tools/list` remains at three entries after discovery. `call_tool` accepts only tools declared by the core/full module allowlist, rejects meta-tool and recursive dispatch, validates arguments with the original FastMCP schema, and returns the same `ToolEnvelope` as eager profiles. It does not make mutating tools safer: bridge `safe_mode`, tool-specific dry-run controls, and normal mutation precautions still apply.
+
+To use the smaller eager surface instead:
 
 ```powershell
 $env:MCP_TOOL_PROFILE = "core"
 uv run 3dsmax-mcp
 ```
 
-| Profile | Modules |
-|---------|---------|
-| **core** | Scene, objects, materials, modifiers, controllers, viewport, file access, plugins, organization, learning |
-| **full** | Core plus tyFlow, MCG, Forest Pack, RailClone, Data Channel, effects, floor plan, state sets, wire params, render, render automations, in-Max chat drivers (WIP) |
-
 Specialty modules in full profile: `chat`, `data_channel`, `effects`, `floor_plan`, `mcg`, `railclone`, `render`, `render_automations`, `scattering`, `state_sets`, `tyflow`, `tyflow_graph`, `tyflow_patch`, `tyflow_manifest`, `tyflow_census`, `wire_params`.
+
+## Native identity, transactions, and scene QA
+
+`resolve_node_refs` converts a name, native handle, or absolute JSON-Pointer hierarchy path such as `/Rig/Camera` into a canonical `{handle, name, path, class, layer}` identity plus `sceneSeq`, the current persistent-mutation revision. It also reports `activitySeq` for interaction diagnostics. Selection and sub-object selection advance only `activitySeq`, so normal viewport clicking does not stale a guarded write. Supplying more than one selector cross-checks identity instead of silently retargeting a stale handle. Handles are scene/session-local; refresh after loading or resetting a scene.
+
+`scene_patch` accepts up to 256 `rename`, relative `transform`, `set_flags`, and `set_parent` operations. It resolves and validates the entire plan first, optionally rejects a stale mutation-only `expected_scene_seq`, supports `dry_run`, and applies the plan inside exactly one native undo hold. Selection-only interaction remains observable but never blocks the patch. A failed apply cancels the whole hold. Mutating native calls must still be issued sequentially.
+
+`scene_qa` is intentionally non-mesh. It checks naming collisions, invalid or degenerate transforms, hierarchy cycles, group metadata, and timeline sanity; optional checks cover transform risks and distance from origin. It never inspects topology, UVs, normals, skinning, weight painting, or visual quality. Automatic repair is restricted to explicit deterministic name-collision and empty-name fixes, with dry-run and stale-sequence guards.
 
 ## Config file
 

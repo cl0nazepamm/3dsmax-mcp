@@ -2,10 +2,10 @@
 
 通过 [Model Context Protocol](https://modelcontextprotocol.io) 把 AI 智能体接入 **Autodesk 3ds Max**。
 
-用中文描述你要做的事，智能体调用 **151 个专用 MCP 工具**（核心配置 87 个）直接操作场景——创建物体、
-构建材质、驱动修改器与控制器、截取视口、检查插件。不是让 AI 盲写 MAXScript 再反复试错。
+用中文描述你要做的事，智能体通过专用 MCP 工具直接操作场景——创建物体、构建材质、驱动修改器与控制器、
+截取视口、检查插件。progressive 配置只公开三个发现/调用工具，再按需加载完整工具定义，避免一次性占用大量上下文。
 
-**当前版本：1.5.1** — 见 [CHANGELOG.md](docs/CHANGELOG.md)。
+**当前版本：1.5.5** — 见 [CHANGELOG.md](docs/CHANGELOG.md)。
 
 > English: [README.md](README.md)
 
@@ -42,7 +42,7 @@ python -m pip install 3dsmax-mcp -i https://pypi.tuna.tsinghua.edu.cn/simple
 python -m maxmcp.installer
 ```
 
-安装程序会部署原生桥接插件、写入配置、构建技能包，并尽可能自动注册到已安装的 AI 客户端。
+安装程序会让你选择 MCP 工具配置，默认使用兼容性最好的 `full`。`progressive` 只公开三个发现/调用工具，可明显减少本地或较小模型的上下文占用。无人值守安装可使用 `3dsmax-mcp-install --tool-profile progressive`。
 **必须重启 3ds Max** 插件才会加载。
 
 > 其他可用镜像：阿里云 `https://mirrors.aliyun.com/pypi/simple/`、腾讯云 `https://mirrors.cloud.tencent.com/pypi/simple/`。
@@ -250,20 +250,21 @@ Base URL、API Key 和模型名：
 
 ## 工具配置（Tool Profile）
 
-服务器默认加载 **full** 配置（全部工具）。若客户端上下文吃紧、或模型能力较弱导致工具选择混乱，
-可切换到 **core** 精简配置：
+安装程序默认选择 **full**，让现有 MCP 客户端直接看到全部工具。对于上下文有限的本地或较小模型，
+可选择 **progressive**：只公开 `list_toolsets`、`describe_toolset`、`call_tool` 三个元工具，再按需加载精确工具参数。
 
 ```powershell
-$env:MCP_TOOL_PROFILE = "core"
+$env:MCP_TOOL_PROFILE = "progressive"
 ```
 
 | 配置 | 包含范围 |
 |------|----------|
+| **progressive（节省上下文）** | 三个发现/调用元工具；按需加载完整操作工具与参数，适合本地或较小模型 |
 | **core** | 场景、物体、材质、修改器、控制器、视口、文件、插件、组织管理、学习 |
-| **full** | core 全部，外加 tyFlow、MCG、Forest Pack、RailClone、Data Channel、特效、状态集、参数关联、**渲染**、户型平面、Max 内置聊天 |
+| **full（安装默认）** | core 全部，外加 tyFlow、MCG、Forest Pack、RailClone、Data Channel、特效、状态集、参数关联、**渲染**、户型平面、Max 内置聊天 |
 
-> **注意**：`render_scene` 属于 **full** 专属模块，切到 core 之后无法直接出图。
-> 需要渲染、或要用 tyFlow / MCG / Data Channel 的话请保持 full 配置。
+progressive 模式下先列出并描述对应工具组，再通过 `call_tool` 调用所需工具。`tools/list` 始终保持三个条目；
+core/full 仍可用于需要一次性公开全部参数的旧客户端。
 
 ---
 

@@ -199,6 +199,29 @@ STANDALONE_TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
             "required": ["shell_name", "render_material"],
         },
     },
+    # The external wrapper selects scan/fix routes dynamically. Standalone
+    # chat gets the read-only scan contract only; exposing a fixed mutation
+    # route under the same mixed-action schema would bypass that safety split.
+    "scene_qa": {
+        "cmdType": "native:scene_qa_scan",
+        "description": (
+            "Scan deterministic non-mesh scene hygiene: names, transforms, "
+            "hierarchy/groups, and timeline state."
+        ),
+        "schema": {
+            "type": "object",
+            "properties": {
+                "checks": {"type": "array", "items": {"type": "string"}},
+                "scope": {"type": "string"},
+                "names": {"type": "array", "items": {"type": "string"}},
+                "handles": {"type": "array", "items": {"type": "integer"}},
+                "refs": {"type": "array", "items": {"type": "object"}},
+                "max_issues": {"type": "integer"},
+                "transform_epsilon": {"type": "number"},
+                "far_origin_threshold": {"type": "number"},
+            },
+        },
+    },
 }
 
 
@@ -217,7 +240,8 @@ def extract_tools(path: Path) -> list[dict]:
             continue
         if not any(is_mcp_tool_decorator(d) for d in node.decorator_list):
             continue
-        cmd_type = find_cmd_type(node, source)
+        override = STANDALONE_TOOL_OVERRIDES.get(node.name, {})
+        cmd_type = override.get("cmdType") or find_cmd_type(node, source)
         if not cmd_type:
             # Python-only tool (manifest, identify, etc.) — skip
             continue
@@ -234,7 +258,7 @@ def extract_tools(path: Path) -> list[dict]:
             "description": first_doc_line(node) or node.name,
             "schema": build_schema(node),
         }
-        tool.update(STANDALONE_TOOL_OVERRIDES.get(node.name, {}))
+        tool.update(override)
         tools.append(tool)
     return tools
 

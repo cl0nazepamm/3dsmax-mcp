@@ -1,5 +1,6 @@
 import json
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from maxmcp.tools.material_replace import batch_replace_materials
@@ -19,6 +20,19 @@ class SharpMCPPayloadTests(unittest.TestCase):
         payload = json.loads(mock_client.send_command.call_args.args[0])
         self.assertEqual(payload, {"names": ["Box"], "handles": [123], "dry_run": True})
         self.assertEqual(mock_client.send_command.call_args.kwargs["cmd_type"], "native:delete_objects")
+
+    def test_native_delete_preflights_and_deduplicates_before_mutation(self) -> None:
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "native/src/handlers/object_handlers.cpp"
+        ).read_text(encoding="utf-8")
+        start = source.index("std::string NativeHandlers::DeleteObjects")
+        end = source.index("// ── native:transform_object", start)
+        handler = source[start:end]
+
+        self.assertIn("std::vector<INode*> targets", handler)
+        self.assertIn("seen.insert(node).second", handler)
+        self.assertLess(handler.index("CollectNodesByExactName"), handler.index("ip->DeleteNode(node)"))
 
     def test_collapse_modifier_stack_forwards_handle_and_dry_run(self) -> None:
         mock_client = MagicMock()

@@ -549,12 +549,12 @@ std::string NativeHandlers::DeleteObjects(const std::string& params, MCPBridgeGU
         json deleted = json::array();
         json notFound = json::array();
         std::set<INode*> seen;
+        std::vector<INode*> targets;
 
         for (unsigned long long handle : handles) {
             INode* node = FindNodeByHandle(handle);
             if (node && seen.insert(node).second) {
-                deleted.push_back(NodeIdentityJson(node));
-                if (!dryRun) ip->DeleteNode(node);
+                targets.push_back(node);
             } else if (!node) {
                 notFound.push_back({{"handle", handle}});
             }
@@ -581,9 +581,16 @@ std::string NativeHandlers::DeleteObjects(const std::string& params, MCPBridgeGU
             }
             INode* node = matches[0];
             if (node && seen.insert(node).second) {
-                deleted.push_back(NodeIdentityJson(node));
-                if (!dryRun) ip->DeleteNode(node);
+                targets.push_back(node);
             }
+        }
+
+        // Resolve and validate every selector before the first mutation. This
+        // both deduplicates matching handle/name selectors and prevents an
+        // ambiguous later name from leaving a partially deleted scene.
+        for (INode* node : targets) {
+            deleted.push_back(NodeIdentityJson(node));
+            if (!dryRun) ip->DeleteNode(node);
         }
 
         json result;
