@@ -103,7 +103,7 @@ def choose_tool_profile(requested: str | None = None) -> str:
 
     print("\nMCP tool profile:")
     print("  1) Full (default) - advertise every tool for maximum client compatibility")
-    print("  2) Progressive - 3 discovery tools; saves context for local/smaller models")
+    print("  2) Progressive (New!) - 3 discovery tools; potentially saves context for local/smaller models")
     print("  3) Core - advertise the smaller everyday tool subset")
     try:
         choice = input("  Choice [1]: ").strip()
@@ -610,8 +610,8 @@ def main() -> int:
     print("  the MCP server starts automatically when your agent connects.")
     print(f"  MCP tool profile: {tool_profile}")
     print("\n ")
-    print("\n  and thank you for installing 3dsmax-mcp! I hope you enjoy it! 3dsmax forever!!")
-    print("\n  clone // Metaverse Makers. 2026")
+    print("\n  and thank you for installing 3dsmax-mcp!")
+    print("\n  clone.llc // Metaverse Makers. 2026")
     print()
     return 0 if package_ok else 1
 
