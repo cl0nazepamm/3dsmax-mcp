@@ -28,8 +28,6 @@ BATTLEMENT_SPACING = 20.0
 TOWER_RADIUS = 30.0
 MOAT_WIDTH = 60.0
 HEDGE_RADIUS_RATIO = 0.8  # garden hedge circle as ratio of garden_size
-DOOR_OPENING_WIDTH = 90.0  # default door gap width for floor plans
-LABEL_SIZE = 20.0           # default text label size for floor plan rooms
 
 # ---------------------------------------------------------------------------
 # Math helpers

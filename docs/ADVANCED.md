@@ -120,7 +120,7 @@ The installer persists the choice as `[mcp] tool_profile` in
 |---------|--------------------|
 | **progressive** (context-efficient) | Three discovery/dispatch meta-tools; operational modules and schemas load only when described or called; useful for local or smaller models |
 | **core** | Eager scene, object, material, modifier, controller, viewport, file, plugin, organization, and learning tools |
-| **full** (installer default) | Eager core plus tyFlow, MCG, Forest Pack, RailClone, Data Channel, effects, floor plan, state sets, wire params, render, render automations |
+| **full** (installer default) | Eager core plus tyFlow, MCG, Forest Pack, RailClone, Data Channel, effects, state sets, wire params, render, render automations |
 
 Progressive workflow:
 
@@ -137,7 +137,7 @@ $env:MCP_TOOL_PROFILE = "core"
 uv run 3dsmax-mcp
 ```
 
-Specialty modules in full profile: `data_channel`, `effects`, `floor_plan`, `mcg`, `railclone`, `render`, `render_automations`, `scattering`, `state_sets`, `tyflow`, `tyflow_graph`, `tyflow_patch`, `tyflow_manifest`, `tyflow_census`, `wire_params`.
+Specialty modules in full profile: `data_channel`, `effects`, `mcg`, `railclone`, `render`, `render_automations`, `scattering`, `state_sets`, `tyflow`, `tyflow_graph`, `tyflow_patch`, `tyflow_manifest`, `tyflow_census`, `wire_params`.
 
 ## Native identity, transactions, and scene QA
 

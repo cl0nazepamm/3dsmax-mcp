@@ -246,7 +246,6 @@ CORE_TOOL_MODULES = (
 SPECIALTY_TOOL_MODULES = (
     "data_channel",
     "effects",
-    "floor_plan",
     "mcg",
     "railclone",
     "render",

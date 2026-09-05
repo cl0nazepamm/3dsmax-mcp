@@ -40,7 +40,6 @@ SKIP_DEFAULT = {
     "create_material_from_textures",
     "replicate_material",
     "palette_laydown",
-    "build_floor_plan",
     "scatter_forest_pack",
     "toggle_effect",
     "delete_effect",

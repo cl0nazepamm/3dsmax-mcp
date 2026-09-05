@@ -11,13 +11,11 @@ Connect AI agents to Autodesk 3ds Max through the [Model Context Protocol](https
 
 Automate everything!
 
-**Current release: 1.6.6 — Astra Edition** — see [CHANGELOG.md](docs/CHANGELOG.md).
-
-> 中文文档：[README.zh-CN.md](README.zh-CN.md)
+**Current release: 1.6.6 — Astra Special Release** — see [CHANGELOG.md](docs/CHANGELOG.md).
 
 ## Features
 
-- **161 MCP tools** — (101 in core profile) for scene reads, modeling, materials, modifiers, controllers, viewport capture, procedural graphs, and plugin workflows.
+- **160 MCP tools** — For scene reads, modeling, materials, modifiers, controllers, viewport capture, procedural graphs, and plugin workflows.
 - **Native Bridge** — only 2023-2027 versions.
 - **Introspection** — discover arbitrary Max classes for all kinds of automation and scripting purposes. 
 - **Bundled agent skill** — There is a bundled maxscript documentation if you want to create your own tools.
@@ -37,7 +35,7 @@ uv sync
 uv run python install.py
 ```
 
-Choose the MCP tool profile when prompted. **Full** is the default for maximum client compatibility. **Progressive** exposes three discovery tools and loads exact operational schemas only when needed, which can substantially reduce context use for local or smaller models.
+Choose the MCP tool profile when prompted. **Full** is the default for maximum client compatibility and performance. **Progressive** exposes three discovery tools and loads exact operational schemas only when needed, which can substantially reduce context use for local or smaller models.
 
 Restart 3ds Max, then connect your MCP client. The installer registers the server where it can; see [Advanced configuration](docs/ADVANCED.md) for manual client setup.
 
@@ -50,6 +48,9 @@ uv run python install.py
 ```
 
 ## Tools
+
+<details>
+<summary>Browse the full tool catalog</summary>
 
 ### Bridge & session
 
@@ -291,7 +292,7 @@ MCP resources: `resource://3dsmax-mcp/plugins/{name}/manifest|guide|recipes|gotc
 | `get_tyflow_particles` | Particle data rows |
 | `reset_tyflow_simulation` | Reset one or all tyFlow sims |
 
-> **Work in progress** — the plugin and layout integrations below (tyFlow, Forest Pack, RailClone, Floor plan) are early-stage and may be incomplete or change between releases. Everything listed above is stable.
+> **Work in progress** — the Forest Pack and RailClone integrations below are early-stage and may be incomplete or change between releases. Everything listed above is stable.
 
 ### Forest Pack (WIP)
 
@@ -305,19 +306,14 @@ MCP resources: `resource://3dsmax-mcp/plugins/{name}/manifest|guide|recipes|gotc
 |------|-------------|
 | `get_railclone_style_graph` | Read style-editor bases, segments, and parameters |
 
-### Floor plan (WIP)
-
-| Tool | Description |
-|------|-------------|
-| `build_floor_plan` | Generate a 2D floor plan from grid-based room definitions |
-
-
 ### Scripting & diagnostics
 
 | Tool | Description |
 |------|-------------|
 | `execute_maxscript` | Run MAXScript when no dedicated tool exists (respects safe mode) |
 | `invoke_tool` | Call any registered tool from inside Max (testing) |
+
+</details>
 
 ---
 

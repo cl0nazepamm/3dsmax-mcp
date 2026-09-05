@@ -4,7 +4,7 @@ All notable changes to this project are documented here.
 
 ## [1.6.6] — 2026-09-05
 
-**Astra Edition** — an agent modeling workspace with independent vision,
+**Astra Special Release** — an agent modeling workspace with independent vision,
 precise component editing and persistent curve construction.
 
 ### Added
@@ -22,37 +22,30 @@ precise component editing and persistent curve construction.
   labeled captures, visual picking and atomic topology edits with stale-token checks.
 - `loft_mesh` for parameterized matched-section quad lofts, plus `geometry_qa` for
   evaluated mesh boundaries, winding conflicts, degeneracy and connected components.
-- V-Ray preview controls through the agent viewport, with viewport/VFB capture,
-  cropped screen capture and a separate render-cancellation channel.
+- Basic V-Ray preview controls through the agent viewport, with viewport/VFB capture,
+  cropped screen capture and a separate render-cancellation channel. (This might change)
 
 ### Fixed
 
 - Spline construction and edits dispatch on the scene node in local coordinates
   and refresh through `updateShape`, preserving modifiers and correct world-space
   targeting under rotation, nonuniform scale and object offsets.
-- Base-cage edits preserve subdivision stacks; transformed geometry QA avoids
-  applying object transforms twice. Material sharing uses existing material identity.
-- Agent captures reject unavailable or stale views, and guarded edits respect
-  active user undo operations instead of joining or cancelling them.
 
 ### Changed
 
 - Full remains the default MCP profile. Full, core and progressive discovery expose
   the new modeling tools; native diagnostic schemas exclude Python-only orchestration.
 - The portable usage skill includes curve recipes and inspect/edit/verify workflows.
-  Development guides remain separate from the distributed skill.
-- Removed standalone chat and the parked builder. Installer migration preserves
-  credentials and user replacements while removing verified bridge-owned chat macros.
 
-### Upgrade notes
+### Removed
 
-- Re-run the installer and restart Max to load the new native bridge. Reload the
-  external MCP connection for the updated Python tools and schemas.
-- Keep the agent viewport visible for Nitrous captures. Private object isolation,
-  exact surface-intersection/thickness checks and an assembly-wide parameter graph
-  are not included. Curve QA uses sampled geometry. ActiveShade is experimental
-  and outside release acceptance; V-Ray preview availability depends on the
-  installed V-Ray version.
+- `build_floor_plan` tool and its progressive discovery toolset.
+- Standalone chat
+
+### Additional Notes
+
+- Keep the agent viewport visible for Nitrous captures as it cannot update when it's minimized. Exact surface-intersection/thickness checks and an assembly-wide parameter graph
+  are not yet added. Curve QA uses sampled geometry. ActiveShade/V-Ray IPR is experimental.
 
 ## [1.5.5] — 2026-08-31
 

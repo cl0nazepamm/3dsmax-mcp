@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 160,
+  "tool_count": 159,
   "starter_tools": [
     "query_scene",
     "get_session_context",
@@ -243,7 +243,7 @@
     {
       "name": "Specialty",
       "hint": "MCG, Data Channel, tyFlow, RailClone, etc.",
-      "tool_count": 45,
+      "tool_count": 44,
       "categories": [
         {
           "name": "Data Channel",
@@ -264,12 +264,6 @@
             "delete_effect",
             "get_effects",
             "toggle_effect"
-          ]
-        },
-        {
-          "name": "Floor Plan",
-          "tools": [
-            "build_floor_plan"
           ]
         },
         {
@@ -4927,44 +4921,6 @@
       },
       "risk": "advanced",
       "routing": "native:toggle_effect",
-      "starter": false
-    },
-    {
-      "name": "build_floor_plan",
-      "description": "Build a 2D floor plan from grid-based room definitions.",
-      "category": "Floor Plan",
-      "group": "Specialty",
-      "module": "floor_plan",
-      "schema": {
-        "type": "object",
-        "properties": {
-          "location": {
-            "type": "array",
-            "items": {
-              "type": "number"
-            }
-          },
-          "cell_size": {
-            "type": "number"
-          },
-          "rooms": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "doors": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "options": {}
-        }
-      },
-      "example": {},
-      "risk": "advanced",
-      "routing": "maxscript",
       "starter": false
     },
     {

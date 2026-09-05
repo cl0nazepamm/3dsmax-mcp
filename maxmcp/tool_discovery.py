@@ -127,11 +127,6 @@ TOOLSET_SPECS = (
         ("scattering",),
     ),
     ToolsetSpec(
-        "floor_plan",
-        "Grid-defined floor-plan generation.",
-        ("floor_plan",),
-    ),
-    ToolsetSpec(
         "scene_effects",
         "Scene effects, state sets, and camera sequence reads.",
         ("effects", "state_sets"),
