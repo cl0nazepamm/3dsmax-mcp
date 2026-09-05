@@ -23,7 +23,13 @@ local/
 smoke_out.json
 smoke_err.txt
 
-# One-off local diagnostics; keep the reusable live tool runner and unit tests.
+# Local test suites and diagnostics.
+/tests/
+/native/tests/
+/docs/AGENT-VIEWPORT.md
+/docs/MODELING-DEVELOPMENT.md
+
+# One-off smoke scripts.
 scripts/run_live_smoke.py
 scripts/live_native_port_parity.py
 scripts/run_agent_viewport_smoke.py
