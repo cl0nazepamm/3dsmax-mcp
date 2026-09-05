@@ -318,6 +318,6 @@ The installer builds an agent skill from `skills/3dsmax-mcp-dev/SKILL.md` with t
 
 ## Further reading
 
-- **[Advanced configuration](docs/ADVANCED.md)** — architecture, safe mode, tool profiles, native builds, standalone chat (WIP)
+- **[Advanced configuration](docs/ADVANCED.md)** — architecture, safe mode, tool profiles, native builds
 - **[CHANGELOG.md](docs/CHANGELOG.md)** — release history
 - **[LICENSE](LICENSE)**

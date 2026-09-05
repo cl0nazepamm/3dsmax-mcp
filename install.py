@@ -52,13 +52,6 @@ def pkg_version() -> str:
     match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
     return match.group(1) if match else "0.0.0"
 
-# v0.7.0 standalone chat — .env for the API key, SKILL.md for the system prompt.
-ENV_SRC = ROOT / ".env.example"
-ENV_DST = CONFIG_DIR / ".env"
-SKILL_SRC = ROOT / "skills" / "3dsmax-mcp-dev" / "SKILL.md"
-SKILL_DIR = CONFIG_DIR / "skill"
-SKILL_DST = SKILL_DIR / "SKILL.md"
-
 INSTALLER_ANSI_BANNER = base64.b64decode(
     "G1swOzMwbSAgIBtbMTszN23c3Nzc3BtbMDszMG0gG1sxOzM3bdzc3Nzc3BtbMDszMG0gICAbWzE7Mzdt3Nzc3NwbWzA7MzBtIBtb"
     "MTszN23c3NwbWzA7MzBtICAgIBtbMTszN23c3NwbWzA7MzBtICAgG1sxOzM3bdzcG1swOzMwbSAgIBtbMTszN23c3BtbMDszMG0g"
@@ -271,6 +264,31 @@ def remove_legacy_installations(extra_dirs: list[Path] | None = None) -> bool:
     return True
 
 
+def remove_retired_chat_macros() -> None:
+    """Remove only the old bridge-owned chat action from local Max profiles."""
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if not local_app_data:
+        return
+    profiles = (Path(local_app_data) / "Autodesk" / "3dsMax").resolve()
+    for path in profiles.glob("*/*/usermacros/MCP-MCP_Chat.mcr"):
+        # A custom profile can contain junctions. Do not follow one outside
+        # the Max profile directory or remove a user replacement of this macro.
+        if not path.resolve().is_relative_to(profiles):
+            continue
+        try:
+            source = path.read_text(encoding="utf-8-sig")
+            if not (
+                re.match(r'\s*macroScript\s+MCP_Chat\s+category:\s*"MCP"', source)
+                and "MCPBridgeExecutor-" in source
+                and "0x5144 1 0" in source
+            ):
+                continue
+            path.unlink()
+            print(f"  Removed retired MCP Chat macro: {path}")
+        except (OSError, UnicodeError) as error:
+            print(f"  Could not remove retired MCP Chat macro {path}: {error}")
+
+
 def package_contents_xml(app_version: str) -> str:
     if PACKAGE_CONTENTS_TEMPLATE.exists():
         text = PACKAGE_CONTENTS_TEMPLATE.read_text(encoding="utf-8")
@@ -339,10 +357,11 @@ def deploy_application_package() -> bool:
         print(f"  SKIP: Contents/bin/mcp_bridge_{year}.gup (not built)")
     print("  OK: Contents/scripts/mcp_server.ms")
     print(f"  OK: {APPLICATION_PACKAGE_DST}")
+    remove_retired_chat_macros()
     return True
 
 
-def deploy_config(skip_skill: bool = False, tool_profile: str = "full") -> bool:
+def deploy_config(tool_profile: str = "full") -> bool:
     print(f"\n[1/4] User config -> {CONFIG_DIR}")
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -357,23 +376,6 @@ def deploy_config(skip_skill: bool = False, tool_profile: str = "full") -> bool:
 
     set_ini_value(CONFIG_DST, "mcp", "tool_profile", tool_profile)
     print(f"  MCP tools:       {tool_profile}")
-
-    if ENV_DST.exists():
-        print("  .env:           preserved (already exists)")
-    elif ENV_SRC.exists():
-        shutil.copy2(ENV_SRC, ENV_DST)
-        print("  .env:           installed template (edit to add OPENROUTER_API_KEY)")
-    else:
-        print("  .env:           SKIP (no .env.example in repo)")
-
-    if skip_skill:
-        print("  skill/SKILL.md: SKIP (--skip-skill)")
-    elif SKILL_SRC.exists():
-        SKILL_DIR.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(SKILL_SRC, SKILL_DST)
-        print("  skill/SKILL.md: refreshed")
-    else:
-        print(f"  skill/SKILL.md: SKIP (source not found at {SKILL_SRC})")
 
     return True
 
@@ -562,7 +564,7 @@ def parse_args() -> argparse.Namespace:
         "--skip-skill",
         "--skip-skills",
         action="store_true",
-        help="Skip copying SKILL.md to the chat config and skip build_skill.py.",
+        help="Skip building and installing agent skills.",
     )
     parser.add_argument(
         "--tool-profile",
@@ -593,7 +595,7 @@ def main() -> int:
     if not remove_legacy_installations():
         return 1
 
-    deploy_config(skip_skill=args.skip_skill, tool_profile=tool_profile)
+    deploy_config(tool_profile=tool_profile)
     package_ok = deploy_application_package()
     build_skills(skip_skill=args.skip_skill)
     register_agents()

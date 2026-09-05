@@ -72,13 +72,20 @@ Debugging:
 `add_modifier` `remove_modifier` `set_modifier_state` `set_modifier_property` `collapse_modifier_stack` `make_modifier_unique`
 
 ### Modeling
+- `create_mesh` — explicit world-space vertices and 1-based polygon faces, preserving quads/n-gons. Compute curved panels, lofted sections, and furniture geometry in Python, then send the arrays to Max.
+- `loft_mesh` — matched cross sections become a quad cage with optional caps or closed path. Coordinates can use arithmetic expressions of named parameters, such as `width` or `backrest_curvature`. The definition persists on the mesh in the `.max` file. `read` returns compact controls (`include_definition=true` for sections); `update` changes parameters while preserving placement, subdivision, and cage IDs. Manual cage edits or instanced bases block parameter updates. Keep profile ordering consistent; no automatic resampling.
+- `inspect_mesh` — base-cage vertex/edge/face IDs, centers, normals, mesh token, and optional labeled viewport capture. Omit the target for the one selected mesh. Filter by IDs, current selection, world bounds/proximity, face normal, open borders, or sharp edges.
+- `pick_component` — normalized image x/y plus the capture's `expected_view` finds editable vertex/edge/face candidates. Defaults to the hit node; pass name/handle for silhouettes. It favors correspondence to the visible surface within screen tolerance. Inspect ambiguity and surface evidence, then pass the returned `mesh_token` to `mesh_edit(expected_mesh=...)`. Subdivision can separate the visible surface from its cage; proximity does not prove visibility.
+- `mesh_edit` — batch select/move/scale/extrude/inset/bevel/chamfer/connect/bridge/delete/cap/relax in one undo step. Pass the inspected `expected_mesh` token when reusing IDs. Omitted component filters use the current sub-object selection; use `selection:{all:true}` explicitly for the whole mesh. World-space moves/scales preserve modifiers above an Editable Poly base; `convert=true` explicitly collapses a non-poly stack. Shared geometry changes in every instance.
+- `geometry_qa` — evaluated mesh boundaries, non-manifold edges, inconsistent winding, degenerate/duplicate triangles, components and isolated vertices. Samples use world coordinates and evaluated snapshot IDs; re-inspect the base cage near a sample before editing. No intersection, thickness or outward-normal certification. Open seams and separate components may be intentional.
 - `boolean_operation` — Boolean modifier (BooleanMod): apply union/subtract/intersect/merge/attach operands, list/retune/rename/extract them. Inline `cutters` build scratch primitives in the same call ({name, shape: box|cylinder|sphere, size, pos (bbox center), rot, operation?}) — consumed on apply, zero scene litter; `repeat` {count, axis, spacing} arrays every cutter (`vent_1..N`) for vents/ribs/window grids. Recipes: hole = Z-axis cylinder cutter overshooting both faces (rot to orient); slot = box cutter; panel line = cutter + `operation_option="imprint"`.
-- `draw_spline` — spline shapes from world-space point lists; knot readback and editing, holes via add_spline, renderable thickness
+- `draw_spline` — spline shapes from world-space point lists; base-knot editing preserves modifiers above the spline (including CrossSection, Surface, and Sweep), holes via add_spline, renderable thickness
 - `edit_vertices` — Editable_Poly verts in world space: get (filtered), move (soft falloff), set, conform to a spline or ray-projected onto geometry
 - Curved-form recipe: `draw_spline` the reference profile → Lathe/Extrude/Bevel_Profile/Sweep via `add_modifier` → refine with `set_knots` or `edit_vertices conform`
 
 ### Materials
 - Create + assign: `assign_material`, `create_material_from_textures`, `smart_import`, `palette_laydown`
+- Share an existing material: `assign_material(names=[...], source_name="ExistingObject")` (or `source_handle`). Shares the full material/maps in one undo step; omit creation arguments.
 - Edit: `set_material_property`, `set_material_properties`
 - Inspect: `get_material_slots`, `get_materials`, `get_material_library`
 - Scratch libraries: `backup_material_library` saves `currentMaterialLibrary` / `meditMaterials` to `.mat`
@@ -92,9 +99,18 @@ Debugging:
 - `create_shell_material` wraps two scene materials in `Shell_Material` (render slot 0, export/viewport slot 1), or builds from `texture_folder` with `render_material_class` / `export_material_class`. Shell is a container, not a renderer.
 
 ### Viewport
+- `agent_viewport(action="open")` reserves a shaded floating **AGENT VIEWPORT**. After opening, navigation and capture default to it. `start_minimized=true` parks it initially; `minimize`/`restore` park it between inspections. Captures require a visible on-screen panel and explicitly refuse while minimized. `status` reports `capture_ready`; `release` closes only the owned panel. Initial opening may briefly activate the panel before restoring user focus.
+- `agent_viewport` also frames hierarchies, orbits (yaw/pitch degrees), pans (view-plane scene units), zooms (factor<1 closer), and picks surfaces (normalized image x/y, top-left origin). Pass the single capture's `view_token` as `expected_view` for picking; then inspect the hit node near its world point before editing base-cage components. View/scene changes invalidate the token; mesh IDs still require `expected_mesh`.
+- Interactive preview: `agent_viewport(action="render", mode="activeshade"|"vray_ipr"|"vray_vfb"|"shaded")`. ActiveShade uses the assigned ActiveShade renderer (`renderer_source="production"` uses production if compatible). V-Ray previews enable progressive IPR and denoising; `vray_vfb` locks the VFB to the agent view. Start only when rendering is requested. Existing renders elsewhere are refused. Wait for `session_state="running"`, then use `action="capture"` or `"stop_capture"` (save image, then stop). Optional `crop=[x,y,width,height]` trims VFB pixels. Return to shaded before component targeting or minimizing. Captures do not certify convergence or completed denoising.
+- Picking supports visible thick splines as well as geometry and returns a world surface normal. Use `draw_spline(action="get")` for spline knots. On thin panels, narrow face inspection by proximity and normal to separate the front from the back; frame the part before capturing labels.
+- Aim/frame: `set_viewport` — world-space `eye` + `target`, named elevations, or `frame_names`; no camera node is created
 - Fast: `capture_viewport`
-- Multi-angle grid: `capture_multi_view`
+- Multi-angle grid: `capture_multi_view` (`frame_root` frames a hierarchy). In the agent panel it does not hide other scene nodes; arbitrary-object isolation is not yet supported there. The legacy active-view route also temporarily isolates the hierarchy.
+- `source="agent"` requires the agent panel; `source="active"` explicitly targets the user's active view. The default `auto` uses the agent panel once opened, and fails if that owned panel becomes unavailable instead of redirecting into the user's viewport. Release and reopen after a scene load or layout replacement.
+- `inspect_mesh(capture=true)` uses the agent panel when open, drawing component labels into the saved image without adding overlays to the user's viewport.
 - Fullscreen: `capture_screen` (requires `enabled=True`)
+- V-Ray frame-buffer screen crop: `capture_screen(enabled=True, target="vray_vfb")`; optional `crop=[x,y,width,height]` trims inside its client area in physical pixels before resizing. The VFB must be visible and on screen; overlapping windows appear in the capture. No render is started by capture.
+- Blocked production render recovery: `render_automations(action="cancel_capture", job_id=...)` saves visible VFB pixels and requests cancellation for the production job you armed and started. `capture_target="screen"` supports an explicit desktop crop for another renderer. Configure progressive sampling and its denoiser before starting; recovery cannot change blocked render settings. Cancellation is cooperative; check the done-signal separately and treat the image as partial.
 
 ### External .max files (no scene load)
 - `inspect_max_file`, `search_max_files`, `merge_from_file`, `batch_file_info`
@@ -157,9 +173,9 @@ The `code` string is delivered as a JSON value, so it is **un-escaped once befor
 - `create_object`: default `pos_mode="ground"` — `pos` is bottom-center contact, not bbox center. Tripback includes `bbox`, `placement`, `groundContact`.
 - Box: `width=X`, `length=Y`, `height=Z`.
 - `boolean_operation`: non-live operands are **consumed** — scene node deleted, geometry captured; the operand keeps its node name inside the modifier (rename cutters *before* applying). `live=true` keeps the node (hidden) for later transform tweaks at extra eval cost. Never consume a node other tools still reference by name. Prefer inline `cutters` over scene-node cutters for cuts — pre-named, atomic, no litter on failure.
-- `draw_spline`: all coordinates world-space; bezier `in_vec`/`out_vec` are absolute handle **positions**, not directions. Edit actions auto-convert parametric shapes to SplineShape (reported as `converted_to_splineshape`).
+- `draw_spline`: all coordinates world-space; bezier `in_vec`/`out_vec` are absolute handle **positions**, not directions. Edits preserve a SplineShape base beneath modifiers. Bare parametric shapes auto-convert; a parametric base with modifiers requires `convert=true` to explicitly collapse. Conversion is reported as `converted_to_splineshape`.
 - `edit_vertices`: edits the Editable_Poly **base** beneath the stack (cage editing — TurboSmooth above stays live); non-poly bases need `convert=true` (collapses) or `collapse_modifier_stack`. `conform` to geometry is ray-based — `skipped` verts had no hit along `axis`; unsigned tokens (`z`) cast both ways, signed (`-z`) one way.
-- `snapshotAsMesh` evaluates the stack but exposes local-space vertices; multiply vertices by `node.objectTransform` for world-space measurements and delete the temporary mesh afterward.
+- `snapshotAsMesh` evaluates the stack and returns a temporary world-space TriMesh. Read its vertices in `coordsys world` without applying `node.objectTransform` again; delete the temporary mesh afterward. Base-cage poly vertices still need the node's object transform.
 - `list_wireable_params` paths include `[#Parameters]` levels — pass through to `wire_params` as-is.
 - `create_shell_material`: `mcp_findMaterialByName` uses `sceneMaterials` — `getClassInstances Material` is invalid (Material is not a MAXClass).
 - `material_class` must be the **material's** own class name, never a shortened token: `PhysicalMaterial`, not `Physical` — `Physical` is the Physical *Camera*. A non-material class name now returns `BAD_PARAM` with `hint.didYouMean`.
@@ -167,6 +183,7 @@ The `code` string is delivered as a JSON value, so it is **un-escaped once befor
 - MCP tripback is a structured `ToolEnvelope` dict (`ok`/`result`/`error`/`hint`), not a JSON string. Error envelopes may include `hint.suggested_tools`; tool-authored hints win over auto-hints.
 - Success JSON payloads may include `message`; classify raw structured errors by `error`, `code`, or `status=error|failed`, not by `message` alone.
 - Never issue mutating native tool calls concurrently: pre-guard bridges interleaved `theHold` transactions via nested message pumps (0xC0000005, then persistent corruption — phantom successes, wrong handles, bad class resolution). The main-thread executor now defers work items that arrive mid-item, but keep agent-side mutations sequential regardless.
+- `USER_BUSY` means Max has an open undo operation. The native write was rejected before mutation; continue read-only planning and retry after that operation finishes. Do not bypass it with MAXScript or repeated immediate writes.
 
 ### Keyframes (`keyframe_tracks`)
 - **`action=timeline`** — targetless read/set of `frame_rate`, `current_frame`, and `range_start`/`range_end`; omit setters for a read-only query.
@@ -214,11 +231,3 @@ Read the relevant reference file before writing unfamiliar MAXScript:
 
 ### Unwrap UVW
 - Open the editor: `$Box001.modifiers[#Unwrap_UVW].edit()` — not the `OpenUnwrapUI` macro alone
-
-## Standalone Chat (WIP)
-
-Experimental in-Max chat (Customize UI → MCP → MCP Chat). Prefer external MCP for production.
-
-- Same tools and `safe_mode` as external MCP
-- Call `query_scene` / `inspect_object` for scene state — not auto-injected by default
-- Slash commands: `/reload`, `/clear`, `/help`

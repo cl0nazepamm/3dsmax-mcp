@@ -82,6 +82,10 @@ namespace NativeHandlers {
     std::string BatchFileInfo(const std::string& params, MCPBridgeGUP* gup);
 
     // Viewport capture
+    std::string AgentViewportCommand(const std::string& params, MCPBridgeGUP* gup);
+    // Main-thread implementations shared with the optional live SDK harness.
+    std::string CaptureViewportMainThread(const std::string& params);
+    std::string CaptureMultiViewMainThread(const std::string& params);
     std::string CaptureMultiView(const std::string& params, MCPBridgeGUP* gup);
     std::string CaptureViewport(const std::string& params, MCPBridgeGUP* gup);
     std::string CaptureScreen(const std::string& params, MCPBridgeGUP* gup);
@@ -135,6 +139,7 @@ namespace NativeHandlers {
     // the render) and raises the SDK abort flag, like pressing Cancel.
     std::string RenderStart(const std::string& params, MCPBridgeGUP* gup);
     std::string RenderCancel(const std::string& params, MCPBridgeGUP* gup);
+    std::string RenderCancelCapture(const std::string& params, MCPBridgeGUP* gup);
     void RegisterRenderNotifications();
     void UnregisterRenderNotifications();
 
@@ -171,9 +176,6 @@ namespace NativeHandlers {
     // Direct execution (no MAXScript parsing)
     std::string InvokeInterface(const std::string& params, MCPBridgeGUP* gup);
     std::string RunMacroscript(const std::string& params, MCPBridgeGUP* gup);
-
-    // Chat UI (v0.7.0)
-    std::string ChatUI(const std::string& params, MCPBridgeGUP* gup);
 
     // Live tool smoke testing (in-Max production path)
     std::string InvokeTool(const std::string& params, MCPBridgeGUP* gup);

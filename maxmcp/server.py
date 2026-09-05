@@ -30,6 +30,9 @@ _READ_ONLY_TOOLS = {
     "resolve_node_refs",
     "get_object_properties",
     "analyze_node_orientation",
+    "inspect_mesh",
+    "geometry_qa",
+    "pick_component",
     "get_hierarchy",
     "get_instances",
     "get_dependencies",
@@ -69,6 +72,7 @@ _READ_ONLY_TOOLS = {
 }
 
 _DESTRUCTIVE_TOOLS = {
+    "mesh_edit",
     "scene_patch",
     "scene_qa",
     "delete_objects",
@@ -213,6 +217,10 @@ CORE_TOOL_MODULES = (
     "booleans",
     "splines",
     "poly_edit",
+    "mesh_ops",
+    "geometry_qa",
+    "component_pick",
+    "loft",
     "materials",
     "material_ops",
     "material_network",
@@ -233,7 +241,6 @@ CORE_TOOL_MODULES = (
 )
 
 SPECIALTY_TOOL_MODULES = (
-    "chat",
     "data_channel",
     "effects",
     "floor_plan",

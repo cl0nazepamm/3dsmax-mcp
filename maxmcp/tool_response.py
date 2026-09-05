@@ -29,6 +29,7 @@ class ErrorCode(str, Enum):
     PLUGIN_MISSING = "PLUGIN_MISSING"
     BRIDGE_DOWN = "BRIDGE_DOWN"
     RENDER_BUSY = "RENDER_BUSY"
+    USER_BUSY = "USER_BUSY"
     SAFE_MODE = "SAFE_MODE"
     BAD_PARAM = "BAD_PARAM"
     BAD_NODE_REF = "BAD_NODE_REF"
@@ -74,6 +75,7 @@ _ERROR_SUBSTRINGS = (" not found:",)
 _RETRYABLE_CODES = {
     ErrorCode.BRIDGE_DOWN,
     ErrorCode.RENDER_BUSY,
+    ErrorCode.USER_BUSY,
     ErrorCode.SCENE_CONFLICT,
     ErrorCode.TRANSACTION_BUSY,
 }

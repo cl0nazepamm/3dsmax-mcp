@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 150,
+  "tool_count": 157,
   "starter_tools": [
     "query_scene",
     "get_session_context",
@@ -196,7 +196,7 @@
     {
       "name": "Viewport & Render",
       "hint": "Captures and rendering",
-      "tool_count": 4,
+      "tool_count": 6,
       "categories": [
         {
           "name": "Render",
@@ -207,9 +207,11 @@
         {
           "name": "Viewport",
           "tools": [
+            "agent_viewport",
             "capture_multi_view",
             "capture_screen",
-            "capture_viewport"
+            "capture_viewport",
+            "set_viewport"
           ]
         }
       ]
@@ -324,22 +326,13 @@
     },
     {
       "name": "Advanced",
-      "hint": "execute_maxscript, smoke tests, chat",
-      "tool_count": 7,
+      "hint": "execute_maxscript and native diagnostics",
+      "tool_count": 3,
       "categories": [
         {
           "name": "Advanced",
           "tools": [
             "execute_maxscript"
-          ]
-        },
-        {
-          "name": "Chat",
-          "tools": [
-            "chat_clear",
-            "chat_reload",
-            "chat_status",
-            "send_to_chat"
           ]
         },
         {
@@ -354,12 +347,24 @@
     {
       "name": "Other",
       "hint": "",
-      "tool_count": 15,
+      "tool_count": 24,
       "categories": [
         {
           "name": "Booleans",
           "tools": [
             "boolean_operation"
+          ]
+        },
+        {
+          "name": "Component Pick",
+          "tools": [
+            "pick_component"
+          ]
+        },
+        {
+          "name": "Geometry Qa",
+          "tools": [
+            "geometry_qa"
           ]
         },
         {
@@ -369,9 +374,23 @@
           ]
         },
         {
+          "name": "Loft",
+          "tools": [
+            "loft_mesh"
+          ]
+        },
+        {
           "name": "Mainthread",
           "tools": [
             "main_thread"
+          ]
+        },
+        {
+          "name": "Mesh Ops",
+          "tools": [
+            "create_mesh",
+            "inspect_mesh",
+            "mesh_edit"
           ]
         },
         {
@@ -384,6 +403,19 @@
           "name": "Render Automations",
           "tools": [
             "render_automations"
+          ]
+        },
+        {
+          "name": "Scene Patch",
+          "tools": [
+            "resolve_node_refs",
+            "scene_patch"
+          ]
+        },
+        {
+          "name": "Scene Qa",
+          "tools": [
+            "scene_qa"
           ]
         },
         {
@@ -459,81 +491,6 @@
       },
       "risk": "advanced",
       "routing": "maxscript",
-      "starter": false
-    },
-    {
-      "name": "chat_clear",
-      "description": "Drop the in-Max chat's conversation history.",
-      "category": "Chat",
-      "group": "Advanced",
-      "module": "chat",
-      "schema": {
-        "type": "object",
-        "properties": {}
-      },
-      "example": {},
-      "risk": "advanced",
-      "routing": "native:chat_ui",
-      "starter": false
-    },
-    {
-      "name": "chat_reload",
-      "description": "Re-read local chat config and environment without restarting Max.",
-      "category": "Chat",
-      "group": "Advanced",
-      "module": "chat",
-      "schema": {
-        "type": "object",
-        "properties": {}
-      },
-      "example": {},
-      "risk": "advanced",
-      "routing": "native:chat_ui",
-      "starter": false
-    },
-    {
-      "name": "chat_status",
-      "description": "Report the in-Max standalone chat status (visible/configured/model).",
-      "category": "Chat",
-      "group": "Advanced",
-      "module": "chat",
-      "schema": {
-        "type": "object",
-        "properties": {}
-      },
-      "example": {},
-      "risk": "advanced",
-      "routing": "native:chat_ui",
-      "starter": false
-    },
-    {
-      "name": "send_to_chat",
-      "description": "Send a message to the in-Max standalone chat (WIP) and block until the turn completes.",
-      "category": "Chat",
-      "group": "Advanced",
-      "module": "chat",
-      "schema": {
-        "type": "object",
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "timeout_ms": {
-            "type": "integer"
-          },
-          "silent": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "message"
-        ]
-      },
-      "example": {
-        "message": ""
-      },
-      "risk": "advanced",
-      "routing": "native:chat_ui",
       "starter": false
     },
     {
@@ -1623,7 +1580,7 @@
     },
     {
       "name": "assign_material",
-      "description": "Create a material and assign it to one or more objects.",
+      "description": "Create a material, or share an existing object's material with targets.",
       "category": "Materials",
       "group": "Materials",
       "module": "material_ops",
@@ -1650,6 +1607,12 @@
             "items": {
               "type": "integer"
             }
+          },
+          "source_name": {
+            "type": "string"
+          },
+          "source_handle": {
+            "type": "integer"
           }
         }
       },
@@ -2531,6 +2494,9 @@
             "items": {
               "type": "number"
             }
+          },
+          "count": {
+            "type": "integer"
           }
         },
         "required": [
@@ -2722,7 +2688,7 @@
     },
     {
       "name": "select_objects",
-      "description": "Select objects in the 3ds Max scene.",
+      "description": "Select objects in the 3ds Max scene. An explicit names=[] clears selection.",
       "category": "Objects",
       "group": "Objects",
       "module": "selection",
@@ -3139,8 +3105,94 @@
       "starter": false
     },
     {
+      "name": "pick_component",
+      "description": "Target Editable Poly base-cage IDs from an AGENT VIEWPORT capture.",
+      "category": "Component Pick",
+      "group": "Other",
+      "module": "component_pick",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "expected_view": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "integer"
+          },
+          "level": {
+            "type": "string"
+          },
+          "selection": {
+            "type": "object"
+          },
+          "tolerance": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "prefer_surface": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "expected_view"
+        ]
+      },
+      "example": {
+        "x": {},
+        "y": {},
+        "expected_view": ""
+      },
+      "risk": "read",
+      "routing": "python",
+      "starter": false
+    },
+    {
+      "name": "geometry_qa",
+      "description": "Check evaluated mesh topology without changing the scene or collapsing its stack.",
+      "category": "Geometry Qa",
+      "group": "Other",
+      "module": "geometry_qa",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "max_faces": {
+            "type": "integer"
+          },
+          "area_epsilon": {
+            "type": "number"
+          }
+        }
+      },
+      "example": {},
+      "risk": "read",
+      "routing": "maxscript",
+      "starter": false
+    },
+    {
       "name": "keyframe_tracks",
-      "description": "Native keyframing: list inspects tracks read-only; set keys at time/times; value or move writes keyed poses without transform_object; match copies between times; loop closes f1->f100 on parented rigs (order=hierarchy); style sets tangents; ort sets out-of-range.",
+      "description": "Deterministic native animation edits. Actions: timeline; list/set; delete_keys/move_keys/scale_keys; resample or bake; normalize_tangents/style; match/loop; ort. Key-time edits use time/times or from_time/to_time. bake replaces keys in its sample window by default; resample preserves them unless rep",
       "category": "Keyframes",
       "group": "Other",
       "module": "keyframes",
@@ -3201,6 +3253,33 @@
           "to_time": {
             "type": "number"
           },
+          "time_offset": {
+            "type": "number"
+          },
+          "time_scale": {
+            "type": "number"
+          },
+          "pivot_time": {
+            "type": "number"
+          },
+          "sample_step": {
+            "type": "number"
+          },
+          "replace_keys": {
+            "type": "boolean"
+          },
+          "current_frame": {
+            "type": "number"
+          },
+          "range_start": {
+            "type": "number"
+          },
+          "range_end": {
+            "type": "number"
+          },
+          "frame_rate": {
+            "type": "integer"
+          },
           "key_type": {
             "type": "string"
           },
@@ -3259,6 +3338,59 @@
       "starter": false
     },
     {
+      "name": "loft_mesh",
+      "description": "Create/read/update a parameterized quad loft stored on its mesh node in the .max file.",
+      "category": "Loft",
+      "group": "Other",
+      "module": "loft",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "integer"
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {}
+              }
+            }
+          },
+          "parameters": {
+            "type": "object"
+          },
+          "profile_closed": {
+            "type": "boolean"
+          },
+          "close_path": {
+            "type": "boolean"
+          },
+          "caps": {
+            "type": "boolean"
+          },
+          "reverse": {
+            "type": "boolean"
+          },
+          "include_definition": {
+            "type": "boolean"
+          }
+        }
+      },
+      "example": {},
+      "risk": "read",
+      "routing": "python",
+      "starter": false
+    },
+    {
       "name": "main_thread",
       "description": "Inspect or clean up what runs on the Max main/UI thread.",
       "category": "Mainthread",
@@ -3278,6 +3410,128 @@
       "example": {},
       "risk": "read",
       "routing": "native:main_thread",
+      "starter": false
+    },
+    {
+      "name": "create_mesh",
+      "description": "Create an Editable Poly from explicit WORLD vertices and ordered polygon faces.",
+      "category": "Mesh Ops",
+      "group": "Other",
+      "module": "mesh_ops",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "vertices": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          },
+          "faces": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "required": [
+          "name",
+          "vertices",
+          "faces"
+        ]
+      },
+      "example": {
+        "name": "$first_object",
+        "vertices": [],
+        "faces": []
+      },
+      "risk": "read",
+      "routing": "python",
+      "starter": false
+    },
+    {
+      "name": "inspect_mesh",
+      "description": "Inspect an Editable Poly BASE cage with actionable component IDs and optional labeled capture.",
+      "category": "Mesh Ops",
+      "group": "Other",
+      "module": "mesh_ops",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "integer"
+          },
+          "level": {
+            "type": "string"
+          },
+          "selection": {
+            "type": "object"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "capture": {
+            "type": "boolean"
+          }
+        }
+      },
+      "example": {},
+      "risk": "safe",
+      "routing": "native:agent_viewport",
+      "starter": false
+    },
+    {
+      "name": "mesh_edit",
+      "description": "Edit vertices, edges, and faces as one undoable batch, rolling back on failure.",
+      "category": "Mesh Ops",
+      "group": "Other",
+      "module": "mesh_ops",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "operations": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "integer"
+          },
+          "convert": {
+            "type": "boolean"
+          },
+          "expected_mesh": {
+            "type": "string"
+          },
+          "show_selection": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operations"
+        ]
+      },
+      "example": {
+        "operations": []
+      },
+      "risk": "read",
+      "routing": "python",
       "starter": false
     },
     {
@@ -3382,12 +3636,149 @@
           },
           "watch_timeout_sec": {
             "type": "integer"
+          },
+          "crop": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "capture_target": {
+            "type": "string"
           }
         }
       },
       "example": {},
       "risk": "read",
-      "routing": "python",
+      "routing": "native:render_cancel_capture",
+      "starter": false
+    },
+    {
+      "name": "resolve_node_refs",
+      "description": "Resolve NodeRefs to canonical identities plus mutation sceneSeq.",
+      "category": "Scene Patch",
+      "group": "Other",
+      "module": "scene_patch",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "refs": {
+            "type": "array",
+            "items": {}
+          }
+        },
+        "required": [
+          "refs"
+        ]
+      },
+      "example": {
+        "refs": []
+      },
+      "risk": "read",
+      "routing": "native:resolve_node_refs",
+      "starter": false
+    },
+    {
+      "name": "scene_patch",
+      "description": "Preflight and atomically apply mechanical node edits in one native undo step.",
+      "category": "Scene Patch",
+      "group": "Other",
+      "module": "scene_patch",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "operations": {
+            "type": "array",
+            "items": {}
+          },
+          "expected_scene_seq": {
+            "type": "integer"
+          },
+          "dry_run": {
+            "type": "boolean"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operations"
+        ]
+      },
+      "example": {
+        "operations": []
+      },
+      "risk": "read",
+      "routing": "native:scene_patch",
+      "starter": false
+    },
+    {
+      "name": "scene_qa",
+      "description": "Scan or repair non-mesh scene hygiene using the native SDK.",
+      "category": "Scene Qa",
+      "group": "Other",
+      "module": "scene_qa",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "fixes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope": {
+            "type": "string"
+          },
+          "names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "handles": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "refs": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "expected_scene_seq": {
+            "type": "integer"
+          },
+          "dry_run": {
+            "type": "boolean"
+          },
+          "max_issues": {
+            "type": "integer"
+          },
+          "transform_epsilon": {
+            "type": "number"
+          },
+          "far_origin_threshold": {
+            "type": "number"
+          }
+        }
+      },
+      "example": {
+        "max_issues": 20
+      },
+      "risk": "read",
+      "routing": "maxscript",
       "starter": false
     },
     {
@@ -3440,6 +3831,9 @@
             "type": "integer"
           },
           "center_pivot": {
+            "type": "boolean"
+          },
+          "convert": {
             "type": "boolean"
           }
         }
@@ -5624,6 +6018,82 @@
       "starter": false
     },
     {
+      "name": "agent_viewport",
+      "description": "Own a shaded floating AGENT VIEWPORT without moving the user's view.",
+      "category": "Viewport",
+      "group": "Viewport & Render",
+      "module": "viewport",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "frame_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "yaw": {
+            "type": "number"
+          },
+          "pitch": {
+            "type": "number"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "factor": {
+            "type": "number"
+          },
+          "padding": {
+            "type": "number"
+          },
+          "expected_view": {
+            "type": "string"
+          },
+          "start_minimized": {
+            "type": "boolean"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          },
+          "mode": {
+            "type": "string"
+          },
+          "renderer_source": {
+            "type": "string"
+          },
+          "crop": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "example": {},
+      "risk": "read",
+      "routing": "native:agent_viewport",
+      "starter": false
+    },
+    {
       "name": "capture_multi_view",
       "description": "Capture multiple viewport angles to a stitched file and return compact metadata.",
       "category": "Viewport",
@@ -5646,17 +6116,23 @@
           },
           "return_image": {
             "type": "boolean"
+          },
+          "frame_root": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
           }
         }
       },
       "example": {},
       "risk": "advanced",
-      "routing": "native:capture_multi_view",
+      "routing": "native:agent_viewport",
       "starter": false
     },
     {
       "name": "capture_screen",
-      "description": "Capture fullscreen to a file only when explicitly enabled.",
+      "description": "Capture visible desktop pixels, optionally cropped to the V-Ray frame buffer.",
       "category": "Viewport",
       "group": "Viewport & Render",
       "module": "viewport",
@@ -5680,6 +6156,15 @@
           },
           "return_image": {
             "type": "boolean"
+          },
+          "target": {
+            "type": "string"
+          },
+          "crop": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
           }
         }
       },
@@ -5692,7 +6177,7 @@
     },
     {
       "name": "capture_viewport",
-      "description": "Capture the current 3ds Max viewport and return the saved file path.",
+      "description": "Capture AGENT VIEWPORT when open, otherwise the active view, to a saved file.",
       "category": "Viewport",
       "group": "Viewport & Render",
       "module": "viewport",
@@ -5707,12 +6192,70 @@
           },
           "return_image": {
             "type": "boolean"
+          },
+          "source": {
+            "type": "string"
           }
         }
       },
       "example": {},
       "risk": "advanced",
-      "routing": "native:capture_viewport",
+      "routing": "native:agent_viewport",
+      "starter": false
+    },
+    {
+      "name": "set_viewport",
+      "description": "Set the agent modeling view when open, otherwise the active viewport.",
+      "category": "Viewport",
+      "group": "Viewport & Render",
+      "module": "viewport",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "view": {
+            "type": "string"
+          },
+          "eye": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "target": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "frame_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "fov": {
+            "type": "number"
+          },
+          "padding": {
+            "type": "number"
+          },
+          "shading": {
+            "type": "string"
+          },
+          "edges": {
+            "type": "boolean"
+          },
+          "grid": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      },
+      "example": {},
+      "risk": "read",
+      "routing": "native:agent_viewport",
       "starter": false
     }
   ]

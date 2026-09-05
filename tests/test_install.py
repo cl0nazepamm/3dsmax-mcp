@@ -14,15 +14,15 @@ def test_choose_tool_profile_accepts_prompt_and_cli_choices(monkeypatch) -> None
     assert install.choose_tool_profile("CORE") == "core"
 
 
-def test_set_ini_value_keeps_external_and_standalone_profiles_separate(tmp_path: Path) -> None:
+def test_set_ini_value_preserves_unrelated_sections(tmp_path: Path) -> None:
     config = tmp_path / "mcp_config.ini"
     config.write_text(
         "[mcp]\n"
         "safe_mode = true\n"
         "tool_profile = full\n"
         "\n"
-        "[llm]\n"
-        "# Standalone chat profile\n"
+        "[custom]\n"
+        "# User settings\n"
         "tool_profile = full\n",
         encoding="utf-8",
     )
@@ -31,7 +31,7 @@ def test_set_ini_value_keeps_external_and_standalone_profiles_separate(tmp_path:
 
     text = config.read_text(encoding="utf-8")
     assert "[mcp]\nsafe_mode = true\ntool_profile = progressive" in text
-    assert "[llm]\n# Standalone chat profile\ntool_profile = full" in text
+    assert "[custom]\n# User settings\ntool_profile = full" in text
 
 
 def test_deploy_config_persists_selected_tool_profile(monkeypatch, tmp_path: Path) -> None:
@@ -40,11 +40,36 @@ def test_deploy_config_persists_selected_tool_profile(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(install, "CONFIG_DIR", config_dir)
     monkeypatch.setattr(install, "CONFIG_DST", config_dst)
     monkeypatch.setattr(install, "CONFIG_SRC", tmp_path / "missing-config.ini")
-    monkeypatch.setattr(install, "ENV_DST", config_dir / ".env")
-    monkeypatch.setattr(install, "ENV_SRC", tmp_path / "missing-env")
 
-    assert install.deploy_config(skip_skill=True, tool_profile="core")
+    assert install.deploy_config(tool_profile="core")
     assert "tool_profile = core" in config_dst.read_text(encoding="utf-8")
+
+
+def test_retired_macro_cleanup_preserves_other_macros_and_credentials(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    profiles = tmp_path / "Autodesk" / "3dsMax"
+    old_macro = profiles / "2027 - 64bit" / "ENU" / "usermacros" / "MCP-MCP_Chat.mcr"
+    old_macro.parent.mkdir(parents=True)
+    old_macro.write_text(
+        'macroScript MCP_Chat category:"MCP" ( on execute do ('
+        'local hwnds = windows.getChildHWND 0 "MCPBridgeExecutor-123"; '
+        'windows.sendMessage hwnds[1] 0x5144 1 0 ) )', encoding="utf-8"
+    )
+    other_macro = old_macro.with_name("MCP-MCP_Claim_This_Max.mcr")
+    other_macro.write_text("keep", encoding="utf-8")
+    replacement = profiles / "2026 - 64bit" / "ENU" / "usermacros" / old_macro.name
+    replacement.parent.mkdir(parents=True)
+    replacement.write_text("user replacement", encoding="utf-8")
+    credentials = tmp_path / "3dsmax-mcp" / ".env"
+    credentials.parent.mkdir()
+    credentials.write_text("test-owned-secret", encoding="utf-8")
+
+    install.remove_retired_chat_macros()
+
+    assert not old_macro.exists()
+    assert other_macro.read_text(encoding="utf-8") == "keep"
+    assert replacement.read_text(encoding="utf-8") == "user replacement"
+    assert credentials.read_text(encoding="utf-8") == "test-owned-secret"
 
 
 def test_max_year_for_reads_standard_install_folder_names() -> None:

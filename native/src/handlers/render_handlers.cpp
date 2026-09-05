@@ -1,6 +1,7 @@
 #include "mcp_bridge/native_handlers.h"
 #include "mcp_bridge/handler_helpers.h"
 #include "mcp_bridge/bridge_gup.h"
+#include "mcp_bridge/capture_region.h"
 
 #include <notify.h>
 #include <mutex>
@@ -56,6 +57,8 @@ struct RenderJobState {
     std::mutex mtx;
     bool active = false;          // a render_start job is in flight
     bool registered = false;      // notifications hooked
+    bool cancel_requested = false;
+    bool started = false;
     std::string job_id;
     std::string output;
     std::string signal_path;      // where to write the done-signal
@@ -81,6 +84,11 @@ void WriteSignalFile(const std::string& path, const json& doc) {
 }
 
 // NOTIFY_POST_RENDERFRAME — fires once per completed frame.
+void OnPreRender(void*, NotifyInfo*) {
+    std::lock_guard<std::mutex> lk(g_job.mtx);
+    if(g_job.active) g_job.started=true;
+}
+
 void OnPostRenderFrame(void* /*param*/, NotifyInfo* /*info*/) {
     std::lock_guard<std::mutex> lk(g_job.mtx);
     if (g_job.active) g_job.frames_done++;
@@ -102,6 +110,8 @@ void OnPostRender(void* /*param*/, NotifyInfo* /*info*/) {
         doc["output"] = g_job.output;
         doc["frames_rendered"] = g_job.frames_done;  // actual, counted per frame
         doc["complete"] = true;                       // POST_RENDER = job finished
+        doc["cancel_requested"] = g_job.cancel_requested;
+        doc["outcome"] = "unknown"; // POST_RENDER also follows cancellation.
         path = g_job.signal_path;
         g_job.active = false;
     }
@@ -114,6 +124,7 @@ void NativeHandlers::RegisterRenderNotifications() {
     std::lock_guard<std::mutex> lk(g_job.mtx);
     if (g_job.registered) return;
     RegisterNotification(OnPostRenderFrame, nullptr, NOTIFY_POST_RENDERFRAME);
+    RegisterNotification(OnPreRender, nullptr, NOTIFY_PRE_RENDER);
     RegisterNotification(OnPostRender, nullptr, NOTIFY_POST_RENDER);
     g_job.registered = true;
 }
@@ -122,6 +133,7 @@ void NativeHandlers::UnregisterRenderNotifications() {
     std::lock_guard<std::mutex> lk(g_job.mtx);
     if (!g_job.registered) return;
     UnRegisterNotification(OnPostRenderFrame, nullptr, NOTIFY_POST_RENDERFRAME);
+    UnRegisterNotification(OnPreRender, nullptr, NOTIFY_PRE_RENDER);
     UnRegisterNotification(OnPostRender, nullptr, NOTIFY_POST_RENDER);
     g_job.registered = false;
 }
@@ -201,6 +213,8 @@ std::string NativeHandlers::RenderStart(const std::string& params, MCPBridgeGUP*
         {
             std::lock_guard<std::mutex> lk(g_job.mtx);
             g_job.active = true;
+            g_job.cancel_requested = false;
+            g_job.started = false;
             g_job.job_id = jobId;
             g_job.output = output;
             g_job.signal_path = signalPath;
@@ -242,11 +256,18 @@ std::string NativeHandlers::RenderStart(const std::string& params, MCPBridgeGUP*
 // thread is the render, so an ExecuteSync would queue behind the very job it is
 // trying to kill. Interface::AbortRender() only raises the abort flag that the
 // render pipeline polls between buckets/frames (the same flag the Cancel button
-// and Esc set), which is safe to do from the pipe thread.
-std::string NativeHandlers::RenderCancel(const std::string& /*params*/, MCPBridgeGUP* /*gup*/) {
+// and Esc set). The public SDK does not document a cross-thread guarantee for
+// this API. Keep this isolated cooperative request; never invoke renderer
+// shutdown or arbitrary renderer methods on this worker thread.
+std::string NativeHandlers::RenderCancel(const std::string& params, MCPBridgeGUP* /*gup*/) {
+    const auto p=params.empty() ? json::object() : json::parse(params);
+    const auto expectedJob=p.value("job_id","");
     json j;
+    std::unique_lock<std::mutex> jobLock(g_job.mtx);
     {
-        std::lock_guard<std::mutex> lk(g_job.mtx);
+        if(!expectedJob.empty() && (!g_job.active || !g_job.started || expectedJob!=g_job.job_id))
+            return json({{"status","not_cancelled"},{"cancel_requested",false},
+                {"error","Render job is no longer active or does not match; no global abort was sent"}}).dump();
         j["had_active_job"] = g_job.active;
         if (g_job.active) {
             j["job_id"] = g_job.job_id;
@@ -262,10 +283,31 @@ std::string NativeHandlers::RenderCancel(const std::string& /*params*/, MCPBridg
         return j.dump();
     }
     ip->AbortRender();
+    if(g_job.active) g_job.cancel_requested=true;
+    jobLock.unlock();
 
     j["status"] = "cancelling";
-    j["hint"] = "abort flag raised; the renderer stops at its next abort check. "
-                "For a render_start job the done-signal still lands (status "
-                "aborted, or complete if it finished first) — keep the watcher running.";
+    j["cancel_requested"] = true;
+    j["stopped"] = nullptr;
+    j["hint"] = "Cancellation requested through Max's abort flag. The renderer must poll it; "
+                "this response does not confirm that rendering has stopped. "
+                "A completion notification alone does not distinguish cancellation from success.";
     return j.dump();
+}
+
+// Capture first, preserving the displayed partial image if Cancel closes the
+// framebuffer. Both operations stay on one Max connection and skip its UI queue.
+std::string NativeHandlers::RenderCancelCapture(const std::string& params, MCPBridgeGUP* gup) {
+    const auto p=json::parse(params);
+    if(p.value("job_id","").empty()) throw std::runtime_error("cancel_capture requires the armed render job_id");
+    const auto target=p.value("target","vray_vfb");
+    if(target!="vray_vfb" && target!="screen") throw std::runtime_error("Unknown capture target");
+    if(p.contains("crop")) CaptureRegion::Crop({0,0,131072,131072},p.at("crop"));
+    json out={{"capture",nullptr},{"captured_before_cancel",true},{"stopped",nullptr},{"converged",nullptr}};
+    try { out["capture"]=json::parse(CaptureScreen(p.dump(),gup)); }
+    catch(const std::exception& ex) { out["capture_error"]=ex.what(); }
+    out["cancellation"]=json::parse(RenderCancel(p.dump(),gup));
+    out["hint"]="Partial visible pixels only. Check the done-signal separately; cancellation is cooperative. "
+        "This command does not start rendering or change a running renderer's sampler/denoiser.";
+    return out.dump();
 }

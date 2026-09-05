@@ -42,10 +42,6 @@ SKIP_DEFAULT = {
     "palette_laydown",
     "build_floor_plan",
     "scatter_forest_pack",
-    "send_to_chat",
-    "chat_clear",
-    "chat_reload",
-    "chat_status",
     "toggle_effect",
     "delete_effect",
     "replace_material",
@@ -279,8 +275,6 @@ def collect_native_tools() -> list[dict]:
             if t["name"] in seen:
                 continue
             seen.add(t["name"])
-            if t["cmdType"] == "native:chat_ui":
-                continue
             if not t["cmdType"].startswith("native:") and t["cmdType"] != "maxscript":
                 continue
             t = dict(t)

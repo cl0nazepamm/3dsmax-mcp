@@ -14,6 +14,7 @@ from typing import Optional
 from ..server import mcp, client
 from ..coerce import IntList, StrList
 from ..helpers.maxscript import safe_string, safe_value
+from ..helpers.material_assign import existing_material_script, existing_material_result
 from ..helpers.native_compat import is_missing_native_route_error
 from ..helpers.material_tripback import (
     material_class_hint,
@@ -160,10 +161,25 @@ def assign_material(
     material_name: str = "",
     params: str = "",
     handles: IntList | None = None,
-) -> str:
-    """Create a material and assign it to one or more objects."""
+    source_name: str = "",
+    source_handle: int = 0,
+) -> str | dict:
+    """Create a material, or share an existing object's material with targets.
+
+    Existing material: pass source_name/source_handle instead of material_class,
+    material_name and params. Both source selectors cross-check when supplied.
+    This instances the actual material, including maps and sub-materials, so
+    later material edits remain shared. Targets are preflighted and assigned in
+    one undo step; missing/ambiguous nodes fail without partial assignment.
+    """
     names = names or []
     handles = handles or []
+    if source_name or source_handle:
+        if material_class or material_name or params:
+            raise ValueError("Choose existing source_name/source_handle or material creation arguments")
+        script = existing_material_script(names, handles, source_name, source_handle)
+        response = client.send_command(script)
+        return existing_material_result(str(response.get("result", "")))
     if client.native_available:
         payload = {
             "names": names,

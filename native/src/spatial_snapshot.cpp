@@ -39,6 +39,10 @@ json PointJson(const Point3& p) {
 
 Box3 WorldBoundingBox(INode* node, TimeValue t) {
     Matrix3 nodeTM = node->GetNodeTM(t);
+    // EvalWorldState returns the evaluated pipeline object. Its local bounds
+    // require the object-offset transform too (and the post-WSM transform if
+    // applicable). NodeTM alone double-translates meshes after Center Pivot.
+    const Matrix3 objectTM = node->GetObjTMAfterWSM(t);
     Box3 worldBox;
     worldBox.Init();
 
@@ -68,7 +72,7 @@ Box3 WorldBoundingBox(INode* node, TimeValue t) {
         Point3(mx.x, mx.y, mx.z),
     };
     for (const Point3& corner : corners) {
-        worldBox += (corner * nodeTM);
+        worldBox += (corner * objectTM);
     }
     return worldBox;
 }

@@ -103,6 +103,8 @@ class MaxClient:
         self._selected_pipe_name: Optional[str] = None
         self._pipe_lock = threading.Lock()
         self._local = threading.local()
+        self._control_channel = False
+        self._pinned_pipe_name: str | None = None
 
     def clear_last_response(self) -> None:
         """Clear thread-local metadata from the previous command."""
@@ -172,6 +174,8 @@ class MaxClient:
         return live
 
     def _resolve_pipe_name(self) -> str:
+        if self._pinned_pipe_name is not None:
+            return self._pinned_pipe_name
         env_pipe = os.environ.get(MCP_PIPE_ENV)
         if env_pipe:
             return env_pipe
@@ -284,6 +288,25 @@ class MaxClient:
                 f"Win32 error {wait_err}"
             )
 
+    def _send_control_command(self, command: str, cmd_type: str, timeout: Optional[float]) -> dict[str, Any]:
+        """Bypass an in-flight request's pipe lock, without changing Max targets.
+
+        Only cancellation and pure desktop capture use this channel. It cannot
+        fall back to TCP or re-resolve another Max after a claim/environment change.
+        """
+        pipe = (self._selected_pipe_name if self._pipe_lock.locked() else None) or self._resolve_pipe_name()
+        control = MaxClient(host=self.host, port=self.port, timeout=timeout or min(self.timeout, 15.0),
+                            transport="pipe", pipe_name=pipe)
+        control._control_channel = True
+        control._pinned_pipe_name = pipe
+        self.clear_last_response()
+        try:
+            return control.send_command(command, cmd_type=cmd_type, timeout=timeout)
+        finally:
+            self._local.last_response = getattr(control._local, "last_response", None)
+            self._local.last_error = getattr(control._local, "last_error", None)
+            control._close_pipe_handle()
+
     def send_command(
         self,
         command: str,
@@ -291,6 +314,9 @@ class MaxClient:
         timeout: Optional[float] = None,
     ) -> dict[str, Any]:
         """Send a command to 3ds Max and return the parsed JSON response."""
+        if (cmd_type in {"native:render_cancel", "native:render_cancel_capture", "native:capture_screen"}
+                and self.transport != "tcp" and not self._control_channel):
+            return self._send_control_command(command, cmd_type, timeout)
         effective_timeout = timeout or self.timeout
         request_id = uuid4().hex
         started_at = time.perf_counter()

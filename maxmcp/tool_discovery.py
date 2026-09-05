@@ -61,8 +61,8 @@ TOOLSET_SPECS = (
     ),
     ToolsetSpec(
         "modeling",
-        "Modifier stacks, booleans, splines, and explicit polygon vertex editing.",
-        ("modifiers", "booleans", "splines", "poly_edit"),
+        "Modifier stacks, booleans, splines, custom polygon meshes, and visual vertex/edge/face editing.",
+        ("modifiers", "booleans", "splines", "poly_edit", "mesh_ops", "geometry_qa", "component_pick", "loft"),
     ),
     ToolsetSpec(
         "materials",
@@ -93,7 +93,7 @@ TOOLSET_SPECS = (
     ),
     ToolsetSpec(
         "viewport",
-        "Viewport and multi-view captures for visual inspection.",
+        "Own AGENT VIEWPORT; navigate, frame, pick surfaces, and capture independently of the user.",
         ("viewport",),
     ),
     ToolsetSpec(
@@ -140,11 +140,6 @@ TOOLSET_SPECS = (
         "rendering",
         "Render configuration and render automation drivers.",
         ("render", "render_automations"),
-    ),
-    ToolsetSpec(
-        "chat",
-        "Experimental in-Max standalone chat drivers.",
-        ("chat",),
     ),
 )
 

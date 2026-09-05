@@ -43,11 +43,14 @@ class ServerModuleLaunchTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("resolve_node_refs", tool_names)
         self.assertIn("scene_patch", tool_names)
         self.assertIn("scene_qa", tool_names)
+        self.assertTrue({"create_mesh", "inspect_mesh", "mesh_edit", "pick_component",
+                         "loft_mesh", "geometry_qa", "agent_viewport"}.issubset(tool_names))
         self.assertIn("get_material_library", tool_names)
         self.assertIn("backup_material_library", tool_names)
         self.assertNotIn("mcg_create_graph", tool_names)
         self.assertNotIn("builder_session", tool_names)
         self.assertNotIn("builder_gate", tool_names)
+        self.assertTrue({"send_to_chat", "chat_status", "chat_reload", "chat_clear"}.isdisjoint(tool_names))
         self.assertGreater(len(tool_names), 0)
 
     async def test_full_profile_registers_agentic_mcg_tools(self) -> None:
@@ -60,6 +63,7 @@ class ServerModuleLaunchTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("mcg_compile_graph", tool_names)
         self.assertNotIn("builder_session", tool_names)
         self.assertNotIn("builder_gate", tool_names)
+        self.assertTrue({"send_to_chat", "chat_status", "chat_reload", "chat_clear"}.isdisjoint(tool_names))
 
     async def test_installed_config_selects_progressive_profile(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

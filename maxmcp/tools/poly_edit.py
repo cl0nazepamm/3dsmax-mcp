@@ -84,6 +84,7 @@ def _poly_guard(safe: str, convert: bool) -> str:
         f"    {convert_branch}\n"
         ') else ""\n'
         'if guardMsg != "" then guardMsg else (\n'
+        'local mesh = obj.baseobject\nin coordsys world (\n'
     )
 
 
@@ -141,7 +142,7 @@ def edit_vertices(
     if len(idx_list) > MAX_INDICES:
         return _err(f"{len(idx_list)} indices exceeds the {MAX_INDICES} cap")
     guard = _poly_guard(safe, convert)
-    tail = "\n)\n)"
+    tail = "\n)\n)\n)"
 
     if action == "get":
         cap = max(1, min(int(max_verts), MAX_GET))
@@ -167,13 +168,13 @@ def edit_vertices(
         script = f"""(
 {guard}
     local out = stringstream ""
-    local nv = polyop.getNumVerts obj
+    local nv = polyop.getNumVerts mesh
     {loop_src}
     local matched = 0
     local emitted = 0
     for i in idxs do (
         if i <= nv do (
-            local p = polyop.getVert obj i node:obj
+            local p = polyop.getVert mesh i node:obj
             local keep = true
             {chr(10).join("            " + fl for fl in filter_lines)}
             if keep do (
@@ -235,34 +236,34 @@ def edit_vertices(
         )
         mn -= [{r},{r},{r}]
         mx += [{r},{r},{r}]
-        local nv = polyop.getNumVerts obj
+        local nv = polyop.getNumVerts mesh
         for v = 1 to nv where not inSet[v] do (
-            local p = polyop.getVert obj v node:obj
+            local p = polyop.getVert mesh v node:obj
             if p.x >= mn.x and p.y >= mn.y and p.z >= mn.z and p.x <= mx.x and p.y <= mx.y and p.z <= mx.z do (
                 local d = 1e30
                 for q in movedPos do (local dd = distance p q; if dd < d do d = dd)
                 if d < {r} do (
                     local w = 1.0 - (d / {r})
                     w = w * w
-                    polyop.setVert obj v (p + {_p3_lit(off)} * w) node:obj
+                    polyop.setVert mesh v (p + {_p3_lit(off)} * w) node:obj
                     nSoft += 1
                 )
             )
         )"""
         loop_src = (
             f"local rawIdxs = {_indices_literal(idx_list)}\n"
-            "        local nvAll = polyop.getNumVerts obj\n"
+            "        local nvAll = polyop.getNumVerts mesh\n"
             "        local idxs = for i in rawIdxs where i <= nvAll collect i"
             if idx_list
-            else "local idxs = for i = 1 to (polyop.getNumVerts obj) collect i"
+            else "local idxs = for i = 1 to (polyop.getNumVerts mesh) collect i"
         )
         script = f"""(
 {guard}
     undo "Move Verts" on (
         {loop_src}
         local movedPos = #()
-        for i in idxs do append movedPos (polyop.getVert obj i node:obj)
-        for j = 1 to idxs.count do polyop.setVert obj idxs[j] (movedPos[j] + {_p3_lit(off)}) node:obj
+        for i in idxs do append movedPos (polyop.getVert mesh i node:obj)
+        for j = 1 to idxs.count do polyop.setVert mesh idxs[j] (movedPos[j] + {_p3_lit(off)}) node:obj
         local nSoft = 0{soft_block}
         update obj
         redrawViews()
@@ -297,11 +298,11 @@ def edit_vertices(
     undo "Set Verts" on (
         local idxs = {_indices_literal(idx_list)}
         local ps = {pos_arr}
-        local nv = polyop.getNumVerts obj
+        local nv = polyop.getNumVerts mesh
         local done = 0
         for j = 1 to idxs.count do (
             if idxs[j] <= nv do (
-                polyop.setVert obj idxs[j] ps[j] node:obj
+                polyop.setVert mesh idxs[j] ps[j] node:obj
                 done += 1
             )
         )
@@ -335,7 +336,7 @@ def edit_vertices(
         loop_src = (
             f"local idxs = {_indices_literal(idx_list)}"
             if idx_list
-            else "local idxs = for i = 1 to (polyop.getNumVerts obj) collect i"
+            else "local idxs = for i = 1 to (polyop.getNumVerts mesh) collect i"
         )
         axis_token = axis.strip().lower()
         if axis_token and axis_token not in AXIS_VECTORS:
@@ -358,13 +359,13 @@ def edit_vertices(
     if isShape and {spline_index} > (numSplines tgt) then "__ERROR__|target has fewer than {spline_index} splines" else (
     undo "Conform Verts" on (
         {loop_src}
-        local nv = polyop.getNumVerts obj
+        local nv = polyop.getNumVerts mesh
         local moved = 0
         local skipped = 0
         local dirv = {dir_lit}
         for i in idxs do (
             if i <= nv then (
-                local p = polyop.getVert obj i node:obj
+                local p = polyop.getVert mesh i node:obj
                 local dest = undefined
                 if isShape then (
                     try (
@@ -384,7 +385,7 @@ def edit_vertices(
                     d.x *= {mask[0]}
                     d.y *= {mask[1]}
                     d.z *= {mask[2]}
-                    polyop.setVert obj i (p + d * {s}) node:obj
+                    polyop.setVert mesh i (p + d * {s}) node:obj
                     moved += 1
                 )
             ) else skipped += 1

@@ -79,7 +79,7 @@ class SceneQAToolTests(unittest.TestCase):
         self.assertNotIn("#include <mnmesh.h>", source)
         self.assertNotIn("MNMesh", source)
 
-    def test_standalone_chat_exposes_read_only_scan_contract(self) -> None:
+    def test_native_registry_exposes_read_only_scan_contract(self) -> None:
         module = (
             Path(__file__).resolve().parents[1]
             / "maxmcp"

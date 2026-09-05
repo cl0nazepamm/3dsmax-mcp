@@ -3,6 +3,7 @@
 #include "mcp_bridge/native_handlers.h"
 #include "mcp_bridge/main_thread_executor.h"
 #include "mcp_bridge/handler_helpers.h"
+#include "mcp_bridge/transaction_policy.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <chrono>
@@ -157,11 +158,26 @@ static bool IsMutatingNativeHandler(const std::string& cmd_type) {
     return kMutating.count(cmd_type) > 0;
 }
 
-static bool RequestIsDryRunOrPreview(const std::string& command) {
-    if (command.empty()) return false;
+static bool RequestIsReadOnlyAction(const std::string& cmd_type, const std::string& command) {
+    // These handlers expose reads and writes through the same native route.
+    // Reads must remain available while the user owns an undo hold.
+    const bool organization = cmd_type == "native:manage_layers" ||
+        cmd_type == "native:manage_groups" || cmd_type == "native:manage_selection_sets";
+    if (!organization && cmd_type != "native:manage_scene" &&
+        cmd_type != "native:keyframe_tracks") return false;
     json payload = json::parse(command, nullptr, false);
-    if (payload.is_discarded() || !payload.is_object()) return false;
-    return payload.value("dry_run", false) || payload.value("preview", false);
+    if (!payload.is_object()) return false;
+    std::string action = payload.value("action", "");
+    if (organization) return action == "list";
+    std::transform(action.begin(), action.end(), action.begin(), ::tolower);
+    if (cmd_type == "native:manage_scene") return action == "info";
+    if (action == "list" || action == "inspect" || action == "query" || action == "summary")
+        return true;
+    if (action == "timeline" || action == "time_config" || action == "timeline_config") {
+        return !payload.contains("frame_rate") && !payload.contains("current_frame") &&
+            !payload.contains("range_start") && !payload.contains("range_end");
+    }
+    return false;
 }
 
 static bool ResultLooksLikeError(const std::string& result) {
@@ -176,6 +192,8 @@ static bool ResultLooksLikeError(const std::string& result) {
 static std::string NativeErrorCodeForMessage(const std::string& message) {
     std::string lower = message;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    if (lower.find("user_busy") != std::string::npos) return "USER_BUSY";
+    if (lower.find("stale_view") != std::string::npos) return "STALE_VIEW";
     if (lower.find("safe mode") != std::string::npos) return "SAFE_MODE";
     if (lower.find("main thread execution timed out") != std::string::npos ||
         lower.find("named pipe") != std::string::npos ||
@@ -209,7 +227,7 @@ static std::string NormalizeNativeError(const std::string& message) {
     payload["type"] = "NativeError";
     payload["message"] = message;
     payload["code"] = code;
-    payload["retryable"] = (code == "BRIDGE_DOWN" || code == "RENDER_BUSY");
+    payload["retryable"] = (code == "BRIDGE_DOWN" || code == "RENDER_BUSY" || code == "USER_BUSY");
     return payload.dump();
 }
 
@@ -217,12 +235,16 @@ class NativeUndoTransaction {
 public:
     explicit NativeUndoTransaction(const std::string& cmd_type)
         : active_(false) {
-        // theHold is global and does not tolerate interleaved Begin/Accept
-        // pairs. If a hold is already open (user mid-operation, or any other
-        // code path), run without our own transaction rather than nesting —
-        // an Accept/Cancel here would commit or roll back someone else's
-        // restore records.
-        if (theHold.Holding()) return;
+        // Never append MCP writes to another operation's global undo hold.
+        // Reject before invoke() so its restore records and scene stay untouched.
+        if (theHold.Holding()) {
+            throw std::runtime_error(json{
+                {"type", "NativeError"},
+                {"code", "USER_BUSY"},
+                {"message", "3ds Max has an open undo operation. Finish or cancel that operation, then retry."},
+                {"retryable", true}
+            }.dump());
+        }
         std::wstring label = L"MCP " + HandlerHelpers::Utf8ToWide(cmd_type);
         label_ = MSTR(label.c_str());
         theHold.Begin();
@@ -546,6 +568,8 @@ std::string CommandDispatcher::Dispatch(
         } else if (cmd_type == "native:batch_file_info") {
             result = NativeHandlers::BatchFileInfo(command, gup);
         // Viewport capture
+        } else if (cmd_type == "native:agent_viewport") {
+            result = NativeHandlers::AgentViewportCommand(command, gup);
         } else if (cmd_type == "native:capture_multi_view") {
             result = NativeHandlers::CaptureMultiView(command, gup);
         } else if (cmd_type == "native:capture_viewport") {
@@ -612,6 +636,8 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::RenderStart(command, gup);
         } else if (cmd_type == "native:render_cancel") {
             result = NativeHandlers::RenderCancel(command, gup);
+        } else if (cmd_type == "native:render_cancel_capture") {
+            result = NativeHandlers::RenderCancelCapture(command, gup);
         // Material replace
         } else if (cmd_type == "native:replace_material") {
             result = NativeHandlers::ReplaceMaterial(command, gup);
@@ -662,9 +688,6 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::InvokeInterface(command, gup);
         } else if (cmd_type == "native:run_macroscript") {
             result = NativeHandlers::RunMacroscript(command, gup);
-        // Chat UI (v0.7.0)
-        } else if (cmd_type == "native:chat_ui") {
-            result = NativeHandlers::ChatUI(command, gup);
         // Live tool smoke testing
         } else if (cmd_type == "native:invoke_tool") {
             result = NativeHandlers::InvokeTool(command, gup);
@@ -683,7 +706,8 @@ std::string CommandDispatcher::Dispatch(
         const bool handlerOwnsTransaction = cmd_type == "native:scene_patch";
         const bool transact =
             IsMutatingNativeHandler(cmd_type) &&
-            !RequestIsDryRunOrPreview(command) &&
+            !CommandDispatcher::Detail::RequestIsDryRunOrPreview(cmd_type, command) &&
+            !RequestIsReadOnlyAction(cmd_type, command) &&
             !handlerOwnsTransaction;
 
         if (transact) {

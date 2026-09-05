@@ -7,6 +7,7 @@
 #include <istdplug.h>
 #include <decomp.h>
 #include <set>
+#include <cmath>
 #include <unordered_map>
 
 using json = nlohmann::json;
@@ -812,6 +813,16 @@ std::string NativeHandlers::CloneObjects(const std::string& params, MCPBridgeGUP
         auto names = p.value("names", std::vector<std::string>{});
         std::string mode = p.value("mode", "copy");
         auto offsetVec = p.value("offset", std::vector<float>{0.0f, 0.0f, 0.0f});
+        if (p.contains("count") && !p["count"].is_number_integer())
+            throw std::runtime_error("count must be an integer from 1 to 200");
+        const int count = p.value("count", 1);
+        if (count < 1 || count > 200)
+            throw std::runtime_error("count must be an integer from 1 to 200");
+        if (mode != "copy" && mode != "instance" && mode != "reference")
+            throw std::runtime_error("mode must be copy, instance, or reference");
+        if (offsetVec.size() != 3 || !std::isfinite(offsetVec[0]) ||
+            !std::isfinite(offsetVec[1]) || !std::isfinite(offsetVec[2]))
+            throw std::runtime_error("offset must contain three finite numbers");
 
         if (names.empty()) throw std::runtime_error("names is required");
 
@@ -819,11 +830,15 @@ std::string NativeHandlers::CloneObjects(const std::string& params, MCPBridgeGUP
 
         // Build INodeTab of source nodes
         INodeTab srcNodes;
+        std::set<INode*> seenSources;
         json notFound = json::array();
         for (const auto& name : names) {
-            INode* node = FindNodeByName(name);
+            const auto matches = CollectNodesByExactName(name);
+            if (matches.size() > 1)
+                throw std::runtime_error("Clone source is ambiguous: " + name);
+            INode* node = matches.empty() ? nullptr : matches.front();
             if (node) {
-                srcNodes.AppendNode(node);
+                if (seenSources.insert(node).second) srcNodes.AppendNode(node);
             } else {
                 notFound.push_back(name);
             }
@@ -832,6 +847,8 @@ std::string NativeHandlers::CloneObjects(const std::string& params, MCPBridgeGUP
         if (srcNodes.Count() == 0) {
             throw std::runtime_error("No valid objects found to clone");
         }
+        if (count > 1 && !notFound.empty())
+            throw std::runtime_error("Every array source must exist before cloning");
 
         // Determine clone type
         CloneType ct = NODE_COPY;
@@ -844,11 +861,17 @@ std::string NativeHandlers::CloneObjects(const std::string& params, MCPBridgeGUP
             offsetVec.size() > 1 ? offsetVec[1] : 0.0f,
             offsetVec.size() > 2 ? offsetVec[2] : 0.0f
         );
-        INodeTab resultSource, resultTarget;
-        bool ok = ip->CloneNodes(srcNodes, offset, true, ct, &resultSource, &resultTarget);
-
-        if (!ok) {
-            throw std::runtime_error("CloneNodes failed");
+        INodeTab resultTarget;
+        for (int step = 1; step <= count; ++step) {
+            INodeTab batchSource, batchTarget;
+            Point3 stepOffset = offset * static_cast<float>(step);
+            if (!ip->CloneNodes(srcNodes, stepOffset, true,
+                               ct, &batchSource, &batchTarget)) {
+                // The dispatcher's native undo transaction rolls back all copies.
+                throw std::runtime_error("CloneNodes failed");
+            }
+            for (int i = 0; i < batchTarget.Count(); ++i)
+                resultTarget.AppendNode(batchTarget[i]);
         }
 
         // Build result
@@ -868,6 +891,7 @@ std::string NativeHandlers::CloneObjects(const std::string& params, MCPBridgeGUP
         json result;
         result["cloned"] = cloneNames;
         result["notFound"] = notFound;
+        result["count"] = count;
         result["nodes"] = nodes;
         result["space"] = SpatialSnapshot::SpaceJson();
         return result.dump();

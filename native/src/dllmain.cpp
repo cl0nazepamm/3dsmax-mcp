@@ -8,10 +8,6 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, ULONG fdwReason, LPVOID) {
     if (fdwReason == DLL_PROCESS_ATTACH) {
         hInstance = hinstDLL;
         DisableThreadLibraryCalls(hinstDLL);
-        // NOTE: do NOT call MCPChatUI::Init() here. It triggers
-        // LoadLibraryW("msftedit.dll") which acquires the loader lock —
-        // calling LoadLibrary from DllMain deadlocks Max at startup.
-        // Chat UI init is deferred to MCPBridgeGUP::Start().
     }
     return TRUE;
 }

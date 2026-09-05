@@ -29,6 +29,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from ..server import mcp, client
+from ..coerce import IntList
 
 
 def _signal_dir() -> Path:
@@ -125,6 +126,8 @@ def render_automations(
     job_id: str = "",
     signal_path: str = "",
     watch_timeout_sec: int = 3600,
+    crop: IntList | None = None,
+    capture_target: str = "vray_vfb",
 ) -> dict:
     """Arm a done-signal for the NEXT render, then report when it finishes.
 
@@ -140,12 +143,23 @@ def render_automations(
                job is already armed/pending — never arm twice.
       status   Read the signal file for `job_id` (or `signal_path`). Never touches
                Max — "rendering" until it exists, else the completion record
-               (status complete | aborted | error; a signal ALWAYS lands, even on
-               render failure or user cancel).
-      cancel   Abort the render in flight. Works WHILE Max is rendering — it
-               raises the renderer's abort flag from the bridge's pipe thread
-               (same as the Cancel button), so it never queues behind the render.
-               The done-signal then lands with status=aborted.
+               (the post-render event confirms the render ended, not its outcome;
+               a crash or failure before that event can leave no signal).
+      cancel   Request cancellation through Max's abort flag using a separate
+               native pipe connection pinned to the same Max instance. It bypasses
+               the normal connection's in-flight render. Cancellation is cooperative:
+               the renderer must check the flag. A cancelling response is not proof
+               that rendering has stopped; the completion signal does not reliably
+               distinguish cancellation from success.
+      cancel_capture  Save the visible VFB image, then request cancellation for
+               the matching armed job_id, through one independent connection.
+               Use only for a render you armed and started. crop=[x,y,width,height]
+               trims physical client-area pixels; capture_target=screen is an
+               explicit desktop fallback for another renderer's visible framebuffer.
+               Requires the updated bridge. Does not wait for Max or denoising.
+               Configure progressive sampling and the renderer's denoiser BEFORE
+               starting a production preview; this cannot retrofit a blocked render.
+               The result is partial evidence, never proof of a stopped/denoised render.
 
     watch_timeout_sec caps the watcher (default 3600; 0 = wait forever). On cap
     it prints {"status":"timeout"} and exits 2 — check action=status before
@@ -153,6 +167,21 @@ def render_automations(
     fires the render, so it can't set the VFB flag.)
     """
     action = (action or "status").strip().lower()
+
+    if action == "cancel_capture":
+        from .viewport import _validate_screen_crop
+        if not job_id:
+            raise ValueError("cancel_capture requires the job_id you armed before starting this render")
+        if capture_target not in {"vray_vfb", "screen"}:
+            raise ValueError("capture_target must be vray_vfb or screen")
+        if crop is not None:
+            _validate_screen_crop(crop)
+        payload = {"job_id":job_id, "target":capture_target, "max_width":1600}
+        if crop is not None: payload["crop"] = list(crop)
+        # A dedicated route makes old bridges fail BEFORE sending any global abort.
+        response = client.send_command(json.dumps(payload), cmd_type="native:render_cancel_capture")
+        raw = response.get("result", "")
+        return json.loads(raw) if isinstance(raw, str) else raw
 
     if action == "start":
         return _do_start(watch_timeout_sec)
@@ -165,4 +194,4 @@ def render_automations(
             return {"status": "error", "error": "provide job_id or signal_path"}
         return _read_signal(job_id, signal_path)
 
-    return {"status": "error", "error": f"unknown action: {action} (use start|status|cancel)"}
+    return {"status": "error", "error": f"unknown action: {action} (use start|status|cancel|cancel_capture)"}

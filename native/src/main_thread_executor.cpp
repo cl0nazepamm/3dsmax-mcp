@@ -114,10 +114,7 @@ LRESULT CALLBACK MainThreadExecutor::WndProc(
 
     // WM_MCP_EXECUTE + 1 with small wParam commands: macroscript actions.
     if (msg == WM_MCP_EXECUTE + 1) {
-        if (wp == 1) {
-            extern void ShowChat();
-            ShowChat();
-        } else if (wp == 2) {
+        if (wp == 2) {
             extern void ClaimNativeInstance();
             ClaimNativeInstance();
         } else if (wp == 3) {

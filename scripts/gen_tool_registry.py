@@ -1,20 +1,13 @@
-"""Generate native/generated/chat_tool_registry.inc from maxmcp/tools/*.py.
+"""Generate the native diagnostic tool registry from maxmcp/tools/*.py.
 
-Walks every @mcp.tool() function, extracts its name/docstring/signature,
-and emits a C++ initializer list that llm_client.cpp includes. Routing is
-by cmd_type: native handlers have `cmd_type="native:<name>"` somewhere in
-their body; tools without one are skipped (they'd need the Python server
-to run). execute_maxscript is added manually as a catch-all.
-
-Invoked by native/CMakeLists.txt before compiling llm_client.cpp.
-If this script fails, llm_client.cpp's #else branch keeps chat working
-with a hand-coded registry.
+Only directly routable native handlers and execute_maxscript are included.
+The external MCP server owns Python orchestration and exact schema validation.
+Shared extraction helpers also serve the tool catalog and native smoke cases.
 """
 
 from __future__ import annotations
 
 import ast
-import json
 import re
 import sys
 from pathlib import Path
@@ -22,14 +15,10 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOLS_DIR = ROOT / "maxmcp" / "tools"
-OUT_PATH = ROOT / "native" / "generated" / "chat_tool_registry.inc"
+OUT_PATH = ROOT / "native" / "generated" / "native_tool_registry.inc"
 
-# Parked modules must stay out of every generated LLM-facing registry even if
-# their implementation still contains or later regains tool decorators.
-DISABLED_MODULES = {"builder"}
-
-# Heuristic type hint → JSON-schema mapping. Good-enough for the LLM; exact
-# runtime validation happens server-side, not here.
+# Heuristic type hint → JSON-schema mapping for catalog previews. Exact
+# runtime validation happens in the external server, not here.
 TYPE_MAP = {
     "str": {"type": "string"},
     "int": {"type": "integer"},
@@ -150,34 +139,42 @@ def first_doc_line(func: ast.FunctionDef) -> str:
     return first[:300]
 
 
-# Tools that route through native:chat_ui are for external MCP drivers; the
-# in-Max chat itself must not expose them (would let the model call its own
-# send/reload/clear handlers and recurse).
-SKIP_CMD_TYPES = {"native:chat_ui"}
-
-# These tools compile/validate a temp graph in Python before forwarding a
-# smaller exact-ID payload to the native bridge. Standalone chat cannot run
-# that Python orchestration, so exposing the raw native cmdType there would
-# silently bypass the graph safety boundary.
+# These tools compile/validate a temporary graph in Python before forwarding
+# a smaller exact-ID payload. Direct native probes cannot run that orchestration.
 SKIP_TOOL_NAMES = {
+    # Mixed Python orchestration: status is a local file read, start only arms
+    # notifications, and cancel_capture uses a separate native route. Routing
+    # every action to the first discovered send_command could send an abort
+    # when a native diagnostic caller requested status.
+    "render_automations",
     "mcg_apply_modifier",
     "mcg_inspect_instance",
     "mcg_resolve_class",
     "mcg_set_node_parameter",
 }
 
-# Tools whose cmd_type is "maxscript" generate their MaxScript body inside
-# the Python function (f-strings over the kwargs). The C++ standalone chat
-# can't run that Python — it would only forward the JSON args as if they
-# were raw MaxScript, which they aren't. Exclude them from the chat's
-# registry; the LLM can still call execute_maxscript and write its own.
-# `execute_maxscript` itself is a first-class catch-all and always kept.
+# Python-generated MAXScript wrappers require the external server; direct native
+# probes can only pass through explicit execute_maxscript code.
 INCLUDE_MAXSCRIPT_NAMES = {"execute_maxscript"}
 
 # Hybrid wrappers sometimes expose Python-only orchestration fields that the
-# native route cannot consume directly. Override their standalone-chat surface
+# native route cannot consume directly. Override their direct-native surface
 # with the exact payload contract accepted by the selected native handler.
-STANDALONE_TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
+NATIVE_TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
+    "assign_material": {
+        "description": "Create a material and assign it to objects. Sharing a source object's material requires the external MCP wrapper.",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "names": {"type": "array", "items": {"type": "string"}},
+                "handles": {"type": "array", "items": {"type": "integer"}},
+                "material_class": {"type": "string"},
+                "material_name": {"type": "string"},
+                "params": {"type": "string"},
+            },
+            "required": ["material_class"],
+        },
+    },
     "create_shell_material": {
         "description": (
             "Wrap existing render and export materials in a Shell Material. "
@@ -199,8 +196,8 @@ STANDALONE_TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
             "required": ["shell_name", "render_material"],
         },
     },
-    # The external wrapper selects scan/fix routes dynamically. Standalone
-    # chat gets the read-only scan contract only; exposing a fixed mutation
+    # The external wrapper selects scan/fix routes dynamically. Native probes
+    # get the read-only scan contract only; exposing a fixed mutation
     # route under the same mixed-action schema would bypass that safety split.
     "scene_qa": {
         "cmdType": "native:scene_qa_scan",
@@ -226,8 +223,6 @@ STANDALONE_TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
 
 
 def extract_tools(path: Path) -> list[dict]:
-    if path.stem in DISABLED_MODULES:
-        return []
     source = path.read_text(encoding="utf-8")
     try:
         tree = ast.parse(source)
@@ -240,17 +235,15 @@ def extract_tools(path: Path) -> list[dict]:
             continue
         if not any(is_mcp_tool_decorator(d) for d in node.decorator_list):
             continue
-        override = STANDALONE_TOOL_OVERRIDES.get(node.name, {})
+        override = NATIVE_TOOL_OVERRIDES.get(node.name, {})
         cmd_type = override.get("cmdType") or find_cmd_type(node, source)
         if not cmd_type:
             # Python-only tool (manifest, identify, etc.) — skip
             continue
-        if cmd_type in SKIP_CMD_TYPES:
-            continue
         if node.name in SKIP_TOOL_NAMES:
             continue
         if cmd_type == "maxscript" and node.name not in INCLUDE_MAXSCRIPT_NAMES:
-            # Python-side MaxScript wrapper — its body can't run standalone.
+            # Python-side MAXScript wrapper — its body requires the server.
             continue
         tool = {
             "name": node.name,
@@ -284,7 +277,7 @@ def main() -> int:
         uniq.append(t)
 
     # Make sure execute_maxscript is present (register.py exposes it; safe to
-    # force-include so the LLM always has the catch-all).
+    # force-include for explicit native diagnostics).
     if "execute_maxscript" not in seen:
         uniq.append({
             "name": "execute_maxscript",
@@ -298,15 +291,13 @@ def main() -> int:
     lines.append("// AUTO-GENERATED by scripts/gen_tool_registry.py — do not edit by hand.")
     lines.append(f"// Source: {len(uniq)} tools from maxmcp/tools/*.py")
     lines.append("")
-    lines.append("static const ChatTool kChatTools[] = {")
+    lines.append("static const NativeTool kNativeTools[] = {")
     for t in uniq:
-        schema_json = json.dumps(t["schema"], separators=(",", ":"))
         lines.append(
-            f'    {{"{c_escape(t["name"])}", "{c_escape(t["cmdType"])}", '
-            f'"{c_escape(t["description"])}", "{c_escape(schema_json)}"}},'
+            f'    {{"{c_escape(t["name"])}", "{c_escape(t["cmdType"])}"}},'
         )
     lines.append("};")
-    lines.append(f"static const size_t kChatToolCount = sizeof(kChatTools) / sizeof(kChatTools[0]);")
+    lines.append(f"static const size_t kNativeToolCount = sizeof(kNativeTools) / sizeof(kNativeTools[0]);")
     lines.append("")
 
     OUT_PATH.write_text("\n".join(lines), encoding="utf-8")

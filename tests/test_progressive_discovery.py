@@ -54,6 +54,15 @@ class ProgressiveDiscoveryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("scene_patch", tools)
                 self.assertIn("action", tools["query_scene"]["input_schema"]["properties"])
 
+                modeling = _payload(await session.call_tool("describe_toolset", {"toolset":"modeling"}))
+                modeling_tools = {item["name"]:item for item in modeling["result"]["tools"]}
+                self.assertTrue({"create_mesh","inspect_mesh","mesh_edit"}.issubset(modeling_tools))
+                self.assertIn("operations",modeling_tools["mesh_edit"]["input_schema"]["properties"])
+                invalid_mesh = _payload(await session.call_tool("call_tool", {
+                    "name":"create_mesh", "arguments":{"name":"Invalid", "vertices":[], "faces":[]}
+                }))
+                self.assertFalse(invalid_mesh["ok"])
+
                 # Lazy imports populate only the private registry. The public MCP
                 # surface remains the same three schemas after discovery.
                 names_after = [tool.name for tool in (await session.list_tools()).tools]

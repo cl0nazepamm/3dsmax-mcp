@@ -219,9 +219,24 @@ def build_create_object_maxscript(
     )"""
 
 
-def build_clone_spatial_maxscript(node_names: list[str]) -> str:
-    names_array = "#(" + ", ".join(f'"{name.replace(chr(34), "")}"' for name in node_names) + ")"
+def build_clone_spatial_maxscript(node_names: list[str], *, node_handles: list[int] | None = None) -> str:
+    from .maxscript import safe_string
+    names_array = "#(" + ", ".join(f'"{safe_string(name)}"' for name in node_names) + ")"
+    node_expression = f'for n in {names_array} collect (getNodeByName n exact:true)'
+    if node_handles is not None:
+        handles_array = "#(" + ",".join(str(int(h)) for h in node_handles) + ")"
+        node_expression = f'for h in {handles_array} collect (getAnimByHandle h)'
     return f"""(
+        fn mcpJsonString s = (
+            local slash = bit.intAsChar 92
+            local quote = bit.intAsChar 34
+            s = substituteString s slash (slash + slash)
+            s = substituteString s quote (slash + quote)
+            s = substituteString s (bit.intAsChar 10) (slash + "n")
+            s = substituteString s (bit.intAsChar 13) (slash + "r")
+            s = substituteString s (bit.intAsChar 9) (slash + "t")
+            quote + s + quote
+        )
         fn mcpNum v = (
             if v == undefined then "null" else (formattedPrint (v as float) format:".6f")
         )
@@ -245,7 +260,8 @@ def build_clone_spatial_maxscript(node_names: list[str]) -> str:
             local center = (bbMin + bbMax) * 0.5
             local dims = bbMax - bbMin
             "{{" +
-                "\\\"name\\\":\\\"" + obj.name + "\\\"," +
+                "\\\"name\\\":" + mcpJsonString obj.name + "," +
+                "\\\"handle\\\":" + (formattedPrint ((getHandleByAnim obj) as integer64) format:"d") + "," +
                 "\\\"class\\\":\\\"" + ((classOf obj) as string) + "\\\"," +
                 "\\\"pivot\\\":" + mcpVec3 pivot + "," +
                 "\\\"bbox\\\":{{" +
@@ -264,12 +280,11 @@ def build_clone_spatial_maxscript(node_names: list[str]) -> str:
             "}}"
         )
 
-        local names = {names_array}
+        local sourceNodes = {node_expression}
         local nodes = "["
         local first = true
-        for n in names do (
-            local obj = getNodeByName n
-            if obj != undefined then (
+        for obj in sourceNodes do (
+            if isValidNode obj then (
                 if not first do nodes += ","
                 nodes += mcpNodeSnapshot obj
                 first = false

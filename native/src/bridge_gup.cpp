@@ -1,10 +1,9 @@
 #include "mcp_bridge/bridge_gup.h"
-#include "mcp_bridge/chat_ui.h"
-#include "mcp_bridge/llm_client.h"
 #include "mcp_bridge/native_handlers.h"
 #include "mcp_bridge/handler_helpers.h"
 #include "mcp_bridge/gdiplus_runtime.h"
 #include "mcp_bridge/scene_journal.h"
+#include "mcp_bridge/agent_viewport.h"
 #include <maxapi.h>
 #include <notify.h>
 #include <shlobj.h>
@@ -132,45 +131,12 @@ static std::string BuildInstanceJson(
     return ss.str();
 }
 
-void ShowChat() {
-    if (!g_gupInstance) return;
-
-    extern void ProcessChatMessage(const std::string& text, MCPBridgeGUP* gup);
-    extern void ProcessChatAction(const std::string& action, const std::string& detail, MCPBridgeGUP* gup);
-
-    MCPChatUI::SetMessageCallback([](const std::string& text) {
-        ProcessChatMessage(text, g_gupInstance);
-    });
-    MCPChatUI::SetActionCallback([](const std::string& action, const std::string& detail) {
-        ProcessChatAction(action, detail, g_gupInstance);
-    });
-
-    MCPChatUI::Show(g_gupInstance);
-
-    if (LLMClient::IsConfigured()) {
-        MCPChatUI::AppendMessage("ai", "Chat ready. Model: " + LLMClient::GetConfig().model);
-    } else {
-        MCPChatUI::AppendMessage("system",
-            "No API key. Edit %LOCALAPPDATA%\\3dsmax-mcp\\.env (add OPENROUTER_API_KEY), "
-            "then /reload.");
-    }
-}
-
 static void OnSystemStartupDone(void* param, NotifyInfo* info) {
     if (!g_gupInstance) return;
     UnRegisterNotification(OnSystemStartupDone, nullptr, NOTIFY_SYSTEM_STARTUP);
 
     // This macro is shared in the usermacros folder. Resolve the current
     // process PID at execution time so each Max talks to its own executor.
-    HandlerHelpers::RunMAXScript(
-        "macroScript MCP_Chat category:\"MCP\" tooltip:\"Open MCP AI Chat\" buttonText:\"MCP Chat\" "
-        "( on execute do ( "
-        "  local pid = ((dotNetClass \"System.Diagnostics.Process\").GetCurrentProcess()).Id; "
-        "  local hwnds = windows.getChildHWND 0 (\"MCPBridgeExecutor-\" + (pid as string)); "
-        "  if hwnds != undefined and hwnds.count > 0 do windows.sendMessage hwnds[1] 0x5144 1 0 "
-        ") )"
-    );
-
     HandlerHelpers::RunMAXScript(
         "macroScript MCP_ToolSmokeTest category:\"MCP\" tooltip:\"Run MCP read-tier tool smoke test\" buttonText:\"MCP Smoke\" "
         "( on execute do ( "
@@ -276,20 +242,8 @@ DWORD MCPBridgeGUP::Start() {
     instance_id_ = "pid-" + std::to_string(GetCurrentProcessId());
     pipe_name_utf8_ = "\\\\.\\pipe\\3dsmax-mcp-" + instance_id_;
 
-    // Chat UI init deferred out of DllMain — calling LoadLibraryW for
-    // msftedit.dll under the loader lock deadlocks Max startup.
-    MCPChatUI::Init(hInstance);
-
     StartPipe();
     SceneJournal::Register();
-
-    // Init LLM client — reads %LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini [llm]
-    LLMClient::Init();
-
-    if (LLMClient::IsConfigured()) {
-        std::wstring model = HandlerHelpers::Utf8ToWide(LLMClient::GetConfig().model);
-        LogBridge(L"MCP Bridge: Standalone chat ready (" + model + L")");
-    }
 
     // Register macroscripts after Max is fully loaded
     RegisterNotification(OnSystemStartupDone, nullptr, NOTIFY_SYSTEM_STARTUP);
@@ -302,29 +256,12 @@ DWORD MCPBridgeGUP::Start() {
 }
 
 void MCPBridgeGUP::Stop() {
+    AgentViewport::Shutdown(true);
     SceneJournal::Unregister();
     NativeHandlers::UnregisterRenderNotifications();
 
-    // Drain detached chat threads (ProcessChatMessage launches std::thread.detach()
-    // per user message; they sit in WinHTTP and capture `this`) before tearing
-    // down the executor and chat UI, otherwise the thread resumes into freed
-    // memory. Bounded so a stuck HTTP call doesn't hang Max shutdown forever.
-    extern bool WaitForChatTurns(int timeout_ms);
-    bool drained = WaitForChatTurns(5000);
-    if (!drained) {
-        Interface* ip = GetCOREInterface();
-        LogSys* log = ip ? ip->Log() : nullptr;
-        if (log) {
-            log->LogEntry(SYSLOG_WARN, NO_DIALOG, _T("MCP Bridge"),
-                _T("MCP Bridge: chat thread still in flight at shutdown — proceeding anyway"));
-        }
-    }
-
-    MCPChatUI::Destroy();
     StopPipe();
-    if (drained) {
-        GdiPlusRuntime::Shutdown();
-    }
+    GdiPlusRuntime::Shutdown();
     UnregisterInstance();
     executor_.Shutdown();
     g_gupInstance = nullptr;

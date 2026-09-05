@@ -2,7 +2,7 @@
 
 #include "mcp_bridge/bridge_gup.h"
 
-#include "mcp_bridge/llm_client.h"
+#include "mcp_bridge/native_tool_registry.h"
 
 #include "mcp_bridge/handler_helpers.h"
 
@@ -200,7 +200,7 @@ static void EnsureSmokeFixture(MCPBridgeGUP* gup) {
 
     try {
 
-        LLMClient::ExecuteTool("create_object", create, gup);
+        NativeToolRegistry::ExecuteTool("create_object", create, gup);
 
         json assign = {
 
@@ -212,7 +212,7 @@ static void EnsureSmokeFixture(MCPBridgeGUP* gup) {
 
         };
 
-        LLMClient::ExecuteTool("assign_material", assign, gup);
+        NativeToolRegistry::ExecuteTool("assign_material", assign, gup);
 
     } catch (...) {
 
@@ -242,7 +242,7 @@ static void CleanupSmokeFixture(MCPBridgeGUP* gup) {
 
     try {
 
-        LLMClient::ExecuteTool("delete_objects", cleanup, gup);
+        NativeToolRegistry::ExecuteTool("delete_objects", cleanup, gup);
 
     } catch (...) {
 
@@ -256,7 +256,7 @@ static void SceneHold(MCPBridgeGUP* gup) {
 
     try {
 
-        LLMClient::ExecuteTool("manage_scene", json{{"action", "hold"}}, gup);
+        NativeToolRegistry::ExecuteTool("manage_scene", json{{"action", "hold"}}, gup);
 
     } catch (...) {
 
@@ -270,7 +270,7 @@ static void SceneFetch(MCPBridgeGUP* gup) {
 
     try {
 
-        LLMClient::ExecuteTool("manage_scene", json{{"action", "fetch"}}, gup);
+        NativeToolRegistry::ExecuteTool("manage_scene", json{{"action", "fetch"}}, gup);
 
     } catch (...) {
 
@@ -476,7 +476,7 @@ static std::string RunToolSmokeImpl(const std::string& params, MCPBridgeGUP* gup
 
         try {
 
-            raw = LLMClient::ExecuteTool(sc.tool, input, gup);
+            raw = NativeToolRegistry::ExecuteTool(sc.tool, input, gup);
 
         } catch (const std::exception& e) {
 
@@ -590,7 +590,7 @@ std::string NativeHandlers::InvokeTool(const std::string& params, MCPBridgeGUP* 
 
 
 
-        return LLMClient::ExecuteTool(tool, input, gup);
+        return NativeToolRegistry::ExecuteTool(tool, input, gup);
 
     });
 

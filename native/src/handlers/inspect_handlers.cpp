@@ -1,6 +1,7 @@
 #include "mcp_bridge/native_handlers.h"
 #include "mcp_bridge/handler_helpers.h"
 #include "mcp_bridge/bridge_gup.h"
+#include "mcp_bridge/modifier_helpers.h"
 
 #include <iparamb2.h>
 #include <decomp.h>
@@ -374,6 +375,8 @@ std::string NativeHandlers::InspectProperties(const std::string& params, MCPBrid
         }
 
         json props = EnumPB2Properties(tgt, t);
+        if (props.empty() && target == "modifier" && ModifierHelpers::IsModifierClass(tgt->SuperClassID()))
+            props = ModifierHelpers::InspectLegacyParameters(static_cast<Modifier*>(tgt));
         result["propertyCount"] = props.size();
         result["properties"] = props;
 

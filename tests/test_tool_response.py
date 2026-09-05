@@ -75,6 +75,22 @@ class ToolResponseTests(unittest.TestCase):
         self.assertEqual(payload["error"]["retryable"], False)
         self.assertEqual(payload["hint"]["candidates"][0]["handle"], 10)
 
+    def test_native_user_busy_error_remains_retryable(self) -> None:
+        # The dispatcher rejects edits while another Max operation owns theHold.
+        # Keep that actionable code through the external MCP envelope, including
+        # older transports that omit the optional retryable field.
+        for retryable_field in (',"retryable":true', ""):
+            with self.subTest(retryable_field=retryable_field):
+                raw = (
+                    '{"type":"NativeError","code":"USER_BUSY",'
+                    '"message":"3ds Max has an open undo operation."'
+                    + retryable_field + "}"
+                )
+                payload = envelope_result(raw, elapsed_ms=0.1)
+                self.assertFalse(payload["ok"])
+                self.assertEqual(payload["error"]["code"], "USER_BUSY")
+                self.assertTrue(payload["error"]["retryable"])
+
     def test_json_success_payload_with_message_is_not_error(self) -> None:
         raw = '{"message":"Transformed Box001","handle":10,"position":[1,2,3]}'
         with patch.dict(os.environ, {"MCP_TRIPBACK_MODE": "minimal"}, clear=False):

@@ -12,7 +12,9 @@ def select_objects(
     class_name: str = "",
     all: bool = False,
 ) -> str:
-    """Select objects in the 3ds Max scene."""
+    """Select objects in the 3ds Max scene. An explicit names=[] clears selection."""
+    if names == [] and not (pattern or class_name or all):
+        return client.send_command('(clearSelection(); "Selected 0 objects")').get("result", "")
     if client.native_available:
         try:
             params: dict = {}

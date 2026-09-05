@@ -169,10 +169,13 @@ def _parse_summary(raw: str) -> dict[str, Any] | None:
     }
 
 
-_EDITABLE_GUARD = (
-    "local wasConverted = false\n"
-    "if not (isKindOf obj SplineShape) do (convertToSplineShape obj; wasConverted = true)\n"
-)
+def _editable_guard(convert: bool) -> str:
+    return (
+        "local wasConverted = false\n"
+        "if not (isKindOf obj.baseObject SplineShape) do (\n"
+        + ("" if convert else 'if obj.modifiers.count > 0 do throw "Editable spline base required; convert=true explicitly collapses the stack"\n')
+        + "convertToSplineShape obj; wasConverted = true\n)\n"
+    )
 
 
 @mcp.tool()
@@ -191,6 +194,7 @@ def draw_spline(
     sides: int = 12,
     samples: int = 0,
     center_pivot: bool = False,
+    convert: bool = False,
 ) -> Any:
     """Draw and edit spline shapes from explicit points (world-space).
 
@@ -211,6 +215,9 @@ def draw_spline(
     - delete_spline: remove spline_index entirely.
     - set_render: toggle renderable mesh — thickness (0 disables), sides.
 
+    Edits target the spline BASE, preserving Surface, CrossSection, Sweep, etc.
+    A parametric base with modifiers requires convert=true to collapse explicitly;
+    bare parametric shapes still convert automatically. Coordinates are world-space.
     Pair with modifiers for solids: Extrude, Lathe, Bevel, Sweep on the result.
     Use when: tracing reference profiles/silhouettes, drawing paths, building
     curved forms parametric primitives cannot express, refining spline curves.
@@ -223,6 +230,7 @@ def draw_spline(
     default_type = knot_type.strip().lower() or "smooth"
     if default_type not in KNOT_TYPES:
         return _err(f"knot_type must be one of {sorted(set(KNOT_TYPES))}")
+    editable_guard = _editable_guard(convert)
 
     if action == "create":
         pts, perr = _normalize_points(points, default_type)
@@ -263,7 +271,7 @@ def draw_spline(
         if len(pts) < 2:
             return _err("add_spline needs at least 2 points")
         body = [
-            _EDITABLE_GUARD,
+            editable_guard,
             "addNewSpline obj",
             "local sidx = numSplines obj",
         ]
@@ -307,7 +315,7 @@ def draw_spline(
         script = f"""(
 {guard}(
     local out = stringstream ""
-    format "SHAPE|%|%\\n" ((classof obj) as string) ((isKindOf obj SplineShape) as string) to:out
+    format "SHAPE|%|%|%|%\\n" ((classof obj) as string) ((isKindOf obj.baseObject SplineShape) as string) ((classof obj.baseObject) as string) obj.modifiers.count to:out
     local emitted = 0
     try (
         for s = 1 to (numSplines obj) do (
@@ -326,7 +334,7 @@ def draw_spline(
         raw = _run(script)
         if raw.startswith("__ERROR__|"):
             return _err(raw.split("|", 1)[1])
-        result: dict[str, Any] = {"name": name, "splines": []}
+        result: dict[str, Any] = {"name": name, "splines": [], "cage": "base", "space": "world"}
         by_idx: dict[int, dict[str, Any]] = {}
         emitted = 0
         for line in raw.splitlines():
@@ -335,6 +343,9 @@ def draw_spline(
             if kind == "SHAPE" and len(f) >= 2:
                 result["class"] = f[0]
                 result["editable"] = f[1] == "true"
+                if len(f) >= 4:
+                    result["base_class"] = f[2]
+                    result["modifiers_above"] = int(f[3])
             elif kind == "SPL" and len(f) >= 3:
                 idx = int(f[0])
                 by_idx[idx] = {
@@ -376,7 +387,7 @@ def draw_spline(
         edits = list(knots or [])
         if not edits:
             return _err("set_knots needs `knots`: [{spline, knot, pos?, in_vec?, out_vec?, type?}]")
-        lines = [_EDITABLE_GUARD, "local edited = 0"]
+        lines = [editable_guard, "local edited = 0"]
         for i, k in enumerate(edits):
             if not isinstance(k, dict):
                 return _err(f"knots[{i}] must be a dict")
@@ -433,7 +444,7 @@ def draw_spline(
             return _err("insert_knot needs `segment` (1-based) and `param` (0-1) on spline_index")
         p = min(max(float(param), 0.0), 1.0)
         body = [
-            _EDITABLE_GUARD,
+            editable_guard,
             f"if {spline_index} > (numSplines obj) then \"__ERROR__|spline_index out of range\" else (",
             f"if {segment} > (numSegments obj {spline_index}) then \"__ERROR__|segment out of range\" else (",
             f"local newIdx = refineSegment obj {spline_index} {segment} {p}",
@@ -460,7 +471,7 @@ def draw_spline(
         if knot_index < 1:
             return _err("delete_knot needs knot_index (1-based) on spline_index")
         body = [
-            _EDITABLE_GUARD,
+            editable_guard,
             f"if {spline_index} > (numSplines obj) then \"__ERROR__|spline_index out of range\" else (",
             f"if {knot_index} > (numKnots obj {spline_index}) then \"__ERROR__|knot_index out of range\" else (",
             f"deleteKnot obj {spline_index} {knot_index}",
@@ -480,7 +491,7 @@ def draw_spline(
 
     if action == "delete_spline":
         body = [
-            _EDITABLE_GUARD,
+            editable_guard,
             f"if {spline_index} > (numSplines obj) then \"__ERROR__|spline_index out of range\" else (",
             f"deleteSpline obj {spline_index}",
             "updateShape obj",

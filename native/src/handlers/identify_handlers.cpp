@@ -2,6 +2,7 @@
 #include "mcp_bridge/handler_helpers.h"
 #include "mcp_bridge/bridge_gup.h"
 #include "mcp_bridge/gdiplus_runtime.h"
+#include "mcp_bridge/agent_viewport.h"
 
 #include <GraphicsWindow.h>
 #include <gdiplus.h>
@@ -435,6 +436,8 @@ std::string IsolateAndCaptureSelected(
     const std::string& params,
     MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([&params]() -> std::string {
+        if(AgentViewport::IsOwned()) throw std::runtime_error(
+            "Scene-wide isolation is disabled while AGENT VIEWPORT is owned; use agent_viewport frame and capture_viewport");
         const json payload = json::parse(params, nullptr, false);
         if (payload.is_discarded()) {
             throw std::runtime_error("Invalid JSON payload");

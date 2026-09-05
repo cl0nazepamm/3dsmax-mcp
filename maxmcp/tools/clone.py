@@ -1,4 +1,5 @@
 import json as _json
+import math
 from typing import Optional
 
 from ..coerce import FloatList, StrList
@@ -12,11 +13,29 @@ def clone_objects(
     names: StrList,
     mode: str = "copy",
     offset: Optional[FloatList] = None,
+    count: int = 1,
 ) -> str:
     """Clone (copy/instance/reference) objects in the scene.
 
-    Returns cloned names plus a spatial snapshot (bbox, pivot, groundContact) for each clone.
+    count is the number of NEW copies per source (1-200), excluding the original.
+    Each repetition uses offset * (1..count) from the original in world units.
+    Example: count=14, offset=[60,0,0], mode="instance" builds a 15-beam row.
+    Repeated arrays preserve hierarchies and run in one undo step.
+    Returns actual cloned names and spatial snapshots; duplicate sources are ignored.
     """
+    names = list(dict.fromkeys(names))
+    if not names:
+        raise ValueError("names is required")
+    if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 200:
+        raise ValueError("count must be an integer from 1 to 200 (new copies per source)")
+    mode = mode.strip().lower()
+    if mode not in {"copy", "instance", "reference"}:
+        raise ValueError("mode must be copy, instance, or reference")
+    if offset is not None:
+        if len(offset) != 3 or any(isinstance(v, bool) or not math.isfinite(float(v)) for v in offset):
+            raise ValueError("offset must contain three finite numbers")
+    if count > 1:
+        return _clone_array(names, mode, list(offset or [0.0, 0.0, 0.0]), count)
     if client.native_available:
         try:
             params: dict = {"names": names, "mode": mode}
@@ -104,4 +123,63 @@ def clone_objects(
             except (_json.JSONDecodeError, TypeError):
                 pass
 
+    return _json.dumps(payload)
+
+
+def _clone_array(names: list[str], mode: str, offset: list[float], count: int) -> str:
+    """One bridge call for the mutation, compatible with already installed bridges."""
+    name_arr = "#(" + ",".join(f'"{safe_string(n)}"' for n in names) + ")"
+    vec = "[" + ",".join(format(float(v), ".9g") for v in offset) + "]"
+    # Keep the clone API's dependency/hierarchy mapping intact. Moving individual
+    # nodes afterward would move parented descendants twice.
+    script = f'''(
+        local src = #()
+        local missing = #()
+        for nm in {name_arr} do (
+            local matches = getNodeByName nm exact:true all:true
+            if matches.count != 1 then append missing nm else append src matches[1]
+        )
+        if missing.count > 0 then ("__ERROR__|Sources must resolve uniquely: " + (missing as string))
+        else (
+            local made = #()
+            local failure = ""
+            undo "Clone array" on (
+                try (
+                    for step = 1 to {count} do (
+                        local batch = #()
+                        local ok = maxOps.cloneNodes src offset:({vec} * step) expandHierarchy:true cloneType:#{mode} newNodes:&batch
+                        join made batch
+                        if not ok do throw "CloneNodes failed"
+                    )
+                ) catch (
+                    failure = getCurrentException() as string
+                    for n in made where isValidNode n do delete n
+                )
+            )
+            if failure != "" then ("__ERROR__|" + failure)
+            else (
+                local handles = for n in made collect (formattedPrint ((getHandleByAnim n) as integer64) format:"d")
+                local out = ""
+                for h in handles do out += h + ","
+                out
+            )
+        )
+    )'''
+    raw = str(client.send_command(script).get("result", ""))
+    if raw.startswith("__ERROR__|"):
+        raise RuntimeError(raw.split("|", 1)[1])
+    handles = [int(h) for h in raw.split(",") if h.strip()]
+    if not handles:
+        raise RuntimeError("Clone array returned no node handles")
+    # Resolve by stable handles, not generated names. The helper then supplies
+    # the same detailed spatial contract used by single clones.
+    spatial_script = build_clone_spatial_maxscript([], node_handles=handles)
+    response = client.send_command(spatial_script)
+    payload = _json.loads(response.get("result", "{}"))
+    nodes = payload.get("nodes", [])
+    if len(nodes) != len(handles):
+        raise RuntimeError("Clone array spatial readback is incomplete; inspect scene before retrying")
+    for node in nodes:
+        enrich_spatial_payload(node, str(node.get("class", "")))
+    payload.update(cloned=[n["name"] for n in nodes], notFound=[], count=count, offset=offset)
     return _json.dumps(payload)

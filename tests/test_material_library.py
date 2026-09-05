@@ -291,7 +291,7 @@ class MaterialLibraryToolTests(unittest.TestCase):
         self.assertIn("one or more material library backups failed", source)
         self.assertNotIn("RunMAXScript", source)
 
-    def test_standalone_chat_backup_schema_matches_native_public_args(self) -> None:
+    def test_native_registry_backup_schema_matches_native_public_args(self) -> None:
         tools = extract_tools(Path("maxmcp/tools/materials.py"))
         backup = next(
             tool for tool in tools

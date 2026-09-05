@@ -1,8 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 # Single source of truth for the package version: pyproject.toml. CMake parses
-# it so the WinHTTP user agent and any other version-stamped strings stay in
-# sync without a second bump site.
+# it so the native project version stays in sync without a second bump site.
 set(MCP_BRIDGE_VERSION "0.0.0")
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../pyproject.toml")
     file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../pyproject.toml" _pyproject)
@@ -44,42 +43,32 @@ if(NOT EXISTS "${MAXSDK_PATH}/include/max.h")
     message(FATAL_ERROR "Cannot find max.h at ${MAXSDK_PATH}/include/max.h")
 endif()
 
-# ── Generated chat tool registry ─────────────────────────────────
-# scripts/gen_tool_registry.py walks maxmcp/tools/*.py and emits
-# native/generated/chat_tool_registry.inc — the chat tool surface for v0.7.0.
-# If Python or the script is unavailable, llm_client.cpp falls back to a
-# hand-coded registry so chat still works.
-set(TOOL_REGISTRY_INC "${CMAKE_CURRENT_SOURCE_DIR}/generated/chat_tool_registry.inc")
+# ── Generated native diagnostic registry ─────────────────────────
+# This registry serves invoke_tool and the native smoke harness only. External
+# MCP exposes the Python tool schemas and performs their orchestration.
+set(TOOL_REGISTRY_INC "${CMAKE_CURRENT_SOURCE_DIR}/generated/native_tool_registry.inc")
 set(TOOL_SMOKE_INC "${CMAKE_CURRENT_SOURCE_DIR}/generated/tool_smoke_cases.inc")
-find_package(Python3 QUIET COMPONENTS Interpreter)
-if(Python3_Interpreter_FOUND)
-    file(GLOB_RECURSE PY_TOOL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../maxmcp/tools/*.py")
-    add_custom_command(
-        OUTPUT "${TOOL_REGISTRY_INC}"
-        COMMAND ${Python3_EXECUTABLE}
-                "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_registry.py"
-        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_registry.py"
-                ${PY_TOOL_SOURCES}
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
-        COMMENT "Generating chat_tool_registry.inc from maxmcp/tools/*.py"
-        VERBATIM
-    )
-    add_custom_target(gen_tool_registry DEPENDS "${TOOL_REGISTRY_INC}")
-
-    add_custom_command(
-        OUTPUT "${TOOL_SMOKE_INC}"
-        COMMAND ${Python3_EXECUTABLE}
-                "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_smoke.py"
-        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_smoke.py"
-                ${PY_TOOL_SOURCES}
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
-        COMMENT "Generating tool_smoke_cases.inc from maxmcp/tools/*.py"
-        VERBATIM
-    )
-    add_custom_target(gen_tool_smoke DEPENDS "${TOOL_SMOKE_INC}")
-else()
-    message(WARNING "Python3 not found — chat tool registry will use hand-coded fallback in llm_client.cpp")
-endif()
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+file(GLOB_RECURSE PY_TOOL_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../maxmcp/tools/*.py")
+add_custom_command(
+    OUTPUT "${TOOL_REGISTRY_INC}"
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_registry.py"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_registry.py" ${PY_TOOL_SOURCES}
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    COMMENT "Generating native_tool_registry.inc from maxmcp/tools/*.py"
+    VERBATIM
+)
+add_custom_target(gen_tool_registry DEPENDS "${TOOL_REGISTRY_INC}")
+add_custom_command(
+    OUTPUT "${TOOL_SMOKE_INC}"
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_smoke.py"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_smoke.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_registry.py" ${PY_TOOL_SOURCES}
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    COMMENT "Generating tool_smoke_cases.inc from maxmcp/tools/*.py"
+    VERBATIM
+)
+add_custom_target(gen_tool_smoke DEPENDS "${TOOL_SMOKE_INC}")
 
 # ── Sources ──────────────────────────────────────────────────────
 set(SOURCES
@@ -94,6 +83,7 @@ set(SOURCES
     src/handlers/scene_patch_handlers.cpp
     src/handlers/scene_qa_handlers.cpp
     src/spatial_snapshot.cpp
+    src/agent_viewport.cpp
     src/handlers/object_handlers.cpp
     src/handlers/orientation_handlers.cpp
     src/handlers/modifier_handlers.cpp
@@ -117,19 +107,13 @@ set(SOURCES
     src/handlers/mainthread_handlers.cpp
     src/handlers/discovery_handlers.cpp
     src/handlers/capabilities_handlers.cpp
-    src/handlers/chat_handlers.cpp
     src/handlers/tool_test_handlers.cpp
-    src/chat_ui.cpp
-    src/llm_client.cpp
+    src/native_tool_registry.cpp
 )
 
 add_library(mcp_bridge SHARED ${SOURCES})
 
-# llm_client.cpp #include's generated/chat_tool_registry.inc. Make the build
-# wait for the generator (when Python is available).
-if(Python3_Interpreter_FOUND)
-    add_dependencies(mcp_bridge gen_tool_registry gen_tool_smoke)
-endif()
+add_dependencies(mcp_bridge gen_tool_registry gen_tool_smoke)
 
 # Output as .gup
 set_target_properties(mcp_bridge PROPERTIES
@@ -142,7 +126,7 @@ target_sources(mcp_bridge PRIVATE src/mcp_bridge.def)
 # ── Includes ─────────────────────────────────────────────────────
 target_include_directories(mcp_bridge PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    "${CMAKE_CURRENT_SOURCE_DIR}"          # for generated/chat_tool_registry.inc
+    "${CMAKE_CURRENT_SOURCE_DIR}"          # for generated/native_tool_registry.inc
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party"
     "${MAXSDK_PATH}/include"
 )
@@ -171,6 +155,8 @@ target_link_libraries(mcp_bridge PRIVATE
     Paramblk2.lib
     Maxscrpt.lib
     Geom.lib
+    mesh.lib
+    ViewSystem.lib
     comctl32.lib
 )
 
@@ -182,6 +168,27 @@ if(MSVC)
 endif()
 
 # ── Deploy ───────────────────────────────────────────────────────
+option(MCP_BUILD_TRANSACTION_POLICY_TESTS "Build SDK-independent dispatcher transaction policy tests" OFF)
+if(MCP_BUILD_TRANSACTION_POLICY_TESTS)
+    enable_testing()
+    add_executable(transaction_policy_tests tests/transaction_policy_tests.cpp)
+    target_include_directories(transaction_policy_tests PRIVATE include third_party)
+    add_test(NAME transaction_policy COMMAND transaction_policy_tests)
+    add_executable(capture_region_tests tests/capture_region_tests.cpp)
+    target_include_directories(capture_region_tests PRIVATE include third_party)
+    add_test(NAME capture_region COMMAND capture_region_tests)
+endif()
+
+option(MCP_BUILD_AGENT_VIEWPORT_PROBE "Build optional live agent viewport SDK test harness" OFF)
+if(MCP_BUILD_AGENT_VIEWPORT_PROBE)
+    add_library(agent_viewport_probe SHARED tests/agent_viewport_probe.cpp src/agent_viewport.cpp src/spatial_snapshot.cpp src/scene_journal.cpp src/handlers/viewport_handlers.cpp src/gdiplus_runtime.cpp src/main_thread_executor.cpp)
+    target_include_directories(agent_viewport_probe PRIVATE include third_party "${MAXSDK_PATH}/include")
+    target_compile_definitions(agent_viewport_probe PRIVATE NOMINMAX _UNICODE UNICODE MAX_SDK_VERSION=${MAX_VERSION} MAX_SILENCE_DEPRECATED_MATRIX_BOOL_CTOR)
+    target_link_directories(agent_viewport_probe PRIVATE "${MAXSDK_PATH}/lib/x64/Release")
+    target_link_libraries(agent_viewport_probe PRIVATE core.lib maxutil.lib Maxscrpt.lib Geom.lib mesh.lib Paramblk2.lib ViewSystem.lib)
+    target_compile_options(agent_viewport_probe PRIVATE /EHa)
+endif()
+
 set(MAX_PLUGINS_DIR "C:/Program Files/Autodesk/3ds Max ${MAX_VERSION}/plugins"
     CACHE PATH "3ds Max plugins directory")
 

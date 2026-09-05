@@ -10,6 +10,7 @@ inside the modifier, so name cutters after the feature they cut.
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Optional
 
 from ..coerce import DictList, DictValue, StrList
@@ -53,13 +54,16 @@ def _op_enum(token: str) -> str | None:
 def _triple(v: Any, what: str) -> tuple[list[float] | None, str]:
     """[x,y,z] (or a single number -> uniform) as floats."""
     if isinstance(v, (int, float)) and not isinstance(v, bool):
-        return [float(v)] * 3, ""
+        if math.isfinite(v):
+            return [float(v)] * 3, ""
     if isinstance(v, (list, tuple)) and len(v) == 3:
         try:
-            return [float(x) for x in v], ""
+            values = [float(x) for x in v]
+            if all(not isinstance(x, bool) for x in v) and all(math.isfinite(x) for x in values):
+                return values, ""
         except (TypeError, ValueError):
             pass
-    return None, f"{what} must be a number or [x, y, z]"
+    return None, f"{what} must be a finite number or [x, y, z]"
 
 
 def _fmt3(v: list[float]) -> str:
@@ -72,9 +76,8 @@ def _normalize_cutters(
     """Expand cutter defs (+ optional repeat) into flat, validated instances."""
     reps, axis, spacing = 1, AXES["x"], 0.0
     if repeat:
-        try:
-            reps = int(repeat.get("count", 0))
-        except (TypeError, ValueError):
+        reps = repeat.get("count", 0)
+        if isinstance(reps, bool) or not isinstance(reps, int):
             return None, "repeat.count must be an integer"
         if reps < 1:
             return None, "repeat.count must be >= 1"
@@ -86,8 +89,10 @@ def _normalize_cutters(
             spacing = float(repeat.get("spacing", 0.0))
         except (TypeError, ValueError):
             return None, "repeat.spacing must be a number"
-        if reps > 1 and spacing <= 0:
+        if not math.isfinite(spacing) or (reps > 1 and spacing <= 0):
             return None, "repeat.spacing must be > 0 (flip direction with a signed axis, e.g. '-x')"
+    if reps * len(cutters) > MAX_CUTTER_INSTANCES:
+        return None, f"cutter expansion exceeds cap {MAX_CUTTER_INSTANCES}"
     instances: list[dict[str, Any]] = []
     for idx, c in enumerate(cutters):
         if not isinstance(c, dict):
@@ -98,6 +103,9 @@ def _normalize_cutters(
         shape = CUTTER_SHAPES.get(str(c.get("shape", "box")).strip().lower())
         if shape is None:
             return None, f"cutters[{idx}]: shape must be box, cylinder, or sphere"
+        segments = c.get("segments", 64 if shape == 2 else 32)
+        if isinstance(segments, bool) or not isinstance(segments, int) or not 4 <= segments <= 256:
+            return None, f"cutters[{idx}].segments must be an integer from 4 to 256"
         size, err = _triple(c.get("size"), f"cutters[{idx}].size")
         if err:
             return None, err
@@ -118,6 +126,7 @@ def _normalize_cutters(
                 {
                     "name": nm if reps == 1 else f"{nm}_{i + 1}",
                     "shape": shape,
+                    "segments": segments,
                     "size": size,
                     "pos": [pos[k] + axis[k] * spacing * i for k in range(3)],
                     "rot": rot,
@@ -136,9 +145,10 @@ _CUTTER_SCRIPT = """local madeCutters = #()
             for d in cutDefs do (
                 local c
                 if d[2] == 1 then c = Box width:d[3].x length:d[3].y height:d[3].z
-                else if d[2] == 2 then c = Cylinder radius:((amin #(d[3].x, d[3].y)) / 2.0) height:d[3].z
-                else c = Sphere radius:((amin #(d[3].x, d[3].y, d[3].z)) / 2.0)
+                else if d[2] == 2 then c = Cylinder radius:((amin #(d[3].x, d[3].y)) / 2.0) height:d[3].z sides:d[7] heightsegs:1 capsegs:1
+                else c = Sphere radius:((amin #(d[3].x, d[3].y, d[3].z)) / 2.0) segments:d[7]
                 c.name = d[1]
+                c.material = obj.material
                 if d[5] != [0,0,0] do c.rotation = eulerAngles d[5].x d[5].y d[5].z
                 c.pos += d[4] - c.center
                 append madeCutters c
@@ -207,7 +217,9 @@ def boolean_operation(
       `cutters`: scratch primitives built and applied in the same call — never
       litter the scene. Each: {name (required), shape: box|cylinder|sphere (default
       box), size: [x,y,z] or number, pos: [x,y,z] bbox CENTER, rot: [deg,deg,deg],
-      operation?}. Cylinder is Z-axis (rot to orient); size a through-cut past both
+      operation?, segments? (4-256; cylinder default 64, sphere 32)}.
+      Cylinder size is [diameterX,diameterY,height], using the smaller diameter.
+      Cylinder is Z-axis (rot to orient); size a through-cut past both
       faces. `repeat` {count, axis: x|y|z|-x|-y|-z, spacing} arrays every cutter
       along the axis, naming instances <name>_1..N.
     - list: enumerate operand stack — flat index, name, operation, option, disabled.
@@ -264,7 +276,7 @@ def boolean_operation(
         fail_cleanup = ""
         if cut_instances:
             cut_defs = "#(" + ", ".join(
-                '#("%s", %d, %s, %s, %s, %s)'
+                '#("%s", %d, %s, %s, %s, %s, %d)'
                 % (
                     safe_string(ci["name"]),
                     ci["shape"],
@@ -272,6 +284,7 @@ def boolean_operation(
                     _fmt3(ci["pos"]),
                     _fmt3(ci["rot"]),
                     ci["enum"],
+                    ci["segments"],
                 )
                 for ci in cut_instances
             ) + ")"
@@ -320,6 +333,9 @@ def boolean_operation(
         undo "Boolean" on (
             {find_or_make}
             {chr(10).join("            " + p for p in props)}
+            -- Initialize the modifier context before capturing non-live operands.
+            -- Otherwise a fresh BooleanMod can lose their relative transforms.
+            local baseFaceCount = GetTriMeshFaceCount obj
             {cutter_block}local failed = ""
             for i = 1 to opNodes.count do (
                 local ok = false

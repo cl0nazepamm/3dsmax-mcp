@@ -62,7 +62,6 @@ packages = ["maxmcp"]
 "install.py" = "maxmcp/installer.py"
 "pyproject.toml" = "maxmcp/pyproject.toml"
 "mcp_config.ini" = "maxmcp/mcp_config.ini"
-".env.example" = "maxmcp/.env.example"
 "maxscript" = "maxmcp/maxscript"
 "native/bin" = "maxmcp/native/bin"
 "bundle/PackageContents.xml.in" = "maxmcp/bundle/PackageContents.xml.in"

@@ -11,7 +11,7 @@ from maxmcp.tools.material_shell import build_shell_wrap_maxscript
 
 
 class ShellMaterialTests(unittest.TestCase):
-    def test_standalone_chat_schema_only_exposes_native_wrap_mode(self) -> None:
+    def test_native_registry_schema_only_exposes_native_wrap_mode(self) -> None:
         tools = extract_tools(Path("maxmcp/tools/material_ops.py"))
         shell = next(
             tool for tool in tools

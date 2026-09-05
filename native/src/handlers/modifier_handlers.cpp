@@ -2,9 +2,11 @@
 #include "mcp_bridge/handler_helpers.h"
 #include "mcp_bridge/spatial_snapshot.h"
 #include "mcp_bridge/bridge_gup.h"
+#include "mcp_bridge/modifier_helpers.h"
 
 #include <modstack.h>
 #include <iparamb2.h>
+#include <memory>
 
 using json = nlohmann::json;
 using namespace HandlerHelpers;
@@ -72,15 +74,9 @@ std::string NativeHandlers::AddModifier(const std::string& params, MCPBridgeGUP*
         Interface* ip = GetCOREInterface();
         TimeValue t = ip->GetTime();
 
-        // Find the modifier ClassDesc
-        ClassDesc* cd = FindClassDescByName(modClass, OSM_CLASS_ID);
-        if (!cd) cd = FindClassDescByName(modClass, WSM_CLASS_ID);
-        if (!cd) cd = FindClassDescByName(modClass);
-        if (!cd) throw std::runtime_error("Unknown modifier class: " + modClass);
-
-        // Create modifier instance
-        Modifier* mod = (Modifier*)ip->CreateInstance(cd->SuperClassID(), cd->ClassID());
-        if (!mod) throw std::runtime_error("Failed to create modifier: " + modClass);
+        Modifier* mod = ModifierHelpers::CreateModifier(modClass);
+        const auto deleteUnused = [](Modifier* value) { if (value) value->DeleteThis(); };
+        std::unique_ptr<Modifier, decltype(deleteUnused)> unusedModifier(mod, deleteUnused);
 
         // Set params via IParamBlock2 if provided
         if (!modParams.empty()) {
@@ -92,7 +88,7 @@ std::string NativeHandlers::AddModifier(const std::string& params, MCPBridgeGUP*
                 if (i >= modParams.size()) break;
                 size_t keyStart = i;
                 while (i < modParams.size() && modParams[i] != ':') i++;
-                if (i >= modParams.size()) break;
+                if (i >= modParams.size()) throw std::runtime_error("Expected modifier parameter key:value");
                 std::string key = modParams.substr(keyStart, i - keyStart);
                 i++; // skip ':'
                 size_t valStart = i;
@@ -114,7 +110,8 @@ std::string NativeHandlers::AddModifier(const std::string& params, MCPBridgeGUP*
                     while (i < modParams.size() && modParams[i] != ' ') i++;
                 }
                 std::string val = modParams.substr(valStart, i - valStart);
-                SetParamByName(mod, key, val, t);
+                if (!ModifierHelpers::SetParameter(mod, key, val, t))
+                    throw std::runtime_error("Unsupported modifier parameter or value: " + key);
             }
         }
 
@@ -123,6 +120,7 @@ std::string NativeHandlers::AddModifier(const std::string& params, MCPBridgeGUP*
         Object* objRef = node->GetObjectRef();
         if (objRef && objRef->SuperClassID() == GEN_DERIVOB_CLASS_ID) {
             IDerivedObject* dobj = (IDerivedObject*)objRef;
+            unusedModifier.release(); // The stack/reference system takes ownership.
             dobj->AddModifier(mod);
         }
 
@@ -462,7 +460,14 @@ std::string NativeHandlers::SetModifierProperty(const std::string& params, MCPBr
         json hits = json::array();
         int modCount = 0;
 
-        ip->DisableSceneRedraw();
+        // Parameter setters can throw; always restore viewport redraw on exit.
+        struct RedrawScope {
+            Interface* core;
+            explicit RedrawScope(Interface* value) : core(value) { core->DisableSceneRedraw(); }
+            ~RedrawScope() { core->EnableSceneRedraw(); }
+        };
+        {
+        RedrawScope redraw(ip);
 
         for (INode* node : targets) {
             Object* objRef = node->GetObjectRef();
@@ -477,7 +482,7 @@ std::string NativeHandlers::SetModifierProperty(const std::string& params, MCPBr
                     const MCHAR* cn = mod->ClassName().data();
                     if (_wcsicmp(cn, wModClass.c_str()) != 0) return;
                 }
-                if (!SetParamByName(mod, propName, propValue, t)) return;
+                if (!ModifierHelpers::SetParameter(mod, propName, propValue, t)) return;
 
                 mod->NotifyDependents(FOREVER, PART_ALL, REFMSG_CHANGE);
                 modCount++;
@@ -507,7 +512,7 @@ std::string NativeHandlers::SetModifierProperty(const std::string& params, MCPBr
             }
         }
 
-        ip->EnableSceneRedraw();
+        }
         ip->RedrawViews(t);
 
         if (modCount == 0) {
