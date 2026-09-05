@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "3dsmax-mcp"
-version = "1.5.5"
+version = "1.6.6"
 description = "MCP server for AI agents to control Autodesk 3ds Max"
 # Bilingual landing page — this is the PyPI project page, and domestic Chinese PyPI
 # mirrors index it, so it carries the pitch in both languages. Not README.md: that one

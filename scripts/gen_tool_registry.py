@@ -142,6 +142,9 @@ def first_doc_line(func: ast.FunctionDef) -> str:
 # These tools compile/validate a temporary graph in Python before forwarding
 # a smaller exact-ID payload. Direct native probes cannot run that orchestration.
 SKIP_TOOL_NAMES = {
+    "curve_model",
+    "inspect_curve",
+    "edit_curve",
     # Mixed Python orchestration: status is a local file read, start only arms
     # notifications, and cancel_capture uses a separate native route. Routing
     # every action to the first discovered send_command could send an abort

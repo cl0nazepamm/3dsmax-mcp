@@ -5,7 +5,7 @@
 用中文描述你要做的事，智能体通过专用 MCP 工具直接操作场景——创建物体、构建材质、驱动修改器与控制器、
 截取视口、检查插件。progressive 配置只公开三个发现/调用工具，再按需加载完整工具定义，避免一次性占用大量上下文。
 
-**当前版本：1.5.5** — 见 [CHANGELOG.md](docs/CHANGELOG.md)。
+**当前版本：1.6.6 — Astra Edition** — 见 [CHANGELOG.md](docs/CHANGELOG.md)。
 
 > English: [README.md](README.md)
 

@@ -2,6 +2,53 @@
 
 ## Authoring contract
 
+### Curve construction
+
+`curve_model` adds an arithmetic-only construction recipe with named curves and
+one output: editable spline, swept quad cage or resampled loft. The pure Python
+compiler lives in `helpers/curves.py`; no external geometry runtime is required.
+Local frames, cubic arc conversion, interpolating curves, planar polygon fillets
+and offsets, parallel-transport sweep frames, taper/twist and fixed loft seam
+correspondence are explicit. Unknown fields, unsupported operations and invalid
+geometry fail rather than silently changing construction intent.
+
+Recipes use their own versioned AppData slot. Updates check both the stored
+recipe and base geometry inside the same hold as the writes, retain component
+connectivity and reject instanced/manual-edited bases. Recipe snapshots recognize
+up to 16 geometry undo states. Raw AppData is restored explicitly on rollback.
+Source curves are retained within the recipe; mesh output does not introduce
+helper nodes or a scene-wide dependency graph.
+
+`inspect_curve` and `edit_curve` use base shape data and explicit object transforms.
+Curve tokens cover base knots, handles, segment types, closure, identity and
+transform. Image targeting uses existing owned-view projection/capture handlers;
+labels appear only in the saved image. Atomic edits preflight every ID and only
+permit one topology operation per request. Re-inspection is required afterward.
+
+Live Max 2027 acceptance on 2026-09-05 used a fresh progressive MCP process.
+Spline APIs require the scene node, including beneath Extrude; passing its bare
+`baseobject` fails. Reads/writes use `coordsys local` for exact cage coordinates,
+then explicitly apply/invert `objecttransform` for world targeting. Refresh with
+`updateShape`; generic `update` attempts a mesh operation and rejects splines.
+
+The owned probe verified creation, nonuniform scale/rotation/object offsets,
+parameter updates beneath Extrude, world knot/handle translation, stale tokens,
+manual-edit rejection, insertion/reversal/opening and undo reconciliation.
+Save/delete/merge retained parameters and the modifier stack, and another update
+succeeded afterward. A labeled agent capture and projected knot pick agreed.
+Cleanup preserved original objects, selection, working viewport and scene filename.
+Evidence, the isolated saved curve and targeting image are ignored under
+`local/curve-validation/`. Earlier chair/hand demos exercised swept and lofted
+mesh outputs; this spline regression check does not certify surface thickness or
+self-intersections.
+
+All 486 Python tests passed, including progressive discovery and spline API
+contracts. Tool catalog, native diagnostic registry and smoke metadata were
+regenerated. No native rebuild is needed; existing MCP processes must reload to
+use the corrected Python code. The live validation used a separate fresh process.
+
+### Existing modeling operations
+
 Full/core and progressive profiles expose `create_mesh`, `inspect_mesh`,
 `mesh_edit`, `pick_component`, `loft_mesh`, and `geometry_qa`. Python changes
 require a fresh external MCP process. Native changes require the user to reload
@@ -119,5 +166,6 @@ Private node
 isolation, intersection/thickness analysis, robust screen-space cuts and an
 assembly-wide parameter graph remain outside this pass. The current environment
 does not expose the native computer-use runtime for the proposed UI experiment.
-Release `1.6.6 Astra Edition` stays conditional on the user's fresh-agent modeling
-demo; no version bump or publication is part of this development validation.
+The user completed the fresh-agent modeling demo and authorized preparation of
+`1.6.6 Astra Edition`. Release packaging is separate from the live checks above;
+newly rebuilt binaries require a developer-managed reload for runtime validation.

@@ -21,6 +21,8 @@ from scripts.gen_tool_registry import (  # noqa: E402
 from scripts.gen_tool_smoke import CUSTOM, MUTATE_TOOLS, SKIP_DEFAULT  # noqa: E402
 
 MODULE_CATEGORY = {
+    "curve_model": "Modeling",
+    "curve_edit": "Modeling",
     "bridge": "Connection",
     "query_scene": "Scene",
     "capabilities": "Connection",
@@ -65,6 +67,7 @@ MODULE_CATEGORY = {
 
 # Top-level buckets for the playground sidebar (order matters).
 CATEGORY_TO_GROUP: dict[str, str] = {
+    "Modeling": "Objects",
     "Connection": "Setup",
     "Session": "Setup",
     "Scene": "Scene",

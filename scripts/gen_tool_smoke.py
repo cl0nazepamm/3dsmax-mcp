@@ -184,6 +184,8 @@ CUSTOM: dict[str, dict] = {
 }
 
 MUTATE_TOOLS = {
+    "curve_model",
+    "edit_curve",
     "create_object",
     "delete_objects",
     "clone_objects",

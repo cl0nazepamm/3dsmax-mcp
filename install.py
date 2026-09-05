@@ -95,7 +95,7 @@ def choose_tool_profile(requested: str | None = None) -> str:
         return normalized
 
     print("\nMCP tool profile:")
-    print("  1) Full (default) - advertise every tool for maximum client compatibility")
+    print("  1) Full (default and RECOMMENDED!) - advertise every tool for maximum client compatibility")
     print("  2) Progressive (New!) - 3 discovery tools; potentially saves context for local/smaller models")
     print("  3) Core - advertise the smaller everyday tool subset")
     try:

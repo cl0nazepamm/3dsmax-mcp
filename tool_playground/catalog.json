@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 157,
+  "tool_count": 160,
   "starter_tools": [
     "query_scene",
     "get_session_context",
@@ -51,8 +51,16 @@
     {
       "name": "Objects",
       "hint": "Create, transform, modifiers, layers",
-      "tool_count": 22,
+      "tool_count": 25,
       "categories": [
+        {
+          "name": "Modeling",
+          "tools": [
+            "curve_model",
+            "edit_curve",
+            "inspect_curve"
+          ]
+        },
         {
           "name": "Modifiers",
           "tools": [
@@ -2195,6 +2203,133 @@
       },
       "risk": "changes_scene",
       "routing": "maxscript",
+      "starter": false
+    },
+    {
+      "name": "curve_model",
+      "description": "Construct editable curves, swept profiles or matched quad lofts with saved controls.",
+      "category": "Modeling",
+      "group": "Objects",
+      "module": "curve_model",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "integer"
+          },
+          "definition": {
+            "type": "object"
+          },
+          "parameters": {
+            "type": "object"
+          },
+          "expected_model": {
+            "type": "string"
+          },
+          "include_definition": {
+            "type": "boolean"
+          }
+        }
+      },
+      "example": {},
+      "risk": "changes_scene",
+      "routing": "python",
+      "starter": false
+    },
+    {
+      "name": "edit_curve",
+      "description": "Atomic world-space base-spline edits guarded by inspect_curve.curve_token.",
+      "category": "Modeling",
+      "group": "Objects",
+      "module": "curve_edit",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "expected_curve": {
+            "type": "string"
+          },
+          "edits": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_curve",
+          "edits"
+        ]
+      },
+      "example": {
+        "expected_curve": "",
+        "edits": []
+      },
+      "risk": "changes_scene",
+      "routing": "python",
+      "starter": false
+    },
+    {
+      "name": "inspect_curve",
+      "description": "Read an editable spline's world knots/handles, QA, and stale-edit token.",
+      "category": "Modeling",
+      "group": "Objects",
+      "module": "curve_edit",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "integer"
+          },
+          "action": {
+            "type": "string"
+          },
+          "spline": {
+            "type": "integer"
+          },
+          "knot_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "capture": {
+            "type": "boolean"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "expected_view": {
+            "type": "string"
+          },
+          "tolerance": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      },
+      "example": {},
+      "risk": "safe",
+      "routing": "native:agent_viewport",
       "starter": false
     },
     {

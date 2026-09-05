@@ -25,6 +25,7 @@ using namespace HandlerHelpers;
 namespace AgentViewport {
 namespace {
 constexpr wchar_t kTitle[] = L"AGENT VIEWPORT";
+constexpr wchar_t kWindowTitle[] = L"AGENT VIEWPORT (do not close or minimize while agent is working)";
 constexpr wchar_t kOwner[] = L"3dsmax-mcp.AgentViewport";
 constexpr float kPi = 3.14159265358979323846f;
 int floatingID = 0;
@@ -584,7 +585,7 @@ void Open(const json& p) {
         floatingID = candidateID;
         panelWindow = candidate->GetHWnd();
         if (!SetPropW(panelWindow,kOwner,reinterpret_cast<HANDLE>(&floatingID))) throw std::runtime_error("Cannot reserve viewport ownership");
-        candidate->SetViewPanelName(MSTR(kTitle));
+        candidate->SetViewPanelName(MSTR(kWindowTitle));
         candidate->SetLayout(VP_LAYOUT_1);
         auto& view = candidate->GetViewExpByIndex(0);
         viewID = view.GetViewID(); ++generation;
@@ -616,7 +617,7 @@ void Open(const json& p) {
         HWND top = FloatingWindow();
         if(!top) throw std::runtime_error("Owned floating viewport window is unavailable");
         if (top) {
-            SetWindowTextW(top,kTitle);
+            SetWindowTextW(top,kWindowTitle);
             MONITORINFO info{}; info.cbSize=sizeof(info);
             GetMonitorInfoW(MonitorFromWindow(top,MONITOR_DEFAULTTONEAREST),&info);
             const RECT& area=info.rcWork;

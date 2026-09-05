@@ -2,6 +2,58 @@
 
 All notable changes to this project are documented here.
 
+## [1.6.6] — 2026-09-05
+
+**Astra Edition** — an agent modeling workspace with independent vision,
+precise component editing and persistent curve construction.
+
+### Added
+
+- **AGENT VIEWPORT:** an owned floating viewport for orbiting, framing, projection,
+  visual targeting and captures while the user keeps their working view. Its title
+  asks users not to close or minimize it while the agent is working.
+- `create_mesh`, `inspect_mesh`, `mesh_edit` and `pick_component` for editable quad
+  cages, labeled component inspection, image-to-geometry targeting and guarded,
+  undoable vertex/edge/face edits that preserve modifiers.
+- `curve_model` for named curves, local construction planes, tangent arcs, rounded
+  profiles, sweeps and resampled quad lofts. Numeric controls and source recipes
+  persist in the `.max` file and support guarded parameter updates.
+- `inspect_curve` and `edit_curve` for world-space knots and Bezier handles,
+  labeled captures, visual picking and atomic topology edits with stale-token checks.
+- `loft_mesh` for parameterized matched-section quad lofts, plus `geometry_qa` for
+  evaluated mesh boundaries, winding conflicts, degeneracy and connected components.
+- V-Ray preview controls through the agent viewport, with viewport/VFB capture,
+  cropped screen capture and a separate render-cancellation channel.
+
+### Fixed
+
+- Spline construction and edits dispatch on the scene node in local coordinates
+  and refresh through `updateShape`, preserving modifiers and correct world-space
+  targeting under rotation, nonuniform scale and object offsets.
+- Base-cage edits preserve subdivision stacks; transformed geometry QA avoids
+  applying object transforms twice. Material sharing uses existing material identity.
+- Agent captures reject unavailable or stale views, and guarded edits respect
+  active user undo operations instead of joining or cancelling them.
+
+### Changed
+
+- Full remains the default MCP profile. Full, core and progressive discovery expose
+  the new modeling tools; native diagnostic schemas exclude Python-only orchestration.
+- The portable usage skill includes curve recipes and inspect/edit/verify workflows.
+  Development guides remain separate from the distributed skill.
+- Removed standalone chat and the parked builder. Installer migration preserves
+  credentials and user replacements while removing verified bridge-owned chat macros.
+
+### Upgrade notes
+
+- Re-run the installer and restart Max to load the new native bridge. Reload the
+  external MCP connection for the updated Python tools and schemas.
+- Keep the agent viewport visible for Nitrous captures. Private object isolation,
+  exact surface-intersection/thickness checks and an assembly-wide parameter graph
+  are not included. Curve QA uses sampled geometry. ActiveShade is experimental
+  and outside release acceptance; V-Ray preview availability depends on the
+  installed V-Ray version.
+
 ## [1.5.5] — 2026-08-31
 
 Progressive tool discovery, atomic scene operations, and expanded native animation tooling.

@@ -57,6 +57,14 @@ class ProgressiveDiscoveryTests(unittest.IsolatedAsyncioTestCase):
                 modeling = _payload(await session.call_tool("describe_toolset", {"toolset":"modeling"}))
                 modeling_tools = {item["name"]:item for item in modeling["result"]["tools"]}
                 self.assertTrue({"create_mesh","inspect_mesh","mesh_edit"}.issubset(modeling_tools))
+                self.assertTrue({"curve_model","inspect_curve","edit_curve"}.issubset(modeling_tools))
+                preview_curve = _payload(await session.call_tool("call_tool", {
+                    "name":"curve_model", "arguments":{"action":"preview", "definition":{
+                        "curves":{"outline":{"kind":"circle","radius":5}},
+                        "output":{"kind":"curve","curve":"outline"}}}
+                }))
+                self.assertTrue(preview_curve["ok"], preview_curve)
+                self.assertEqual(preview_curve["result"]["counts"]["knots"],4)
                 self.assertIn("operations",modeling_tools["mesh_edit"]["input_schema"]["properties"])
                 invalid_mesh = _payload(await session.call_tool("call_tool", {
                     "name":"create_mesh", "arguments":{"name":"Invalid", "vertices":[], "faces":[]}

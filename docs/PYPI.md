@@ -8,6 +8,8 @@ The optional progressive profile advertises three discovery/dispatch tools and l
 exact operational schemas on demand, reducing context use for local or smaller models.
 
 - **Native bridge** — a C++ plugin for 3ds Max 2023–2027, no MAXScript polling
+- **Agent viewport** — an independent floating view for navigation, visual targeting and captures
+- **Editable modeling** — guarded component edits, named curves, sweeps and lofts with parameters saved in the scene
 - **Introspection** — discover arbitrary Max classes, plugin surfaces, and parameters at runtime
 - **Deep plugin support** — tyFlow, Data Channel, MCG, OSL, Forest Pack, RailClone, Octane
 - **Bundled agent skill** — MAXScript reference shipped for writing your own tools
@@ -44,6 +46,8 @@ Manual MCP client setup, tool profiles, safe mode and architecture notes are doc
 截取视口、检查插件。可选的 progressive 配置只公开三个发现/调用工具，按需加载精确工具参数，可减少本地或较小模型的上下文占用。
 
 - **原生桥接**：3ds Max 2023–2027 的 C++ 插件，无需 MAXScript 轮询
+- **智能体视口**：独立浮动视口，用于导航、视觉定位和截图
+- **可编辑建模**：带校验的组件编辑、命名曲线、扫描和放样，参数保存在场景中
 - **运行时自省**：可发现任意 Max 类、插件接口与参数
 - **深度插件支持**：tyFlow、Data Channel、MCG、OSL、Forest Pack、RailClone、Octane
 - **内置智能体技能包**：附带 MAXScript 参考文档，方便你编写自己的工具
