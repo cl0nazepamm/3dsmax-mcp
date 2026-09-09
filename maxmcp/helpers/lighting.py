@@ -264,7 +264,8 @@ def compile_lights(specs: list[LightSpec], context: dict, family: str, unit="sce
                 plan.set(key, name, value)
             plan.set(key, "color_temperature" if color.kelvin is not None else "color", color.kelvin if color.kelvin is not None else list(color.rgb))
             if shape == "rectangle":
-                plan.set(key, "sizeWidth", size["width"]); plan.set(key, "sizeLength", size["height"])
+                # V-Ray Length is local X/U; Width is local Y/V (full extents).
+                plan.set(key, "sizeLength", size["width"]); plan.set(key, "sizeWidth", size["height"])
             else: plan.set(key, "size0", size["radius"])
         elif family == "octane":
             if shape not in OCTANE_SHAPES or spec.output.unit != "renderer" or color.kelvin is None:
@@ -417,7 +418,7 @@ def inspect_one(owner_ref: dict, family: str | None = None) -> dict:
                      shape=shape, enabled=value("on"), cast_shadows=value("castShadows"),
                      color={"kelvin": value("color_temperature")} if value("color_mode") == 1 else {"rgb": value("color"), "space": "rendering"},
                      output={"value": value("multiplier"), "unit": next((k for k, v in VRAY_UNITS.items() if v == value("normalizeColor")), None)})
-        state["size"] = {"width": value("sizeWidth"), "height": value("sizeLength")} if shape == "rectangle" else {"radius": value("size0")} if shape in {"disk", "sphere"} else None
+        state["size"] = {"width": value("sizeLength"), "height": value("sizeWidth")} if shape == "rectangle" else {"radius": value("size0")} if shape in {"disk", "sphere"} else None
         state["source_ref"] = value("texmap")
         state["texture_enabled"] = value("texmap_on")
     elif family == "photometric":
@@ -544,7 +545,7 @@ def edit(edits: list[dict], unit="scene") -> dict:
                     "orientation": {"direction": [0, 0, -1]}, "output": {"value": 1, "unit": "renderer"}}).size
             dims = {k: v*scale for k, v in size.model_dump(exclude_none=True).items()}
             if family == "vray":
-                if shape == "rectangle": assign("sizeWidth", dims["width"]); assign("sizeLength", dims["height"])
+                if shape == "rectangle": assign("sizeLength", dims["width"]); assign("sizeWidth", dims["height"])
                 else: assign("size0", dims["radius"])
             elif family == "photometric":
                 if shape == "rectangle": assign("light_width", dims["width"]); assign("light_length", dims["height"])
