@@ -11,7 +11,7 @@ Connect AI agents to Autodesk 3ds Max through the [Model Context Protocol](https
 
 Automate everything!
 
-**Current release: 1.6.7** — see [CHANGELOG.md](docs/CHANGELOG.md).
+**Current release: 1.6.8** — see [CHANGELOG.md](docs/CHANGELOG.md).
 
 ## Features
 
@@ -22,11 +22,23 @@ Automate everything!
 
 ## Requirements
 
-- [Python 3.12+](https://www.python.org/)
-- [uv](https://docs.astral.sh/uv/)
-- Autodesk **3ds Max 2023–2027**
+- Windows and Autodesk **3ds Max 2023–2027**
+- An MCP client, such as Claude Desktop, Codex or Cursor
 
 ## Quick start
+
+1. Close 3ds Max and fully exit your AI clients.
+2. Run `3dsmax-mcp-1.6.8-Setup.exe` and select your clients.
+3. Open 3ds Max and restart your AI client.
+
+The installer includes Python, dependencies, native bridges and agent skills.
+To update, close Max and your clients, then run the new installer.
+
+<details>
+<summary>Install from source</summary>
+
+Requires [Python 3.12+](https://www.python.org/), [uv](https://docs.astral.sh/uv/) and Git.
+Close Max and your AI clients before installing.
 
 ```powershell
 git clone https://github.com/cl0nazepamm/3dsmax-mcp.git
@@ -35,19 +47,13 @@ uv sync
 uv run python install.py
 ```
 
-Choose the MCP tool profile when prompted. **Full** is the default for maximum client compatibility and performance. **Progressive** exposes instance routing controls plus three discovery tools and loads exact operational schemas only when needed, which can substantially reduce context use for local or smaller models.
+Use the default **Full** tool profile. To update, run `git pull`, `uv sync`, then
+`uv run python install.py` again.
 
-Restart 3ds Max, then connect your MCP client. The installer registers the server where it can; see [Advanced configuration](docs/ADVANCED.md) for manual client setup.
+</details>
 
-**Update an existing install:**
+See [Advanced configuration](docs/ADVANCED.md) for manual client setup and tool profiles.
 
-```powershell
-git pull
-uv sync
-uv run python install.py
-```
-
-Each MCP process stays attached to the first Max instance it connects to. Use `list_max_instances`, `select_max_instance(pid)`, `get_selected_max_instance`, or `release_max_instance` to manage routing in any profile. `MCP_MAX_PID` and the existing `MCP_MAX_PIPE` support startup pinning. Starting or claiming another Max changes the default for unbound clients only.
 
 ## Tools
 

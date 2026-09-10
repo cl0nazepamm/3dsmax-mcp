@@ -10,9 +10,6 @@
 #include <fstream>
 #include <sstream>
 #include <string>
-#include <nlohmann/json.hpp>
-
-using json = nlohmann::json;
 
 // ── ClassDesc2 ──────────────────────────────────────────────────
 class MCPBridgeClassDesc : public ClassDesc2 {
@@ -131,22 +128,6 @@ static std::string BuildInstanceJson(
     return ss.str();
 }
 
-static void OnSystemStartupDone(void* param, NotifyInfo* info) {
-    if (!g_gupInstance) return;
-    UnRegisterNotification(OnSystemStartupDone, nullptr, NOTIFY_SYSTEM_STARTUP);
-
-    // This macro is shared in the usermacros folder. Resolve the current
-    // process PID at execution time so each Max talks to its own executor.
-    HandlerHelpers::RunMAXScript(
-        "macroScript MCP_ToolSmokeTest category:\"MCP\" tooltip:\"Run MCP read-tier tool smoke test\" buttonText:\"MCP Smoke\" "
-        "( on execute do ( "
-        "  local pid = ((dotNetClass \"System.Diagnostics.Process\").GetCurrentProcess()).Id; "
-        "  local hwnds = windows.getChildHWND 0 (\"MCPBridgeExecutor-\" + (pid as string)); "
-        "  if hwnds != undefined and hwnds.count > 0 do windows.sendMessage hwnds[1] 0x5144 3 0 "
-        ") )"
-    );
-}
-
 void MCPBridgeGUP::RegisterInstance() {
     EnsureRegistryDirs();
     WriteTextFile(InstancePath(instance_id_), BuildInstanceJson(instance_id_, pipe_name_utf8_));
@@ -198,42 +179,6 @@ void ClaimNativeInstance() {
     if (g_gupInstance) g_gupInstance->ClaimInstance();
 }
 
-void RunToolSmokeMacro() {
-    if (!g_gupInstance) return;
-
-    json params;
-    params["tier"] = "read";
-    params["includeSkipped"] = false;
-    params["dryRun"] = false;
-
-    try {
-        std::string raw = NativeHandlers::RunToolSmoke(params.dump(), g_gupInstance);
-        json report = json::parse(raw, nullptr, false);
-        if (report.is_discarded()) {
-            LogBridge(L"MCP Tool Smoke: completed (unparsed report)", SYSLOG_WARN);
-            return;
-        }
-
-        const int passed = report.value("passed", 0);
-        const int failed = report.value("failed", 0);
-        const int skipped = report.value("skipped", 0);
-        const int total = report.value("total", 0);
-
-        std::wstring msg = L"MCP Tool Smoke (read tier): " +
-            std::to_wstring(passed) + L"/" + std::to_wstring(total) +
-            L" passed, " + std::to_wstring(failed) + L" failed, " +
-            std::to_wstring(skipped) + L" skipped";
-        LogBridge(msg, failed > 0 ? SYSLOG_WARN : SYSLOG_INFO);
-
-        std::ostringstream ms;
-        ms << "format \"[MCP Tool Smoke] % passed / % run, % failed, % skipped\\n\" "
-           << passed << " " << total << " " << failed << " " << skipped;
-        HandlerHelpers::RunMAXScript(ms.str());
-    } catch (const std::exception& e) {
-        LogBridge(L"MCP Tool Smoke failed: " + HandlerHelpers::Utf8ToWide(e.what()), SYSLOG_ERROR);
-    }
-}
-
 // ── GUP implementation ──────────────────────────────────────────
 DWORD MCPBridgeGUP::Start() {
     g_gupInstance = this;
@@ -244,9 +189,6 @@ DWORD MCPBridgeGUP::Start() {
 
     StartPipe();
     SceneJournal::Register();
-
-    // Register macroscripts after Max is fully loaded
-    RegisterNotification(OnSystemStartupDone, nullptr, NOTIFY_SYSTEM_STARTUP);
 
     // Render automation: hook NOTIFY_POST_RENDER so render_start jobs emit a
     // filesystem done-signal at the real completion event (no polling).

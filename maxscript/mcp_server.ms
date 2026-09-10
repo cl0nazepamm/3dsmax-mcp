@@ -491,8 +491,8 @@ struct MCPServerStruct
 -- Define helpers; do NOT auto-start.
 --
 -- The TCP fallback uses a sparse WinForms timer on Max's main thread. It is
--- opt-in only via the `MCP Start` macroscript (Customize UI -> MCP -> MCP
--- Start). `MCP Stop` shuts it back down. Keep native bridge as the default
+-- opt-in only via `MCP Start (TCP)` (Customize UI -> MCP).
+-- `MCP Stop (TCP)` shuts it back down. Keep native bridge as the default
 -- path for normal interactive use.
 if MCP_Server != undefined and MCP_Server.isRunning then
 (
@@ -537,7 +537,7 @@ macroScript MCP_Claim_This_Max category:"MCP" tooltip:"Make this Max the active 
 	)
 )
 
-macroScript MCP_Start category:"MCP" tooltip:"Start MCP TCP fallback (port 8765)" buttonText:"MCP Start"
+macroScript MCP_Start category:"MCP" tooltip:"Start MCP TCP fallback (port 8765)" buttonText:"MCP Start (TCP)"
 (
 	on execute do
 	(
@@ -556,7 +556,7 @@ macroScript MCP_Start category:"MCP" tooltip:"Start MCP TCP fallback (port 8765)
 	)
 )
 
-macroScript MCP_Stop category:"MCP" tooltip:"Stop MCP TCP fallback" buttonText:"MCP Stop"
+macroScript MCP_Stop category:"MCP" tooltip:"Stop MCP TCP fallback" buttonText:"MCP Stop (TCP)"
 (
 	on execute do
 	(

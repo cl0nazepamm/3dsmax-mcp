@@ -63,8 +63,8 @@ void MainThreadExecutor::Shutdown() {
 std::string MainThreadExecutor::ExecuteSync(
     std::function<std::string()> work, DWORD timeout_ms) {
 
-    // Already on the main thread (e.g. a macroscript action like the MCP Smoke
-    // button, or a handler that re-enters Dispatch). Posting to ourselves would
+    // Already on the main thread (e.g. a handler that re-enters Dispatch).
+    // Posting to ourselves would
     // block the only thread that can pump the message — a guaranteed deadlock
     // until timeout. Run inline; we are already where the work needs to run.
     if (main_thread_id_ != 0 && GetCurrentThreadId() == main_thread_id_) {
@@ -117,9 +117,6 @@ LRESULT CALLBACK MainThreadExecutor::WndProc(
         if (wp == 2) {
             extern void ClaimNativeInstance();
             ClaimNativeInstance();
-        } else if (wp == 3) {
-            extern void RunToolSmokeMacro();
-            RunToolSmokeMacro();
         }
         return 0;
     }

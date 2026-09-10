@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## [1.6.8] — 2026-09-11
+
+- Added a Windows installer with Python, dependencies, native bridges and agent skills included.
+- Simplified uninstall and migration cleanup while preserving preferences and backups.
+- Removed MCP Smoke from the Max UI and renamed the fallback controls to MCP Start (TCP) and MCP Stop (TCP).
+- Simplified the installation instructions and added a warning to close AI clients before setup.
+
 ## [1.6.7] — 2026-09-07
 
 ### Added
