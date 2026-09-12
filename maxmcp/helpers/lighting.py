@@ -13,6 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from . import plugin_schema as api
 from .plugin_semantics import VRAY_LIGHT, VRAY_SHAPES, VRAY_UNITS, OCTANE_SHAPES, VRAY_IMAGE_MAPPING
+from .plugin_semantics import (CORONA_RENDERER, CORONA_LIGHT, CORONA_SKY, CORONA_BITMAP, CORONA_SHAPES,
+                               CORONA_UNITS, CORONA_COLOR_MODES, CORONA_BITMAP_MAPPING)
 
 LIGHT, MAP, RENDERER = 48, 3088, 3840
 OCTANE_LIGHT = (592523983, 1640440069)
@@ -28,7 +30,9 @@ PHOTOMETRIC = {
 RENDERER_FAMILIES = {
     (1941615238, 2012806412): "vray", (1770671000, 1323107829): "vray",
     (2717442453, 1319335807): "octane", (1, 0): "photometric",
+    CORONA_RENDERER: "corona",
 }
+FAMILY_NAMES = {"vray", "octane", "photometric", "corona"}
 
 
 class Strict(BaseModel):
@@ -141,7 +145,7 @@ def renderer(context: dict, requested: str) -> tuple[str, dict]:
         chosen = context["renderer"]
     else:
         candidates = [r for r in available if requested.lower() in {r["name"].lower(), r["label"].lower()}]
-        if not candidates and requested in {"vray", "octane", "photometric"}:
+        if not candidates and requested in FAMILY_NAMES:
             candidates = [r for r in available if RENDERER_FAMILIES.get(tuple(r["class_id"])) == requested]
         if len(candidates) != 1:
             raise ValueError("Choose an exact renderer name from lighting_capabilities; renderer selection is ambiguous or unavailable.")
@@ -196,6 +200,7 @@ class Plan:
         self.schemas: dict[str, dict] = {}
         self.class_schemas: dict[tuple, dict] = {}
         self.lights = []
+        self.existing: dict[str, dict] = {}  # plan ids bound to pre-existing owners (no create)
 
     def create(self, resource_id: str, ids, superclass=LIGHT, name="", matrix=None):
         ref = class_ref(ids, superclass)
@@ -287,6 +292,25 @@ def compile_lights(specs: list[LightSpec], context: dict, family: str, unit="sce
             elif shape == "sphere": plan.set(key, "sphereAnalyticLightRadius", size["radius"])
             else:
                 plan.set(key, "tubeAnalyticLightCapRadius", size["radius"]); plan.set(key, "tubeAnalyticLightLength", size["length"])
+        elif family == "corona":
+            if shape not in CORONA_SHAPES or spec.output.unit not in CORONA_UNITS:
+                raise ValueError("Corona supports rectangle/disk/sphere/cylinder emitters with renderer, lm or cd output.")
+            if not spec.cast_shadows:
+                raise ValueError("Corona lights always cast shadows; there is no per-light shadow switch.")
+            plan.create(key, CORONA_LIGHT, name=spec.name, matrix=world_matrix(spec, scale))
+            for name, value in {"shape": CORONA_SHAPES[shape], "on": spec.enabled, "targeted": False,
+                                "intensityUnits": CORONA_UNITS[spec.output.unit], "intensity": spec.output.value,
+                                "colorMode": CORONA_COLOR_MODES["kelvin" if color.kelvin is not None else "rendering_rgb"],
+                                "twosidedEmission": False}.items():
+                plan.set(key, name, value)
+            plan.set(key, "blackbodyTemp" if color.kelvin is not None else "color", color.kelvin if color.kelvin is not None else list(color.rgb))
+            # Corona width is the local X extent for rectangles and the radius otherwise;
+            # height is the local Y extent for rectangles and the length for cylinders.
+            if shape == "rectangle":
+                plan.set(key, "width", size["width"]); plan.set(key, "height", size["height"])
+            else:
+                plan.set(key, "width", size["radius"])
+                if shape == "cylinder": plan.set(key, "height", size["length"])
         plan.lights.append({"id": key, "kind": spec.kind, "family": family})
     return plan
 
@@ -297,6 +321,8 @@ def compile_environment(plan: Plan, key: str, spec: LightSpec, family: str):
         raise ValueError("Environment output uses an explicit renderer multiplier.")
     if family == "photometric":
         raise ValueError("Scanline environment lighting needs a separate validated skylight provider; a background map alone is not illumination.")
+    if family == "corona":
+        return compile_corona_environment(plan, key, spec)
     if source.kind == "existing_map":
         if source.rotation != 0 or source.source_color_space is not None:
             raise ValueError("Inspect and edit an existing map's rotation/color settings explicitly; it may be shared.")
@@ -345,6 +371,39 @@ def compile_environment(plan: Plan, key: str, spec: LightSpec, family: str):
         plan.payload["environment"] = {"owner_ref": {"created": key}, "replace_existing": source.replace_existing}
 
 
+def compile_corona_environment(plan: Plan, key: str, spec: LightSpec):
+    """Corona lights the scene from the 3ds Max environment slot itself: a CoronaBitmap
+    (HDRI) or an existing map such as CoronaSky is bound there directly, without a dome
+    node or wrapper. The slot has no multiplier, so output stays at the explicit 1.0."""
+    source = spec.environment
+    if "environment" in plan.payload:
+        raise ValueError("Only one scene environment binding can be created in a batch.")
+    if not spec.enabled:
+        raise ValueError("Disabled scene-environment creation is not supported; create or edit its binding explicitly.")
+    if spec.output.value != 1:
+        raise ValueError("The Corona scene environment has no multiplier; bind at 1.0 and edit the map's own intensity (CoronaSky intensityMultiplier, or a CoronaColorCorrect) explicitly.")
+    if source.kind == "existing_map":
+        if source.rotation != 0 or source.source_color_space is not None:
+            raise ValueError("Inspect and edit an existing map's rotation/color settings explicitly; it may be shared.")
+        plan.existing[key] = source.owner_ref
+        plan.payload["environment"] = {"owner_ref": source.owner_ref, "replace_existing": source.replace_existing}
+        return
+    path = Path(source.path).expanduser().resolve()
+    if not path.is_file():
+        raise ValueError(f"Environment asset not found: {path}")
+    if path.suffix.lower() not in {".exr", ".hdr"}:
+        raise ValueError("HDRI creation currently accepts scene-linear EXR/HDR; use an inspected existing map for other encodings.")
+    if source.rotation != 0:
+        raise ValueError("Corona HDRI rotation is not a verified binding yet; rotate the created CoronaBitmap explicitly after inspecting it.")
+    if source.source_color_space:
+        raise ValueError("Corona input primaries override needs a verified mapping; use an inspected existing map for an explicit color space.")
+    plan.create(key, CORONA_BITMAP, MAP)
+    plan.set(key, "filename", str(path))
+    plan.set(key, "enviroMapping", CORONA_BITMAP_MAPPING["spherical"])
+    plan.set(key, "gamma", 1.0)  # Linear samples: no input transfer curve.
+    plan.payload["environment"] = {"owner_ref": {"created": key}, "replace_existing": source.replace_existing}
+
+
 def capabilities(requested="current", detail="summary") -> dict:
     if detail not in {"summary", "full"}: raise ValueError("detail must be summary or full")
     context = api.native("native:lighting_context", {})
@@ -355,14 +414,18 @@ def capabilities(requested="current", detail="summary") -> dict:
               "meters_per_unit": context["meters_per_unit"], "color_management": context["color_management"],
               "renderers": [{"name": r["name"], "label": r["label"], "provider": RENDERER_FAMILIES.get(tuple(r["class_id"]))} for r in context["renderers"]],
               "kinds": ["area"] + (["point"] if family == "photometric" else ["environment"]),
-              "area_shapes": list(PHOTOMETRIC)[1:] if family == "photometric" else list(OCTANE_SHAPES) if family == "octane" else ["rectangle", "disk", "sphere"],
-              "output_units": ["cd"] if family == "photometric" else ["renderer"] if family == "octane" else list(VRAY_UNITS),
+              "area_shapes": list(PHOTOMETRIC)[1:] if family == "photometric" else list(OCTANE_SHAPES) if family == "octane" else list(CORONA_SHAPES) if family == "corona" else ["rectangle", "disk", "sphere"],
+              "output_units": ["cd"] if family == "photometric" else ["renderer"] if family == "octane" else list(CORONA_UNITS) if family == "corona" else list(VRAY_UNITS),
               "color_modes": ["kelvin"] if family == "octane" else ["kelvin", "rendering_rgb"],
-              "environment_route": None if family == "photometric" else "scene_environment_map" if family == "octane" else "dome_node",
+              "environment_route": None if family == "photometric" else "scene_environment_map" if family in {"octane", "corona"} else "dome_node",
               "environment_sources": [] if family == "photometric" else ["linear_exr_hdr", "existing_map_including_procedural_sky"],
               "color_policy": {"float_images": "linear samples; no extra input gamma", "primaries": "renderer input color-space policy or explicit source_color_space where supported", "rendering_space": context["color_management"].get("rendering_space"), "exposure_changes": False},
               "verification": "development_pending_live_validation",
               "unsupported": ["automatic renderer switching", "implicit controller replacement", "automatic exposure", "unverified physical conversions"]}
+    if family == "corona":
+        result["notes"] = ["Corona lights always cast shadows (cast_shadows=false is refused).",
+                           "Environment binds the map itself to the scene environment slot at output 1.0.",
+                           "CoronaSun and CoronaMoon (directional, shapeless) need a directional light kind in LightSpec and are not part of this provider yet."]
     if detail == "full": result["light_spec_schema"] = LightSpec.model_json_schema()
     return result
 
@@ -378,7 +441,11 @@ def create(specs, requested="current", unit="scene", expected_context=None) -> d
     resources = {r["id"]: r for r in applied["resources"]}
     actual = []
     for item in plan.lights:
-        resource = resources[item["id"]]
+        resource = resources.get(item["id"])
+        if resource is None:
+            if item["id"] not in plan.existing:
+                raise RuntimeError(f"Native commit returned no resource for {item['id']!r}.")
+            resource = {"id": item["id"], "owner_ref": dict(plan.existing[item["id"]])}
         resource["owner_ref"] = {**resource["owner_ref"], "root_binding":
             {"node": resource["node_ref"], "scope": "base_object"} if resource.get("node_ref") else {"root": "environment"}}
         entry = {"light_ref": {"owner_ref": resource["owner_ref"], "node_ref": resource.get("node_ref"), "provider": family}}
@@ -394,7 +461,7 @@ def create(specs, requested="current", unit="scene", expected_context=None) -> d
 def inspect_one(owner_ref: dict, family: str | None = None) -> dict:
     identity = api.inspect(owner_ref=owner_ref, fields=["__identity_only__"], limit=1)
     ids = tuple(identity["identity"]["class_id"])
-    detected = "vray" if ids == VRAY_LIGHT else "octane" if ids in {OCTANE_LIGHT, OCTANE_ENV} else "photometric" if ids in PHOTOMETRIC.values() else None
+    detected = "vray" if ids == VRAY_LIGHT else "octane" if ids in {OCTANE_LIGHT, OCTANE_ENV} else "photometric" if ids in PHOTOMETRIC.values() else "corona" if ids in {CORONA_LIGHT, CORONA_BITMAP, CORONA_SKY} else None
     if family is not None and family != detected:
         raise ValueError("Light reference provider does not match its actual class.")
     family = detected
@@ -405,6 +472,10 @@ def inspect_one(owner_ref: dict, family: str | None = None) -> dict:
                         "light_width", "light_length", "light_radius"],
         "octane": ["enabled", "analyticLightType", "quadAnalyticLightSize", "diskAnalyticLightSize", "sphereAnalyticLightRadius",
                    "tubeAnalyticLightCapRadius", "tubeAnalyticLightLength", "emission", "normalize", "power", "texture_tex", "texture_input_type", "rotation"],
+        "corona": (["on", "shape", "intensity", "intensityUnits", "colorMode", "color", "blackbodyTemp", "texmap", "width", "height",
+                    "targeted", "twosidedEmission", "visibleDirectly", "directionality"] if ids == CORONA_LIGHT
+                   else ["filename", "enviroMapping", "gamma", "colorSpace", "wAngle"] if ids == CORONA_BITMAP
+                   else ["intensityMultiplier", "skyModel", "turbidity", "sunSelectionMode", "selectedSun", "cloudsEnable"]),
     }.get(family, ["__identity_only__"])
     data = api.inspect(owner_ref=identity["owner_ref"], fields=fields, limit=64)
     ids = tuple(data["identity"]["class_id"])
@@ -443,6 +514,25 @@ def inspect_one(owner_ref: dict, family: str | None = None) -> dict:
                 state["overrides"] = {k: v for k,v in emission_values.items() if k.endswith("VT") and v is not None}
             dims = value("quadAnalyticLightSize") if shape == "rectangle" else value("diskAnalyticLightSize")
             state["size"] = {"width": dims[0], "height": dims[1]} if shape == "rectangle" and dims and len(dims) == 2 else {"radius": value("sphereAnalyticLightRadius")} if shape == "sphere" else {"radius": value("tubeAnalyticLightCapRadius"), "length": value("tubeAnalyticLightLength")} if shape == "cylinder" else {"diameters": dims} if shape == "disk" else None
+    elif family == "corona":
+        if ids == CORONA_LIGHT:
+            shape = next((k for k, v in CORONA_SHAPES.items() if v == value("shape")), None)
+            mode = value("colorMode")
+            unit = next((k for k, v in CORONA_UNITS.items() if v == value("intensityUnits")), "lx" if value("intensityUnits") == 3 else None)
+            state.update(kind="area" if shape else None, shape=shape, enabled=value("on"), cast_shadows=True,
+                         color={"kelvin": value("blackbodyTemp")} if mode == 1 else {"rgb": value("color"), "space": "rendering"} if mode == 0 else {"texmap": value("texmap")},
+                         output={"value": value("intensity"), "unit": unit})
+            state["size"] = ({"width": value("width"), "height": value("height")} if shape == "rectangle"
+                             else {"radius": value("width"), "length": value("height")} if shape == "cylinder"
+                             else {"radius": value("width")} if shape else None)
+            state["two_sided"] = value("twosidedEmission")
+            state["directionality"] = value("directionality")
+        else:
+            # The map itself is the environment light; there is no wrapper node.
+            state.update(kind="environment",
+                         output={"value": value("intensityMultiplier") if ids == CORONA_SKY else 1.0, "unit": "renderer"})
+            state["environment_source"] = {"class_ref": {"superclass_id": MAP, "class_id": list(ids)},
+                                           "values": {p["name"]: p.get("value") for p in data["properties"] if p.get("value_status") == "read"}}
     state["decoded"] = family is not None and state.get("kind") is not None
     state["unreadable"] = [{"name": p["name"], "status": p.get("value_status")} for p in data["properties"] if p.get("value_status") != "read"]
     state["light_token"] = {"owner_ref": data["owner_ref"], "schema_token": data["schema_token"], "state_token": data["state_token"]}
@@ -510,8 +600,11 @@ def edit(edits: list[dict], unit="scene") -> dict:
                 continue
             if type(changes[name]) is not bool:
                 raise ValueError(f"{name} must be boolean.")
-            if family == "octane" and state["kind"] == "environment":
+            if family in {"octane", "corona"} and state["kind"] == "environment":
                 raise ValueError("Environment binding enable/shadow changes are not emitter parameters.")
+            if family == "corona" and name == "cast_shadows":
+                if changes[name] is False: raise ValueError("Corona lights always cast shadows; there is no per-light shadow switch.")
+                continue
             assign("enabled" if family == "octane" and name == "enabled" else "on" if name == "enabled" else "castShadows",
                    changes[name], emission=family == "octane" and name == "cast_shadows")
         if "output" in changes:
@@ -523,6 +616,14 @@ def edit(edits: list[dict], unit="scene") -> dict:
             elif family == "photometric":
                 if output.unit != "cd": raise ValueError("Photometric intensity accepts cd.")
                 assign("useMultiplier", False); assign("intensityType", 1); assign("intensity", output.value)
+            elif family == "corona":
+                if state["kind"] == "environment":
+                    if output.unit != "renderer" or "intensityMultiplier" not in {p["name"] for p in state["bindings"]}:
+                        raise ValueError("Only a CoronaSky environment exposes an intensity multiplier; a CoronaBitmap environment has none.")
+                    assign("intensityMultiplier", output.value)
+                else:
+                    if output.unit not in CORONA_UNITS: raise ValueError("Corona output accepts renderer, lm or cd.")
+                    assign("intensityUnits", CORONA_UNITS[output.unit]); assign("intensity", output.value)
             else:
                 if output.unit != "renderer": raise ValueError("Octane output accepts renderer power.")
                 assign("power", output.value, emission=state["kind"] != "environment")
@@ -535,6 +636,9 @@ def edit(edits: list[dict], unit="scene") -> dict:
             elif family == "photometric":
                 assign("useKelvin", color.kelvin is not None)
                 assign("kelvin" if color.kelvin is not None else "rgb", color.kelvin if color.kelvin is not None else list(color.rgb))
+            elif family == "corona":
+                assign("colorMode", CORONA_COLOR_MODES["kelvin" if color.kelvin is not None else "rendering_rgb"])
+                assign("blackbodyTemp" if color.kelvin is not None else "color", color.kelvin if color.kelvin is not None else list(color.rgb))
             else:
                 if color.kelvin is None: raise ValueError("This Octane emission provider accepts Kelvin.")
                 assign("temperature", color.kelvin, emission=True)
@@ -552,6 +656,11 @@ def edit(edits: list[dict], unit="scene") -> dict:
                 else:
                     assign("light_radius", dims["radius"])
                     if shape == "cylinder": assign("light_length", dims["length"])
+            elif family == "corona":
+                if shape == "rectangle": assign("width", dims["width"]); assign("height", dims["height"])
+                else:
+                    assign("width", dims["radius"])
+                    if shape == "cylinder": assign("height", dims["length"])
             elif shape == "rectangle": assign("quadAnalyticLightSize", [dims["width"], dims["height"]])
             elif shape == "disk": assign("diskAnalyticLightSize", [2*dims["radius"], 2*dims["radius"]])
             elif shape == "sphere": assign("sphereAnalyticLightRadius", dims["radius"])
