@@ -13,8 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from . import plugin_schema as api
 from .plugin_semantics import VRAY_LIGHT, VRAY_SHAPES, VRAY_UNITS, OCTANE_SHAPES, VRAY_IMAGE_MAPPING
-from .plugin_semantics import (CORONA_RENDERER, CORONA_LIGHT, CORONA_SKY, CORONA_BITMAP, CORONA_SHAPES,
-                               CORONA_UNITS, CORONA_COLOR_MODES, CORONA_BITMAP_MAPPING)
+from .plugin_semantics import (CORONA_RENDERER, CORONA_LIGHT, CORONA_SUN, CORONA_MOON, CORONA_SKY, CORONA_BITMAP,
+                               CORONA_SHAPES, CORONA_UNITS, CORONA_COLOR_MODES, CORONA_SUN_COLOR_MODES, CORONA_BITMAP_MAPPING)
 
 LIGHT, MAP, RENDERER = 48, 3088, 3840
 OCTANE_LIGHT = (592523983, 1640440069)
@@ -98,7 +98,8 @@ class EnvironmentSource(Strict):
 
 class LightSpec(Strict):
     name: str = ""
-    kind: Literal["area", "point", "environment"]
+    kind: Literal["area", "point", "environment", "directional"]
+    body: Literal["sun", "moon"] | None = None  # directional only; defaults to sun
     shape: Literal["rectangle", "disk", "sphere", "cylinder"] | None = None
     size: LightSize | None = None
     position: Vector3 | None = None
@@ -111,9 +112,14 @@ class LightSpec(Strict):
 
     @model_validator(mode="after")
     def compatible_fields(self):
+        if self.kind != "directional" and self.body is not None:
+            raise ValueError("Only directional lights take a body (sun or moon).")
         if self.kind == "environment":
             if self.environment is None or any(x is not None for x in (self.shape, self.size, self.position, self.orientation, self.color)):
                 raise ValueError("Environment requires an environment source, without finite emitter/color fields.")
+        elif self.kind == "directional":
+            if self.orientation is None or any(x is not None for x in (self.shape, self.size, self.environment)):
+                raise ValueError("Directional lights require orientation, without shape, size or environment source.")
         else:
             if self.environment is not None:
                 raise ValueError("Only environment lights accept an environment source.")
@@ -241,6 +247,12 @@ def compile_lights(specs: list[LightSpec], context: dict, family: str, unit="sce
         if spec.kind == "environment":
             compile_environment(plan, key, spec, family)
             plan.lights.append({"id": key, "kind": "environment", "family": family})
+            continue
+        if spec.kind == "directional":
+            if family != "corona":
+                raise ValueError("Directional sun/moon lights currently have a verified provider for Corona only.")
+            compile_corona_directional(plan, key, spec, scale)
+            plan.lights.append({"id": key, "kind": "directional", "family": family})
             continue
         shape = spec.shape or "point"
         color = spec.color or LightColor(kelvin=6500)
@@ -371,6 +383,34 @@ def compile_environment(plan: Plan, key: str, spec: LightSpec, family: str):
         plan.payload["environment"] = {"owner_ref": {"created": key}, "replace_existing": source.replace_existing}
 
 
+def compile_corona_directional(plan: Plan, key: str, spec: LightSpec, scale: float):
+    """CoronaSun / CoronaMoon: shapeless directional emitters that shine down the node's
+    local -Z (verified by render). Intensity is Corona's own multiplier. The sun keeps
+    Corona's realistic colour unless a Kelvin or RGB colour is given; the moon only has
+    an RGB filter. Size multiplier, phase and sky linking stay at plugin defaults."""
+    body = spec.body or "sun"
+    if spec.output.unit != "renderer":
+        raise ValueError("Corona sun/moon intensity is a renderer multiplier; use unit renderer.")
+    if not spec.cast_shadows:
+        raise ValueError("Corona lights always cast shadows; there is no per-light shadow switch.")
+    color = spec.color
+    if body == "sun":
+        plan.create(key, CORONA_SUN, name=spec.name, matrix=world_matrix(spec, scale))
+        mode = "realistic" if color is None else "kelvin" if color.kelvin is not None else "rendering_rgb"
+        for name, value in {"on": spec.enabled, "targeted": False, "intensity": spec.output.value,
+                            "colorMode": CORONA_SUN_COLOR_MODES[mode]}.items():
+            plan.set(key, name, value)
+        if mode == "kelvin": plan.set(key, "blackbodyTemperature", color.kelvin)
+        elif mode == "rendering_rgb": plan.set(key, "colorDirect", list(color.rgb))
+    else:
+        if color is not None and color.kelvin is not None:
+            raise ValueError("CoronaMoon has an RGB colour filter only; supply rgb or omit colour.")
+        plan.create(key, CORONA_MOON, name=spec.name, matrix=world_matrix(spec, scale))
+        for name, value in {"on": spec.enabled, "targeted": False, "intensity": spec.output.value}.items():
+            plan.set(key, name, value)
+        if color is not None: plan.set(key, "colorFilter", list(color.rgb))
+
+
 def compile_corona_environment(plan: Plan, key: str, spec: LightSpec):
     """Corona lights the scene from the 3ds Max environment slot itself: a CoronaBitmap
     (HDRI) or an existing map such as CoronaSky is bound there directly, without a dome
@@ -413,7 +453,8 @@ def capabilities(requested="current", detail="summary") -> dict:
     result = {"renderer": chosen, "provider": family, "context_token": context["context_token"],
               "meters_per_unit": context["meters_per_unit"], "color_management": context["color_management"],
               "renderers": [{"name": r["name"], "label": r["label"], "provider": RENDERER_FAMILIES.get(tuple(r["class_id"]))} for r in context["renderers"]],
-              "kinds": ["area"] + (["point"] if family == "photometric" else ["environment"]),
+              "kinds": ["area"] + (["point"] if family == "photometric" else ["environment"]) + (["directional"] if family == "corona" else []),
+              **({"directional_bodies": ["sun", "moon"]} if family == "corona" else {}),
               "area_shapes": list(PHOTOMETRIC)[1:] if family == "photometric" else list(OCTANE_SHAPES) if family == "octane" else list(CORONA_SHAPES) if family == "corona" else ["rectangle", "disk", "sphere"],
               "output_units": ["cd"] if family == "photometric" else ["renderer"] if family == "octane" else list(CORONA_UNITS) if family == "corona" else list(VRAY_UNITS),
               "color_modes": ["kelvin"] if family == "octane" else ["kelvin", "rendering_rgb"],
@@ -425,7 +466,7 @@ def capabilities(requested="current", detail="summary") -> dict:
     if family == "corona":
         result["notes"] = ["Corona lights always cast shadows (cast_shadows=false is refused).",
                            "Environment binds the map itself to the scene environment slot at output 1.0.",
-                           "CoronaSun and CoronaMoon (directional, shapeless) need a directional light kind in LightSpec and are not part of this provider yet."]
+                           "Directional kind creates CoronaSun (body sun, default) or CoronaMoon (body moon); output is Corona's multiplier, orientation is the emission direction. Sky linking, size multiplier and moon phase stay at plugin defaults."]
     if detail == "full": result["light_spec_schema"] = LightSpec.model_json_schema()
     return result
 
@@ -461,7 +502,7 @@ def create(specs, requested="current", unit="scene", expected_context=None) -> d
 def inspect_one(owner_ref: dict, family: str | None = None) -> dict:
     identity = api.inspect(owner_ref=owner_ref, fields=["__identity_only__"], limit=1)
     ids = tuple(identity["identity"]["class_id"])
-    detected = "vray" if ids == VRAY_LIGHT else "octane" if ids in {OCTANE_LIGHT, OCTANE_ENV} else "photometric" if ids in PHOTOMETRIC.values() else "corona" if ids in {CORONA_LIGHT, CORONA_BITMAP, CORONA_SKY} else None
+    detected = "vray" if ids == VRAY_LIGHT else "octane" if ids in {OCTANE_LIGHT, OCTANE_ENV} else "photometric" if ids in PHOTOMETRIC.values() else "corona" if ids in {CORONA_LIGHT, CORONA_SUN, CORONA_MOON, CORONA_BITMAP, CORONA_SKY} else None
     if family is not None and family != detected:
         raise ValueError("Light reference provider does not match its actual class.")
     family = detected
@@ -474,6 +515,8 @@ def inspect_one(owner_ref: dict, family: str | None = None) -> dict:
                    "tubeAnalyticLightCapRadius", "tubeAnalyticLightLength", "emission", "normalize", "power", "texture_tex", "texture_input_type", "rotation"],
         "corona": (["on", "shape", "intensity", "intensityUnits", "colorMode", "color", "blackbodyTemp", "texmap", "width", "height",
                     "targeted", "twosidedEmission", "visibleDirectly", "directionality"] if ids == CORONA_LIGHT
+                   else ["on", "intensity", "colorMode", "colorDirect", "blackbodyTemperature", "sizeMultiplier", "targeted"] if ids == CORONA_SUN
+                   else ["on", "intensity", "colorFilter", "sizeMultiplier", "phase", "targeted"] if ids == CORONA_MOON
                    else ["filename", "enviroMapping", "gamma", "colorSpace", "wAngle"] if ids == CORONA_BITMAP
                    else ["intensityMultiplier", "skyModel", "turbidity", "sunSelectionMode", "selectedSun", "cloudsEnable"]),
     }.get(family, ["__identity_only__"])
@@ -527,6 +570,17 @@ def inspect_one(owner_ref: dict, family: str | None = None) -> dict:
                              else {"radius": value("width")} if shape else None)
             state["two_sided"] = value("twosidedEmission")
             state["directionality"] = value("directionality")
+        elif ids in {CORONA_SUN, CORONA_MOON}:
+            body = "sun" if ids == CORONA_SUN else "moon"
+            if body == "sun":
+                mode = value("colorMode")
+                color = ({"kelvin": value("blackbodyTemperature")} if mode == 1 else
+                         {"rgb": value("colorDirect"), "space": "rendering"} if mode == 0 else {"realistic": True})
+            else:
+                color = {"rgb": value("colorFilter"), "space": "rendering", "filter": True}
+            state.update(kind="directional", body=body, enabled=value("on"), cast_shadows=True, color=color,
+                         output={"value": value("intensity"), "unit": "renderer"}, size_multiplier=value("sizeMultiplier"))
+            if body == "moon": state["phase"] = value("phase")
         else:
             # The map itself is the environment light; there is no wrapper node.
             state.update(kind="environment",
@@ -621,6 +675,9 @@ def edit(edits: list[dict], unit="scene") -> dict:
                     if output.unit != "renderer" or "intensityMultiplier" not in {p["name"] for p in state["bindings"]}:
                         raise ValueError("Only a CoronaSky environment exposes an intensity multiplier; a CoronaBitmap environment has none.")
                     assign("intensityMultiplier", output.value)
+                elif state["kind"] == "directional":
+                    if output.unit != "renderer": raise ValueError("Corona sun/moon intensity is a renderer multiplier.")
+                    assign("intensity", output.value)
                 else:
                     if output.unit not in CORONA_UNITS: raise ValueError("Corona output accepts renderer, lm or cd.")
                     assign("intensityUnits", CORONA_UNITS[output.unit]); assign("intensity", output.value)
@@ -636,6 +693,12 @@ def edit(edits: list[dict], unit="scene") -> dict:
             elif family == "photometric":
                 assign("useKelvin", color.kelvin is not None)
                 assign("kelvin" if color.kelvin is not None else "rgb", color.kelvin if color.kelvin is not None else list(color.rgb))
+            elif family == "corona" and state.get("body") == "sun":
+                assign("colorMode", CORONA_SUN_COLOR_MODES["kelvin" if color.kelvin is not None else "rendering_rgb"])
+                assign("blackbodyTemperature" if color.kelvin is not None else "colorDirect", color.kelvin if color.kelvin is not None else list(color.rgb))
+            elif family == "corona" and state.get("body") == "moon":
+                if color.kelvin is not None: raise ValueError("CoronaMoon has an RGB colour filter only.")
+                assign("colorFilter", list(color.rgb))
             elif family == "corona":
                 assign("colorMode", CORONA_COLOR_MODES["kelvin" if color.kelvin is not None else "rendering_rgb"])
                 assign("blackbodyTemp" if color.kelvin is not None else "color", color.kelvin if color.kelvin is not None else list(color.rgb))

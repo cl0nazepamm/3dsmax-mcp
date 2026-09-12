@@ -16,6 +16,7 @@ VRAY_IMAGE_MAPPING = {"angular": 0, "cubic": 1, "spherical": 2, "mirrored_ball":
 CORONA_RENDERER = (1655201228, 1379677700)
 CORONA_LIGHT = (1110459877, 692869241)
 CORONA_SUN = (2084191360, 164583279)
+CORONA_MOON = (1510691909, 443094578)   # colour filter only, no Kelvin/realistic modes
 CORONA_SKY = (1498904930, 1286306497)
 CORONA_BITMAP = (2881116036, 1699234372)
 CORONA_SHAPES = {"sphere": 0, "rectangle": 1, "disk": 2, "cylinder": 3}
