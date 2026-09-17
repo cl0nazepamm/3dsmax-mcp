@@ -105,6 +105,15 @@ def setup_name(setup: dict[str, Any], index: int) -> str:
     return f"Setup {index + 1}"
 
 
+def _notes_text(setup: dict[str, Any]) -> str | None:
+    """Notes are stored as {global, text}; only the text is worth reporting."""
+    notes = setup.get("notes")
+    if isinstance(notes, dict):
+        text = notes.get("text")
+        return str(text) if text else None
+    return str(notes) if notes else None
+
+
 def summarize(setup: dict[str, Any], index: int) -> dict[str, Any]:
     camera = setup.get("camera") or {}
     resolution = setup.get("resolution") or {}
@@ -149,7 +158,7 @@ def summarize(setup: dict[str, Any], index: int) -> dict[str, Any]:
             "elements": len((elements.get("set") or [])) if elements.get("enabled") else 0,
             "objects": len((objects.get("set") or [])) if objects.get("enabled") else 0,
         },
-        "notes": setup.get("notes") or None,
+        "notes": _notes_text(setup),
         "status": setup.get("status"),
     }
 
@@ -238,7 +247,8 @@ def preflight(client: MaxClient, include_disabled: bool = False) -> dict[str, An
 
         path = row["output"]["path"] or ""
         if not row["output"]["enabled"] or not path:
-            add(name, "error", "output_missing", "No output file is set, the render result will not be saved.")
+            add(name, "warning", "output_missing",
+                "No output file is set, the render result is only kept in the frame buffer.")
         else:
             if not posixpath.splitext(path.replace("\\", "/"))[1]:
                 add(name, "error", "output_no_extension", f"Output path has no file extension: {path}")
