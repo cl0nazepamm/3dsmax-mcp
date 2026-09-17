@@ -70,9 +70,10 @@ def pulze_set(edits: list[dict[str, Any]], expected_token: str, confirm: bool = 
     resolution, camera, output path or render flag.
     Not when: you want a new setup — creating setups is not supported yet.
     Each edit is {setup: index|id|name, resolution: {width, height}, camera: name,
-    output_path: str, render_enabled: bool}. expected_token comes from
+    output_path: str, render_enabled: bool}. A camera must exist in the scene —
+    Scene Manager resolves it by node handle, which is looked up here. expected_token comes from
     pulze_inspect and is refused if anything changed since; confirm must be true.
-    Returns previous_blob — pass it to pulze_restore to roll the whole edit back.
+    Returns backup_id — pass it to pulze_restore to roll the whole edit back.
     """
     if not edits or len(edits) > 64:
         raise ValueError("Supply 1..64 edits.")
@@ -104,10 +105,11 @@ def pulze_set(edits: list[dict[str, Any]], expected_token: str, confirm: bool = 
 
         camera = edit.get("camera")
         if camera is not None:
+            handle = impl.resolve_camera(client, str(camera))
             block = setup.setdefault("camera", {})
             block["name"], block["enabled"] = str(camera), True
-            block["handle"] = None
-            changes.append(f"camera={camera}")
+            block["handle"] = handle
+            changes.append(f"camera={camera} (handle {handle})")
 
         output_path = edit.get("output_path")
         if output_path is not None:
@@ -131,12 +133,14 @@ def pulze_set(edits: list[dict[str, Any]], expected_token: str, confirm: bool = 
 
 
 @mcp.tool()
-def pulze_restore(previous_blob: str) -> dict:
-    """Roll Pulze setups back to a blob returned by a previous pulze_set.
+def pulze_restore(backup_id: str) -> dict:
+    """Roll Pulze setups back to the state before a pulze_set in this session.
 
     Use when: an edit went wrong and the setups must go back exactly as they were.
     Not when: you simply want different values — edit forward with pulze_set.
+    backup_id is what pulze_set returned. Backups live in the running MCP server,
+    so they are gone after a server restart.
     """
-    if not previous_blob.strip():
-        raise ValueError("previous_blob is empty.")
-    return impl.restore_blob(client, previous_blob.strip())
+    if not backup_id.strip():
+        raise ValueError("backup_id is empty.")
+    return impl.restore_backup(client, backup_id.strip())

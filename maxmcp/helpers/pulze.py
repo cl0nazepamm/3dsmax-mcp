@@ -29,6 +29,9 @@ CA_NAME = "SceneManager_Attributes"
 DATA_PROP = "SceneManager_Dat"
 _CHUNK = 3500
 
+# Pre-write blobs, kept in-process so a rollback costs no tokens in the transcript.
+_BACKUPS: dict[str, str] = {}
+
 
 class PulzeUnavailable(RuntimeError):
     """Scene Manager data is not present in the open scene."""
@@ -203,6 +206,22 @@ def probe_scene(client: MaxClient, paths: list[str]) -> dict[str, Any]:
     }
 
 
+def resolve_camera(client: MaxClient, name: str) -> int:
+    """Scene Manager resolves a setup camera by node handle, so a name is not enough."""
+    maxscript = f"""(
+    local node = getNodeByName "{safe_string(name)}"
+    if node == undefined then "__MISSING__"
+    else if (superClassOf node != camera) then "__NOT_A_CAMERA__"
+    else (node.handle as string)
+)"""
+    answer = _send(client, maxscript).strip()
+    if answer == "__MISSING__":
+        raise ValueError(f"No object called '{name}' in the scene.")
+    if answer == "__NOT_A_CAMERA__":
+        raise ValueError(f"'{name}' is in the scene but is not a camera.")
+    return int(answer)
+
+
 def preflight(client: MaxClient, include_disabled: bool = False) -> dict[str, Any]:
     """Catch the failures that waste an overnight render, before it starts."""
     setups, token = read_setups(client)
@@ -306,16 +325,22 @@ def write_setups(client: MaxClient, setups: list[dict[str, Any]], expected_token
     verify = read_blob(client)
     if verify != blob:
         raise RuntimeError("Write-back verification failed, Scene Manager data was not replaced.")
+    _BACKUPS[expected_token] = current_blob
     return {
         "written": True,
-        "previous_blob": current_blob,
-        "previous_token": expected_token,
+        "backup_id": expected_token,
         "token": blob_token(blob),
     }
 
 
-def restore_blob(client: MaxClient, blob: str) -> dict[str, Any]:
-    """Roll back to a blob returned by a previous write."""
+def restore_backup(client: MaxClient, backup_id: str) -> dict[str, Any]:
+    """Roll back to the blob kept from a previous write in this server process."""
+    blob = _BACKUPS.get(backup_id)
+    if blob is None:
+        raise ValueError(
+            f"No backup '{backup_id}' in this server process. Backups are lost when the "
+            "MCP server restarts; undo inside 3ds Max instead."
+        )
     for script in _chunked_write_maxscript(blob):
         _send(client, script)
     return {"restored": True, "token": blob_token(read_blob(client))}
