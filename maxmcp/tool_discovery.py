@@ -143,6 +143,11 @@ TOOLSET_SPECS = (
         ("effects", "state_sets"),
     ),
     ToolsetSpec(
+        "pulze",
+        "Pulze Scene Manager setups: inspection, render pre-flight, guarded edits and restore.",
+        ("pulze",),
+    ),
+    ToolsetSpec(
         "rendering",
         "Render configuration and render automation drivers.",
         ("render", "render_automations"),
