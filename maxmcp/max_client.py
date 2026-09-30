@@ -581,6 +581,8 @@ class MaxClient:
         )
 
         if not response.get("success", False):
+            # Retain native completion metadata for error envelopes as well.
+            self._local.last_response = response
             error_msg = response.get("error", "Unknown error")
             raise MaxBridgeError(str(error_msg), response)
 

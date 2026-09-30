@@ -34,9 +34,13 @@ class ExecutorOutcomeTests(unittest.TestCase):
         self.assertEqual(result["warnings"][0]["code"], "COMPLETED_LATE")
 
     def test_late_error_preserves_failure_and_reports_completion(self):
-        error = MaxBridgeError("actual failure", {"error": "actual failure"})
+        client = MaxClient(transport="pipe")
+        response = b'{"success":false,"error":"actual failure","meta":{"executionStatus":"completed_late"}}\n'
+        with patch.object(client, "_send_via_pipe", return_value=response):
+            with self.assertRaises(MaxBridgeError) as raised:
+                client.send_command("operation", timeout=2)
         with patch.dict("os.environ", {"MCP_TRIPBACK_MODE": "minimal"}):
-            result = envelope_exception(error, elapsed_ms=3000, transport={"execution_status": "completed_late"})
+            result = envelope_exception(raised.exception, elapsed_ms=3000, transport=client.get_last_transport())
         self.assertFalse(result["ok"])
         self.assertIn("actual failure", result["error"]["message"])
         self.assertEqual(result["warnings"][0]["code"], "COMPLETED_LATE")
