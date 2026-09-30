@@ -2,7 +2,31 @@
 
 #include <random>
 
+#ifndef MCP_EXECUTOR_WINDOW_CLASS
+#define MCP_EXECUTOR_WINDOW_CLASS L"MCPBridgeExecutor"
+#endif
+
 thread_local bool MainThreadExecutor::tl_direct_mode_ = false;
+thread_local bool MainThreadExecutor::tl_deadline_enabled_ = false;
+thread_local bool MainThreadExecutor::tl_completed_late_ = false;
+thread_local unsigned MainThreadExecutor::tl_completed_work_ = 0;
+thread_local std::chrono::steady_clock::time_point MainThreadExecutor::tl_deadline_;
+
+MainThreadExecutor::RequestScope::RequestScope(DWORD timeout_ms)
+    : old_enabled_(tl_deadline_enabled_), old_late_(tl_completed_late_),
+      old_completed_(tl_completed_work_), old_deadline_(tl_deadline_) {
+    tl_deadline_enabled_ = true;
+    tl_completed_late_ = false;
+    tl_completed_work_ = 0;
+    tl_deadline_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+}
+
+MainThreadExecutor::RequestScope::~RequestScope() {
+    tl_deadline_enabled_ = old_enabled_;
+    tl_completed_late_ = old_late_;
+    tl_completed_work_ = old_completed_;
+    tl_deadline_ = old_deadline_;
+}
 WPARAM MainThreadExecutor::s_execute_cookie_ = 0;
 bool MainThreadExecutor::s_executing_ = false;
 std::deque<std::shared_ptr<MainThreadExecutor::WorkItem>> MainThreadExecutor::s_deferred_;
@@ -32,7 +56,7 @@ void MainThreadExecutor::Initialize() {
     wc.cbSize = sizeof(WNDCLASSEX);
     wc.lpfnWndProc = WndProc;
     wc.hInstance = GetModuleHandle(nullptr);
-    wc.lpszClassName = L"MCPBridgeExecutor";
+    wc.lpszClassName = MCP_EXECUTOR_WINDOW_CLASS;
 
     wndclass_atom_ = RegisterClassEx(&wc);
     if (!wndclass_atom_) return;
@@ -42,7 +66,7 @@ void MainThreadExecutor::Initialize() {
     // are persisted in a shared usermacros folder across Max instances.
     std::wstring window_title = L"MCPBridgeExecutor-" + std::to_wstring(GetCurrentProcessId());
     hwnd_ = CreateWindowEx(
-        0, L"MCPBridgeExecutor", window_title.c_str(),
+        0, MCP_EXECUTOR_WINDOW_CLASS, window_title.c_str(),
         0, 0, 0, 0, 0,
         nullptr,
         nullptr, GetModuleHandle(nullptr), nullptr
@@ -55,7 +79,7 @@ void MainThreadExecutor::Shutdown() {
         hwnd_ = nullptr;
     }
     if (wndclass_atom_) {
-        UnregisterClass(L"MCPBridgeExecutor", GetModuleHandle(nullptr));
+        UnregisterClass(MCP_EXECUTOR_WINDOW_CLASS, GetModuleHandle(nullptr));
         wndclass_atom_ = 0;
     }
 }
@@ -83,6 +107,9 @@ std::string MainThreadExecutor::ExecuteSync(
 
     auto item = std::make_shared<WorkItem>();
     item->work = std::move(work);
+    item->deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    if (tl_deadline_enabled_ && tl_deadline_ < item->deadline)
+        item->deadline = tl_deadline_;
 
     // prevent shared_ptr from dying before main thread processes it
     auto* raw = new std::shared_ptr<WorkItem>(item);
@@ -92,15 +119,27 @@ std::string MainThreadExecutor::ExecuteSync(
         throw std::runtime_error("Failed to post work to main thread");
     }
 
-    // Wait for main thread to complete the work
     std::unique_lock<std::mutex> lock(item->mutex);
-    bool finished = item->cv.wait_for(lock,
-        std::chrono::milliseconds(timeout_ms),
-        [&] { return item->completed; });
-
-    if (!finished) {
-        throw std::runtime_error("Main thread execution timed out");
+    auto terminal = [&] {
+        const auto state = item->state.load();
+        return state == WorkState::done || state == WorkState::cancelled;
+    };
+    if (!item->cv.wait_until(lock, item->deadline, terminal)) {
+        auto expected = WorkState::pending;
+        if (item->state.compare_exchange_strong(expected, WorkState::cancelled)) {
+            // We won against pending -> running. No callback may execute now,
+            // including after this caller's reference captures go out of scope.
+            throw CancelledBeforeStart();
+        }
+        // Running work may borrow this caller's stack. A timeout is NOT licence
+        // to unwind it. Wait through completion (including callback exceptions).
+        item->cv.wait(lock, terminal);
     }
+    if (item->state.load() == WorkState::cancelled)
+        throw CancelledBeforeStart();
+    ++tl_completed_work_;
+    if (item->finished_at > item->deadline)
+        tl_completed_late_ = true;
 
     if (item->error) {
         throw std::runtime_error(item->error_message);
@@ -155,17 +194,33 @@ LRESULT CALLBACK MainThreadExecutor::WndProc(
 
 void MainThreadExecutor::RunWorkItem(const std::shared_ptr<WorkItem>& item) {
     {
+        // Synchronize terminal publication with cv waiting. Never hold this
+        // mutex while calling Max/SDK code: it can run nested message pumps.
         std::lock_guard<std::mutex> lock(item->mutex);
-        try {
-            item->result = item->work();
-        } catch (const std::exception& e) {
-            item->error = true;
-            item->error_message = e.what();
-        } catch (...) {
-            item->error = true;
-            item->error_message = "Unknown exception on main thread";
+        auto expected = WorkState::pending;
+        if (std::chrono::steady_clock::now() >= item->deadline) {
+            item->state.compare_exchange_strong(expected, WorkState::cancelled);
+            item->cv.notify_all();
+            return;
         }
-        item->completed = true;
+        if (!item->state.compare_exchange_strong(expected, WorkState::running))
+            return;
+    }
+
+    try {
+        item->result = item->work();
+    } catch (const std::exception& e) {
+        item->error = true;
+        item->error_message = e.what();
+    } catch (...) {
+        item->error = true;
+        item->error_message = "Unknown exception on main thread";
+    }
+    {
+        std::lock_guard<std::mutex> lock(item->mutex);
+        item->finished_at = std::chrono::steady_clock::now();
+        auto expected = WorkState::running;
+        item->state.compare_exchange_strong(expected, WorkState::done);
     }
     item->cv.notify_all();
 }

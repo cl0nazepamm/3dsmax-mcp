@@ -319,6 +319,7 @@ static std::string BuildResponse(
     resp["error"] = error;
     resp["meta"] = {
         {"protocolVersion", 2},
+        {"executionStatus", MainThreadExecutor::CompletedLate() ? "completed_late" : (success ? "completed" : "failed")},
         {"cmdType", cmd_type},
         {"safeMode", IsSafeModeEnabled()},
         {"durationMs", duration_ms},
@@ -445,6 +446,14 @@ std::string CommandDispatcher::Dispatch(
     std::string command = req.value("command", "");
     std::string cmd_type = req.value("type", "maxscript");
     std::string request_id = req.value("requestId", "");
+
+    DWORD timeout_ms = 120000;
+    if (req.contains("timeoutMs")) {
+        if (!req["timeoutMs"].is_number_integer() || req["timeoutMs"] < 0 || req["timeoutMs"] > 0xFFFFFFFEu)
+            return BuildResponse(false, "", "Invalid timeoutMs", request_id, cmd_type, 0);
+        timeout_ms = req["timeoutMs"].get<DWORD>();
+    }
+    MainThreadExecutor::RequestScope execution_scope(timeout_ms);
 
     // Route to handler — read-only handlers run directly on pipe thread
     // _forceMainThread flag allows benchmarking the same handler both ways
@@ -736,6 +745,19 @@ std::string CommandDispatcher::Dispatch(
         int ms = (int)std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
         return BuildResponse(true, result, "", request_id, cmd_type, ms);
 
+    } catch (const MainThreadExecutor::CancelledBeforeStart& e) {
+        const bool partial = MainThreadExecutor::HasCompletedWork();
+        const int ms = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start).count());
+        const auto error = json({
+            {"type", "QueueDeadlineError"},
+            {"code", partial ? "REQUEST_PARTIALLY_EXECUTED" : "TASK_CANCELLED"},
+            {"message", partial ? "A later task was cancelled; earlier work completed. Inspect before retrying." : e.what()},
+            {"retryable", !partial}
+        }).dump();
+        auto response = json::parse(BuildResponse(false, "", error, request_id, cmd_type, ms));
+        response["meta"]["executionStatus"] = partial ? "partially_executed" : "cancelled_before_start";
+        return response.dump();
     } catch (const std::exception& e) {
         auto end = std::chrono::steady_clock::now();
         int ms = (int)std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();

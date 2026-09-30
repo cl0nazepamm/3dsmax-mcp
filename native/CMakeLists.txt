@@ -33,6 +33,14 @@ if(MAX_VERSION GREATER_EQUAL 2027)
     message(STATUS "Max 2027+ SDK: C++20 enabled")
 endif()
 
+# Win32 executor tests use production source but do not require the Max SDK.
+option(MCP_EXECUTOR_TESTS_ONLY "Build only SDK-independent executor tests" OFF)
+if(MCP_EXECUTOR_TESTS_ONLY)
+    enable_testing()
+    add_subdirectory(tests/executor)
+    return()
+endif()
+
 # ── Max SDK ──────────────────────────────────────────────────────
 if(NOT DEFINED MAXSDK_PATH)
     set(MAXSDK_PATH "C:/Program Files/Autodesk/3ds Max ${MAX_VERSION} SDK/maxsdk"
@@ -203,3 +211,17 @@ install(TARGETS mcp_bridge
     RUNTIME DESTINATION "${MAX_PLUGINS_DIR}"
     LIBRARY DESTINATION "${MAX_PLUGINS_DIR}"
 )
+
+# Explicitly loaded in a separate empty Max; excluded from normal builds.
+option(MCP_BUILD_EXECUTOR_PROBE "Build the optional live executor regression probe" OFF)
+if(MCP_BUILD_EXECUTOR_PROBE)
+    add_library(executor_probe SHARED tests/executor/live_probe.cpp src/main_thread_executor.cpp)
+    target_include_directories(executor_probe PRIVATE include "${MAXSDK_PATH}/include")
+    target_compile_definitions(executor_probe PRIVATE NOMINMAX UNICODE _UNICODE
+        MCP_EXECUTOR_WINDOW_CLASS=L"MCPExecutorRegressionProbe")
+    target_link_directories(executor_probe PRIVATE "${MAXSDK_PATH}/lib/x64/Release")
+    target_link_libraries(executor_probe PRIVATE core.lib maxutil.lib comctl32.lib)
+    if(MSVC)
+        target_compile_options(executor_probe PRIVATE /EHsc)
+    endif()
+endif()

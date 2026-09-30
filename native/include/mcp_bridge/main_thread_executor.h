@@ -1,5 +1,7 @@
 #pragma once
 #include <windows.h>
+#include <atomic>
+#include <chrono>
 #include <functional>
 #include <string>
 #include <mutex>
@@ -37,10 +39,35 @@ public:
     static void DisableDirectMode() { tl_direct_mode_ = false; }
     static bool IsDirectMode()      { return tl_direct_mode_; }
 
+    class CancelledBeforeStart : public std::runtime_error {
+    public:
+        CancelledBeforeStart() : std::runtime_error(
+            "Task cancelled before execution: its queue deadline expired") {}
+    };
+
+    // One request can make several executor calls. Preserve nesting and keep
+    // deadline/result metadata on the waiting thread, never process-global.
+    class RequestScope {
+    public:
+        explicit RequestScope(DWORD timeout_ms = 120000);
+        ~RequestScope();
+        RequestScope(const RequestScope&) = delete;
+        RequestScope& operator=(const RequestScope&) = delete;
+    private:
+        bool old_enabled_, old_late_;
+        unsigned old_completed_;
+        std::chrono::steady_clock::time_point old_deadline_;
+    };
+    static bool HasCompletedWork() { return tl_completed_work_ != 0; }
+    static bool CompletedLate() { return tl_completed_late_; }
+
+    enum class WorkState { pending, running, done, cancelled };
     struct WorkItem {
         std::function<std::string()> work;
         std::string result;
-        bool completed = false;
+        std::atomic<WorkState> state{WorkState::pending};
+        std::chrono::steady_clock::time_point deadline;
+        std::chrono::steady_clock::time_point finished_at;
         bool error = false;
         std::string error_message;
         std::mutex mutex;
@@ -57,6 +84,10 @@ private:
     DWORD main_thread_id_ = 0;
 
     static thread_local bool tl_direct_mode_;
+    static thread_local bool tl_deadline_enabled_;
+    static thread_local bool tl_completed_late_;
+    static thread_local unsigned tl_completed_work_;
+    static thread_local std::chrono::steady_clock::time_point tl_deadline_;
     static constexpr UINT WM_MCP_EXECUTE = WM_USER + 0x4D43;
 
     // Re-entrancy guard. SDK calls inside a work item can run nested message

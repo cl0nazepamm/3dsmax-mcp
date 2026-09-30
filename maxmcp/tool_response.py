@@ -28,6 +28,8 @@ class ErrorCode(str, Enum):
     AMBIGUOUS = "AMBIGUOUS"
     PLUGIN_MISSING = "PLUGIN_MISSING"
     BRIDGE_DOWN = "BRIDGE_DOWN"
+    TASK_CANCELLED = "TASK_CANCELLED"
+    REQUEST_PARTIALLY_EXECUTED = "REQUEST_PARTIALLY_EXECUTED"
     RENDER_BUSY = "RENDER_BUSY"
     USER_BUSY = "USER_BUSY"
     SAFE_MODE = "SAFE_MODE"
@@ -440,6 +442,11 @@ def envelope_result(
     result = _json_or_raw(raw)
     error = _error_from_result(result, raw)
     warnings = _coerce_warnings(result)
+    if transport and transport.get("execution_status") == "completed_late":
+        warnings.append({
+            "code": "COMPLETED_LATE",
+            "message": "The task finished after its deadline. This is its actual result; do not repeat it.",
+        })
 
     if tripback_mode() == "minimal":
         if error is None:
@@ -480,8 +487,16 @@ def envelope_exception(
     script: str | None = None,
 ) -> dict[str, Any]:
     error = _error_from_exception(exc)
+    warnings = []
+    if transport and transport.get("execution_status") == "completed_late":
+        warnings.append({
+            "code": "COMPLETED_LATE",
+            "message": "The task finished after its deadline. This is its actual error; inspect before retrying.",
+        })
     if tripback_mode() == "minimal":
         payload: dict[str, Any] = {"ok": False, "error": error}
+        if warnings:
+            payload["warnings"] = warnings
         slim = _slim_transport(transport)
         if slim:
             payload["transport"] = slim
@@ -491,7 +506,7 @@ def envelope_exception(
     payload = {
         "ok": False,
         "result": None,
-        "warnings": [],
+        "warnings": warnings,
         "error": error,
         "transport": transport,
         "elapsed_ms": round(elapsed_ms, 3),

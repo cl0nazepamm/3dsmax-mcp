@@ -136,6 +136,7 @@ class MaxClient:
                 "requested_transport": meta.get("requestedTransport"),
                 "request_id": response.get("requestId"),
                 "protocol_version": meta.get("protocolVersion"),
+                "execution_status": meta.get("executionStatus"),
                 "client_round_trip_ms": meta.get("clientRoundTripMs"),
                 "fallback_error": meta.get("fallbackError"),
                 **meta.get("target", {}),
@@ -390,6 +391,7 @@ class MaxClient:
             "type": cmd_type,
             "requestId": request_id,
             "protocolVersion": 2,
+            "timeoutMs": max(0, min(0xFFFFFFFE, int(effective_timeout * 1000))),
         }, ensure_ascii=True)
 
         if self.transport == "pipe":
@@ -477,13 +479,7 @@ class MaxClient:
                     response_data = bytearray()
                     buf = ctypes.create_string_buffer(65536)
                     while True:
-                        if time.perf_counter() >= deadline:
-                            self._close_pipe_handle()
-                            raise RequestOutcomeUnknown(
-                                f"Timed out waiting for named pipe response after "
-                                f"{timeout}s. The request may have committed; inspect before retrying."
-                            )
-
+                        # The bridge cancels queued work; running work must return its real result.
                         bytes_read = wintypes.DWORD()
                         ok = _kernel32.ReadFile(
                             handle, buf, len(buf), ctypes.byref(bytes_read), None
