@@ -25,6 +25,8 @@ if __name__ == "__main__" and __spec__ is not None:
 
 _READ_ONLY_TOOLS = {
     "cosmos_search",
+    "pulze_inspect",
+    "pulze_preflight",
     "material_roles",
     "get_bridge_status",
     "get_plugin_capabilities",
@@ -78,6 +80,8 @@ _READ_ONLY_TOOLS = {
 
 _DESTRUCTIVE_TOOLS = {
     "mesh_edit",
+    "pulze_set",
+    "pulze_restore",
     "scene_patch",
     "scene_qa",
     "delete_objects",
@@ -99,6 +103,8 @@ _DESTRUCTIVE_TOOLS = {
 
 _IDEMPOTENT_TOOLS = {
     "cosmos_search",
+    "pulze_inspect",
+    "pulze_preflight",
     "material_roles",
     "cosmos_download",
     "get_bridge_status",
@@ -260,6 +266,7 @@ CORE_TOOL_MODULES = (
 
 SPECIALTY_TOOL_MODULES = (
     "data_channel",
+    "pulze",
     "effects",
     "mcg",
     "railclone",
