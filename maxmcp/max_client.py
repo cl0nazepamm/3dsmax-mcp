@@ -309,6 +309,10 @@ _kernel32.GetNamedPipeServerProcessId.argtypes = [wintypes.HANDLE, ctypes.POINTE
 _INVALID_HANDLE = wintypes.HANDLE(-1).value
 
 INSTANCE_LOCK_TIMEOUT = 10.0
+# The bridge has no pipe instance for a few milliseconds when several connections close at once, for
+# example the calls queued behind a dialog finishing once it is answered. A connect inside that gap gets
+# "file not found", so it is retried this long before the pipe is called gone.
+_PIPE_GAP_RETRY_S = 0.25
 _BLOCKED_CONFIRM_S = 20.0
 _CPU_SAMPLE_S = 1.0
 _RECHECK_SAMPLE_S = 0.25
@@ -1011,6 +1015,7 @@ class MaxClient:
         if handle not in (None, 0, _INVALID_HANDLE):
             return handle
 
+        gap_since = None
         while True:
             handle = _kernel32.CreateFileW(
                 pipe_name,
@@ -1027,6 +1032,11 @@ class MaxClient:
 
             err = ctypes.get_last_error()
             if err in (_ERROR_FILE_NOT_FOUND, _ERROR_PATH_NOT_FOUND):
+                now = time.perf_counter()
+                gap_since = now if gap_since is None else gap_since
+                if now - gap_since < _PIPE_GAP_RETRY_S and now < deadline:
+                    time.sleep(0.01)
+                    continue
                 raise ConnectionError(
                     f"Named pipe {pipe_name} not found. "
                     "Is the MCP Bridge plugin loaded in 3ds Max?"

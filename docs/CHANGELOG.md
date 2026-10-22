@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+- The call right after a dialog is answered no longer fails with "Named pipe ... not found". The bridge has no pipe instance for a moment while the calls queued behind the dialog finish, so the client retries the connect for up to 0.25 s before it calls the bridge gone.
+
 ## [1.7.7] — 2026-10-31
 
 - `capture_multi_view` captures animation: `frames` (up to 12 frame numbers) or `frame_count` (2 to 12 frames spread over the animation range) give one view over time in a single image. The camera is framed once over everything the subject covers on those frames and held, so motion reads across the tiles; the time slider comes back afterwards.
