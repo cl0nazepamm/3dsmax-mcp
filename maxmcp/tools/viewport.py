@@ -6,7 +6,8 @@ from uuid import uuid4
 from typing import Any
 
 from ..server import mcp, client
-from ..coerce import StrList, FloatList, IntList
+from ..coerce import StrList, FloatList, IntList, ViewList
+from ..helpers import jobs
 from ..helpers.maxscript import node_by_name_expr, safe_string
 from ..helpers.native_compat import is_missing_native_route_error
 from ..max_client import MaxBridgeError
@@ -585,19 +586,57 @@ def capture_screen(
     return result
 
 
+_SHADINGS = {"smooth", "flat", "wireframe", "clay"}
+
+
+def _require_multi_view_features(data: dict[str, Any], request: dict[str, Any]) -> None:
+    """An older bridge ignores options it does not know; never pass its capture off as the one asked for."""
+    missing = []
+    if ("frames" in request or "frame_count" in request) and "frames" not in data:
+        missing.append("frame strips")
+    if ("shading" in request or "edges" in request) and "shading" not in data:
+        missing.append("shading overrides")
+    if "views" in request and "frames" not in request and "frame_count" not in request \
+            and len(data.get("views") or []) != len(request["views"]):
+        missing.append("these views (three_quarter, current, directions)")
+    if missing:
+        raise RuntimeError("The loaded native bridge does not support " + ", ".join(missing) +
+                           "; build and install the current bridge, then retry.")
+
+
 @mcp.tool()
 def capture_multi_view(
-    views: StrList | None = None,
+    views: ViewList | None = None,
     max_width: int = DEFAULT_MAX_WIDTH,
     max_height: int = 0,
     return_image: bool = False,
     frame_root: str = "",
     source: str = "auto",
     capture_method: str = "auto",
+    shading: str = "",
+    edges: bool | None = None,
+    frames: IntList | None = None,
+    frame_count: int = 0,
+    wait_seconds: int = 50,
+    job: str = "",
 ) -> Any:
-    """Capture multiple viewport angles to a stitched file and return compact metadata.
+    """Capture several views, or one view over time, to a stitched file and return compact metadata.
 
     Uses AGENT VIEWPORT when open; source=active explicitly uses the user view.
+    views: up to 8 of front, back, left, right, top, bottom, perspective, three_quarter,
+    current (the view as it is), or [x, y, z] directions from the subject toward the eye
+    (Z up; [0, -1, 0.3] is front, slightly above). Directions are perspective views framed
+    like the named ones. Default: front, right, back, top.
+    shading: smooth | flat | wireframe | clay for this capture only; edges=true adds
+    edged faces (clay with edges shows topology). The view's own settings come back after.
+    frames / frame_count: a strip of ONE view over time instead: up to 12 explicit frame
+    numbers, or 2-12 frames spread over the animation range, captured in ascending order.
+    Give at most one entry in views (default current). It is framed once, at the current
+    frame, and held so motion reads across tiles; the time slider comes back after.
+    Every frame evaluates the scene, so simulations can be slow.
+    wait_seconds (max 50): a capture still running then returns {"status": "running",
+    "job": ..., "progress": ...}; call capture_multi_view(job=...) to wait again. Never
+    repeat the original call while its job runs.
     capture_method=auto prefers Nitrous with window capture if unavailable;
     window uses Windows client capture for every tile. Both exclude overlapping windows.
     frame_root frames a named hierarchy. In the agent panel it does not hide other
@@ -605,25 +644,52 @@ def capture_multi_view(
     Read the returned `file` path to view the grid. return_image is deprecated
     and ignored — the image is never inlined.
 
-    Use when: verifying scene changes from several angles (preferred after meaningful edits).
+    Use when: verifying scene changes from several angles (preferred after meaningful edits),
+    or animation and simulation over time (frames).
     Not when: a single active viewport is enough (capture_viewport) or the user asked to render.
     """
-    payload = {}
-    _source(source)
-    _capture_method(capture_method)
-    if capture_method!="auto": payload["capture_method"]=capture_method
-    if source!="auto": payload["source"]=source
-    if frame_root:
-        payload["frame_root"] = frame_root
-    if views:
-        payload["views"] = views
-    payload["max_width"] = max(0, int(max_width))
-    payload["max_height"] = max(0, int(max_height))
-    if source=="agent": payload["action"]="capture_multi"
-    response = client.send_command(json.dumps(payload), cmd_type="native:agent_viewport" if source=="agent" else "native:capture_multi_view")
-    raw = response.get("result", "")
+    if job:
+        outcome = jobs.resume(client, "capture_multi_view", job, wait_seconds=wait_seconds)
+    else:
+        payload: dict[str, Any] = {}
+        _source(source)
+        _capture_method(capture_method)
+        shading = shading.strip().lower()
+        if shading and shading not in _SHADINGS:
+            raise ValueError("shading must be smooth, flat, wireframe or clay")
+        if frames and frame_count:
+            raise ValueError("Pass frames or frame_count, not both")
+        if capture_method!="auto": payload["capture_method"]=capture_method
+        if source!="auto": payload["source"]=source
+        if frame_root:
+            payload["frame_root"] = frame_root
+        if views:
+            payload["views"] = views
+        if shading:
+            payload["shading"] = shading
+        if edges is not None:
+            payload["edges"] = edges
+        if frames:
+            payload["frames"] = list(frames)
+        if frame_count:
+            payload["frame_count"] = int(frame_count)
+        payload["max_width"] = max(0, int(max_width))
+        payload["max_height"] = max(0, int(max_height))
+        if source=="agent": payload["action"]="capture_multi"
+        cmd_type = "native:agent_viewport" if source=="agent" else "native:capture_multi_view"
+        outcome = jobs.start(client, "capture_multi_view", cmd_type, payload, wait_seconds=wait_seconds,
+                             timeout=None, progress=True,
+                             context={"capture_method": capture_method, "return_image": return_image,
+                                      "request": {k: payload[k] for k in ("views", "shading", "edges", "frames",
+                                                                          "frame_count") if k in payload}})
+    if outcome.running:
+        return outcome.running
+    capture_method = outcome.context.get("capture_method", capture_method)
+    return_image = outcome.context.get("return_image", return_image)
+    raw = outcome.response.get("result", "")
     data = json.loads(raw)
     _verify_window_viewport(data,capture_method)
+    _require_multi_view_features(data, outcome.context.get("request", {}))
     file_path = data.get("file", "")
     if not file_path:
         raise RuntimeError("No image file returned from multi-view capture")
@@ -637,6 +703,7 @@ def capture_multi_view(
     result["views"] = data.get("views")
     result["grid"] = data.get("grid")
     result["framed_root"] = data.get("framed_root")
-    for key in ("source","agent_views","restored_agent_viewport","isolation_applied","capture_contract","capture_methods","occlusion_free"):
+    for key in ("source","agent_views","restored_agent_viewport","isolation_applied","capture_contract","capture_methods",
+                "occlusion_free","frames","restored_frame","shading","edges"):
         if key in data: result[key]=data[key]
     return result

@@ -197,6 +197,20 @@ class MaxBusy(RequestOutcomeUnknown):
         super().__init__(message)
 
 
+class JobPending(Exception):
+    """A job-mode call outlived its wait and keeps running in Max.
+
+    Not a failure: the client keeps the call (it is never sent again), and
+    wait_job() collects its result. blocked_calls() leaves it to its tool.
+    """
+
+    def __init__(self, request_id: str, cmd_type: str, waited: float) -> None:
+        super().__init__(f"{cmd_type} is still running in 3ds Max after {waited:.1f} s")
+        self.request_id = request_id
+        self.cmd_type = cmd_type
+        self.waited = waited
+
+
 class TargetUnavailable(ConnectionError):
     """The bound Max's pipe is gone, e.g. after a crash or restart.
 
@@ -290,7 +304,7 @@ _RECHECK_SAMPLE_S = 0.25
 _PROBE_CMD_TYPES = frozenset({"ping", "health"})
 # Answered on a bridge pipe thread without touching Max's main thread. Sent on the
 # control channel so a stuck request holding the pipe lock cannot delay them.
-_MAIN_THREAD_FREE_CMD_TYPES = frozenset({"health", "native:max_dialogs"})
+_MAIN_THREAD_FREE_CMD_TYPES = frozenset({"health", "native:max_dialogs", "native:job_progress"})
 # Separate connection: bypasses the pipe lock and the hung-PID latch.
 # native:core is the bridge shell's hot-reloadable core control (status / reload).
 _CONTROL_CMD_TYPES = frozenset({"native:render_cancel", "native:render_cancel_capture",
@@ -978,11 +992,14 @@ class MaxClient:
         request_fields: Optional[dict[str, Any]] = None,
         *,
         probe: bool = False,
+        job_wait: float | None = None,
     ) -> dict[str, Any]:
         """Send a command to 3ds Max and return the parsed JSON response.
 
         request_fields adds handler options beside the command, e.g. quiet.
         probe=True marks a read-only command that may be dropped at its deadline.
+        job_wait: over the named pipe, wait this many seconds for the reply, then
+        raise JobPending and keep the call running in Max for wait_job().
         """
         if cmd_type in _CONTROL_CMD_TYPES and self.transport != "tcp" and not self._control_channel:
             return self._send_control_command(command, cmd_type, timeout, probe=probe)
@@ -1004,7 +1021,7 @@ class MaxClient:
         if self.transport == "pipe":
             transport_used = "namedpipe"
             response_data = self._send_via_pipe(request, effective_timeout, cmd_type=cmd_type, request_id=request_id,
-                                                probe=probe)
+                                                probe=probe, job_wait=job_wait)
         elif self.transport == "tcp":
             transport_used = "tcp"
             self._refuse_unverifiable_pid()
@@ -1013,7 +1030,7 @@ class MaxClient:
             try:
                 transport_used = "namedpipe"
                 response_data = self._send_via_pipe(request, effective_timeout, cmd_type=cmd_type,
-                                                    request_id=request_id, probe=probe)
+                                                    request_id=request_id, probe=probe, job_wait=job_wait)
             except (AmbiguousMaxInstanceError, MaxBusyError, MaxNotRespondingError, MaxTargetMismatchError):
                 raise
             except (ConnectionError, TimeoutError) as exc:
@@ -1065,6 +1082,7 @@ class MaxClient:
         cmd_type: str | None = None,
         request_id: str | None = None,
         probe: bool = False,
+        job_wait: float | None = None,
     ) -> bytes:
         data = (request + "\n").encode("utf-8")
         # Nothing is sent while another call holds the pipe, so giving up early is safe to retry.
@@ -1120,7 +1138,7 @@ class MaxClient:
 
                     reply = self._await_response(handle, request_id or "", cmd_type or "", deadline=deadline,
                                                  timeout=timeout, pid=pid,
-                                                 probe=probe or cmd_type in _PROBE_CMD_TYPES)
+                                                 probe=probe or cmd_type in _PROBE_CMD_TYPES, job_wait=job_wait)
                     if pid:
                         self._hung_pids.pop(pid, None)  # Max answered, so any old verdict is stale
                     self._check_queue_timeout(reply, pid)
@@ -1258,7 +1276,8 @@ class MaxClient:
         return max(timeout, NATIVE_QUEUE_TIMEOUT) + REPLY_GRACE
 
     def _await_response(self, handle: int, request_id: str, cmd_type: str, *, deadline: float,
-                        timeout: float, pid: int | None, probe: bool = False) -> bytes:
+                        timeout: float, pid: int | None, probe: bool = False,
+                        job_wait: float | None = None) -> bytes:
         """Wait for the reply on a reader thread; this thread never blocks in ReadFile.
 
         Precedence while waiting (the pre-send refusals - pipe lock, hung-PID latch -
@@ -1274,14 +1293,19 @@ class MaxClient:
            hung. A busy, responsive or undiagnosable Max gives MaxBusy (MAX_BUSY,
            sent, never replayed). Either way blocked_calls() reports the call's
            result if Max ever answers (control requests are not tracked).
+        A job (job_wait set, tracked) skips 2-3: after job_wait it raises JobPending
+        and its tool collects the result with wait_job(). A long call is expected,
+        so it is not diagnosed.
         A reply that arrives meanwhile always wins, and no wait is unbounded: a
         runaway script on a Max that keeps burning CPU ends in MAX_BUSY.
         """
         reader = _PipeReader(handle)
         sent_at = time.perf_counter()
         watch = bool(request_id) and not self._control_channel
+        job = watch and job_wait is not None and not probe
         next_dialog = time.perf_counter() + DIALOG_CHECK_AFTER if watch else float("inf")
-        next_check = deadline if probe else sent_at + self._reply_wait(timeout)
+        next_check = (deadline if probe else sent_at + max(0.0, job_wait) if job
+                      else sent_at + self._reply_wait(timeout))
         blocked_since: float | None = None
         while not reader.done.wait(max(0.0, min(next_dialog, next_check) - time.perf_counter())):
             if time.perf_counter() >= next_dialog:
@@ -1300,6 +1324,9 @@ class MaxClient:
             if probe:
                 self._abandon_probe(pid, timeout, reader)
                 continue  # the reply arrived during the diagnosis
+            if job:
+                self._detach(reader, request_id, cmd_type, dialog=False, sent_at=sent_at, timeout=timeout, job=True)
+                raise JobPending(request_id, cmd_type, now - sent_at)
             process = diagnose_process(pid, _CPU_SAMPLE_S) if pid and not self._control_channel else None
             if reader.done.is_set():
                 break
@@ -1325,7 +1352,8 @@ class MaxClient:
         return reader.result()
 
     def _detach(self, reader: _PipeReader, request_id: str, cmd_type: str, *, dialog: bool,
-                sent_at: float | None = None, timeout: float | None = None, probe: bool = False) -> None:
+                sent_at: float | None = None, timeout: float | None = None, probe: bool = False,
+                job: bool = False) -> None:
         """Leave a sent call running in Max and keep its reader for blocked_calls().
 
         Max keeps running the call; its connection now belongs to the reader, and the
@@ -1346,7 +1374,7 @@ class MaxClient:
                 self._blocked.pop(victim)
             self._blocked[request_id] = {"command": cmd_type, "reader": reader, "blocked_at": now,
                                          "sent_at": now if sent_at is None else sent_at, "timeout_s": timeout,
-                                         "probe": probe, "dialog": dialog}
+                                         "probe": probe, "dialog": dialog, "job": job}
 
     def _request_state(self, request_id: str) -> str | None:
         """The dialog monitor's state for a request (queued, running...), if it tracks it."""
@@ -1488,6 +1516,41 @@ class MaxClient:
                     "running_s": round(now - entry.get("sent_at", entry["blocked_at"]), 1),
                     "waiting_s": round(now - entry["blocked_at"], 1)}
 
+    def wait_job(self, request_id: str, wait: float) -> dict[str, Any]:
+        """Wait up to `wait` seconds for a call that raised JobPending.
+
+        Returns {"status": "running"} (with Max's queued/running state) while Max
+        works on it, {"status": "blocked_by_dialog", "dialogs": [...]} when a dialog
+        holds it, or {"status": "completed", "response": ...} once it finished; the
+        job is then forgotten. A bridge error raises as from send_command, a lost
+        connection RequestOutcomeUnknown. KeyError: the client does not hold it.
+        """
+        with self._blocked_lock:
+            entry = self._blocked.get(request_id)
+        if entry is None or not entry.get("job"):
+            raise KeyError(request_id)
+        reader = entry["reader"]
+        deadline = time.perf_counter() + max(0.0, wait)
+        while not reader.done.wait(max(0.0, min(DIALOG_POLL_INTERVAL, deadline - time.perf_counter()))):
+            if time.perf_counter() >= deadline:
+                break
+            dialogs = self._dialogs_blocking(request_id)
+            if dialogs and not reader.done.is_set():
+                return {"status": "blocked_by_dialog", "dialogs": dialogs,
+                        "running_s": round(time.perf_counter() - entry["sent_at"], 1)}
+        if not reader.done.is_set():
+            return {"status": "running", "state": self._request_state(request_id),
+                    "running_s": round(time.perf_counter() - entry["sent_at"], 1)}
+        with self._blocked_lock:
+            self._blocked.pop(request_id, None)
+        try:
+            response = self._parse_response(reader.result(), request_id, entry["sent_at"])
+        except MaxBridgeError:
+            raise
+        except Exception as exc:
+            raise RequestOutcomeUnknown(f"{exc} {OUTCOME_UNKNOWN_ADVICE}") from exc
+        return {"status": "completed", "response": response}
+
     def blocked_calls(self, wait: float = 0.0) -> list[dict[str, Any]]:
         """Report calls released while still running in Max; finished ones are reported once.
 
@@ -1505,7 +1568,8 @@ class MaxClient:
         deadline = time.perf_counter() + max(0.0, wait)
         while True:
             with self._blocked_lock:
-                pending = list(self._blocked.items())
+                # A job's result belongs to its tool (wait_job), so it is never consumed here.
+                pending = [(rid, entry) for rid, entry in self._blocked.items() if not entry.get("job")]
             # A MAX_BUSY call may run for minutes; answering a dialog does not wait for it.
             waiting = [(rid, entry) for rid, entry in pending
                        if entry.get("dialog", True) and not entry["reader"].done.is_set()]

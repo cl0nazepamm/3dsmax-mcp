@@ -98,6 +98,9 @@ namespace NativeHandlers {
     std::string CaptureMultiViewMainThread(const std::string& params);
     std::string CaptureMultiView(const std::string& params, MCPBridgeGUP* gup);
     std::string CaptureViewport(const std::string& params, MCPBridgeGUP* gup);
+
+    // Progress a long call reported under its progress_key (job_progress.h).
+    std::string GetJobProgress(const std::string& params, MCPBridgeGUP* gup);
     std::string CaptureScreen(const std::string& params, MCPBridgeGUP* gup);
     std::string IsolateAndCaptureSelected(const std::string& params, MCPBridgeGUP* gup);
 

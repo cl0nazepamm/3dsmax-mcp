@@ -62,6 +62,7 @@ single tool can: routing, tool choice, cross-tool workflows, safety rules and MA
 ### Viewport and capture
 - Open `agent_viewport(action="open")` before inspection captures. Navigation and captures then default to it and never redirect into the user's view; `source="active"` targets the user's view explicitly. Release and reopen after a scene load.
 - `set_viewport` aims by eye and target without creating a camera. Use `capture_viewport`, `capture_multi_view` or `capture_screen(enabled=True)` for stills and frame-buffer crops.
+- `capture_multi_view` views take names, `three_quarter`, `current` or `[x, y, z]` directions. `shading` and `edges` apply to that capture only: clay with edges shows topology. For animation, rigs and simulations, `frames` or `frame_count` give one view over time in a single image instead of repeated scrub-and-capture calls.
 - Start interactive previews (`agent_viewport(action="render")`) and production renders (`render_automations`) only on request. A capture never certifies convergence or finished denoising.
 
 ### Animation and controllers
@@ -98,6 +99,7 @@ single tool can: routing, tool choice, cross-tool workflows, safety rules and MA
 - `TRANSFORM_IGNORED`: a constraint, script or expression controller drives that part of the transform. Edit the controller's targets or values, or ask before replacing it; repeating the move changes nothing.
 - `USER_BUSY`: Max has an open undo operation and the write was rejected before any change. Continue read-only and retry after it finishes; never bypass it with MAXScript.
 - `REQUEST_OUTCOME_UNKNOWN`: the request was sent and its reply was lost, so it may have run. Inspect the scene before running it again; never replay it blindly.
+- `status: "running"` with a `job`: a long `render_scene` or `capture_multi_view` outlived its `wait_seconds` and keeps running in Max. Call the same tool with `job=` to wait again; never repeat the original call. Jobs belong to the MCP server process that started them.
 - `MAX_BUSY`: Max did not answer within the call's deadline (about 130 s, or a long tool's own timeout). The call keeps running inside Max: never repeat it; `max_dialogs(action='inspect')` reports its result in `blocked_calls` once it finishes.
 - `MAX_NOT_RESPONDING`, and a `MAX_BUSY` before the request was sent: Max is hung or busy. Retry only when `retryable` is true; `request_sent: false` means nothing reached Max. Wait up to ~10 min, re-checking with `get_bridge_status`; still blocked after that means a deadlock, and the user must end Max (unsaved work is lost). `get_bridge_status` answers while Max is hung and says what holds its main thread; `capture_hang_diagnostics` shows where it is stuck without contacting Max. A modal dialog is not a hang while Max's main thread keeps pumping: calls return `BLOCKED_BY_DIALOG` and `get_bridge_status` reports `blocked_by_dialog`.
 

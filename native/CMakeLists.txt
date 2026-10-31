@@ -118,6 +118,7 @@ set(MCP_CORE_SOURCES
     src/handlers/scene_manage_handlers.cpp
     src/handlers/file_handlers.cpp
     src/handlers/viewport_handlers.cpp
+    src/handlers/job_handlers.cpp
     src/handlers/identify_handlers.cpp
     src/handlers/material_handlers.cpp
     src/handlers/material_network_handlers.cpp
@@ -349,7 +350,7 @@ endif()
 
 option(MCP_BUILD_AGENT_VIEWPORT_PROBE "Build optional live agent viewport SDK test harness" OFF)
 if(MCP_BUILD_AGENT_VIEWPORT_PROBE)
-    add_library(agent_viewport_probe SHARED tests/agent_viewport_probe.cpp src/agent_viewport.cpp src/spatial_snapshot.cpp src/scene_journal.cpp src/handlers/viewport_handlers.cpp src/gdiplus_runtime.cpp src/main_thread_executor.cpp src/dialog_watch.cpp
+    add_library(agent_viewport_probe SHARED tests/agent_viewport_probe.cpp src/agent_viewport.cpp src/spatial_snapshot.cpp src/scene_journal.cpp src/handlers/viewport_handlers.cpp src/handlers/job_handlers.cpp src/gdiplus_runtime.cpp src/main_thread_executor.cpp src/dialog_watch.cpp
         src/core_bridge.cpp src/core_host.cpp src/render_host.cpp src/undo_records.cpp)
     target_include_directories(agent_viewport_probe PRIVATE include third_party "${MAXSDK_PATH}/include")
     target_compile_definitions(agent_viewport_probe PRIVATE NOMINMAX _UNICODE UNICODE MAX_SDK_VERSION=${MAX_VERSION} MAX_SILENCE_DEPRECATED_MATRIX_BOOL_CTOR)

@@ -92,6 +92,8 @@ static bool IsDirectHandler(const std::string& cmd_type) {
         // System discovery (read-only)
         "native:list_macroscripts",
         "native:list_action_tables",
+        // Reads only its own table, while the call it reports holds the main thread
+        "native:job_progress",
     };
     return kDirect.count(cmd_type) > 0;
 }
@@ -575,6 +577,8 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::AgentViewportCommand(command, gup);
         } else if (cmd_type == "native:capture_multi_view") {
             result = NativeHandlers::CaptureMultiView(command, gup);
+        } else if (cmd_type == "native:job_progress") {
+            result = NativeHandlers::GetJobProgress(command, gup);
         } else if (cmd_type == "native:capture_viewport") {
             result = NativeHandlers::CaptureViewport(command, gup);
         } else if (cmd_type == "native:capture_screen") {

@@ -107,7 +107,23 @@ def _coerce_dict_value(v: object) -> object:
     return v
 
 
+def _coerce_view_list(v: object) -> object:
+    if isinstance(v, str):
+        parsed = _try_json_list(v)
+        if parsed is None:
+            # "front,right" → ["front", "right"]
+            return [s.strip() for s in v.split(",") if s.strip()]
+        v = parsed
+    # A bare direction ([1, -1, 0.5]) is one view, not three.
+    if isinstance(v, list) and len(v) == 3 and all(
+            isinstance(x, (int, float)) and not isinstance(x, bool) for x in v):
+        return [v]
+    return v
+
+
 StrList = Annotated[list[str], BeforeValidator(_coerce_str_list)]
+# View names and [x, y, z] directions, mixed.
+ViewList = Annotated[list[str | list[float]], BeforeValidator(_coerce_view_list)]
 IntList = Annotated[list[int], BeforeValidator(_coerce_int_list)]
 FloatList = Annotated[list[float], BeforeValidator(_coerce_float_list)]
 DictList = Annotated[list[dict], BeforeValidator(_coerce_dict_list)]
