@@ -295,7 +295,7 @@ if(MCP_BUILD_TRANSACTION_POLICY_TESTS)
     add_test(NAME dialog_sweeper COMMAND dialog_sweeper_tests)
     # Max's exit: idle pipe clients and queued requests must not hold GUP::Stop.
     add_executable(shutdown_tests tests/shutdown_tests.cpp src/pipe_server.cpp
-        src/main_thread_executor.cpp src/dialog_watch.cpp)
+        src/main_thread_executor.cpp src/dialog_watch.cpp src/bridge_health.cpp)
     target_include_directories(shutdown_tests PRIVATE include third_party)
     target_compile_definitions(shutdown_tests PRIVATE NOMINMAX _UNICODE UNICODE)
     add_test(NAME shutdown COMMAND shutdown_tests)
