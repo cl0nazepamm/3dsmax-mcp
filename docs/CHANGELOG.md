@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [1.7.7] — 2026-10-31
 
 - `capture_multi_view` captures animation: `frames` (up to 12 frame numbers) or `frame_count` (2 to 12 frames spread over the animation range) give one view over time in a single image. The camera is framed once over everything the subject covers on those frames and held, so motion reads across the tiles; the time slider comes back afterwards.
 - `capture_multi_view` takes more views: `three_quarter`, `current` (the view as it is) and `[x, y, z]` directions from the subject toward the eye, framed like the named views. `shading` (`smooth`, `flat`, `wireframe` or `clay`, any letter case) and `edges` apply to that capture only, and the view's own settings come back afterwards. A view name it does not know is an error instead of being skipped.
@@ -23,6 +23,7 @@ All notable changes to this project are documented here.
 - Dialog monitor: a hung Max with a dialog on screen gives `MAX_NOT_RESPONDING`, not `BLOCKED_BY_DIALOG`, which now needs Max's main thread to keep pumping. Dialogs on other threads are listed but never read or pressed (`DIALOG_NOT_ON_MAIN_THREAD`), and Qt dialogs are read only while the main thread pumps. The Cosmos browser, the Material Editor and floating viewports are never treated as dialogs. A transacted native call with an acknowledged MAXScript error box is always rolled back, never committed first; a Qt button press reported as failed never clicks afterwards, and one Max had already started reports `DIALOG_OUTCOME_UNKNOWN`; the agent viewport's render cleanup finishes after an error box. `max_dialogs` reports a call whose connection broke as `status: "lost"`, and gives `BRIDGE_OUTDATED` on a bridge without the dialog monitor.
 - Every tool except the four routing tools takes an optional `expected_pid`: a call that would reach another 3ds Max fails with `TARGET_MISMATCH` and nothing is sent. The selection belongs to the MCP server process, which several sessions may share; `selection_generation` in every reply's transport changes on each select, release or re-resolve.
 - A target the server picked by itself (default or claimed) follows its 3ds Max's restart, and the reply warns: every tool, including `get_bridge_status`, `reload_native_core`, `max_dialogs` and `capture_hang_diagnostics`, moves to the one Max that started after the old one stopped answering. A Max that was already open is never taken over: until the restart is up, calls fail with `TARGET_UNAVAILABLE` (retryable) and nothing is sent. Several new instances give `AMBIGUOUS`, and a claimed instance wins. Explicit and environment targets still fail with `TARGET_UNAVAILABLE` until you select or release.
+- Rebuilt bridges for Max 2023-2027.
 
 ## [1.7.6] — 2026-10-14
 

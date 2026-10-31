@@ -11,7 +11,7 @@ Connect AI agents to Autodesk 3ds Max through the [Model Context Protocol](https
 
 Automate everything!
 
-**Current release: 1.7.6** — see [CHANGELOG.md](docs/CHANGELOG.md).
+**Current release: 1.7.7** — see [CHANGELOG.md](docs/CHANGELOG.md).
 
 ## Features
 
@@ -29,7 +29,7 @@ Automate everything!
 ## Quick start
 
 1. Close 3ds Max and fully exit your AI clients.
-2. Run `3dsmax-mcp-1.7.2-Setup.exe` and select your clients.
+2. Run `3dsmax-mcp-1.7.7-Setup.exe` and select your clients.
 3. Open 3ds Max and restart your AI client.
 
 The installer includes Python, dependencies, native bridges and agent skills.
