@@ -217,25 +217,37 @@ class TargetUnavailable(ConnectionError):
     An explicit or environment target never moves to another Max on its own;
     retrying cannot succeed until the target is selected again or released.
     (A default or claimed target whose Max exited re-resolves before sending
-    instead: see MaxClient._drop_exited_default.)
+    instead, on every path: see MaxClient._route.)
     """
 
     code = "TARGET_UNAVAILABLE"
     retryable = False
 
-    def __init__(self, target: dict[str, Any], reason: str) -> None:
-        message = (f"Selected 3ds Max target {target['target_pipe']} is unavailable. "
-                   f"Select another instance or release it explicitly. {reason}")
+    def __init__(self, target: dict[str, Any], reason: str, *, awaiting_restart: list[int] | None = None) -> None:
+        if awaiting_restart is not None:
+            # A default target whose Max exited while other Max instances, already open then, still run.
+            self.retryable = True
+            pids = ", ".join(map(str, awaiting_restart))
+            message = (f"3ds Max PID {target.get('target_pid')}, which this server was using, has exited. "
+                       f"Nothing was sent. 3ds Max PID {pids} was already open while it was in use, so it may be "
+                       "another session's and is never taken over unasked.")
+            hint = (f"Retry once 3ds Max has restarted: the restarted Max is picked up automatically. To work in "
+                    f"PID {pids} instead, call select_max_instance. Re-inspect the scene either way: handles from "
+                    "the old session are invalid.")
+            tools = ["list_max_instances", "select_max_instance"]
+        else:
+            message = (f"Selected 3ds Max target {target['target_pipe']} is unavailable. "
+                       f"Select another instance or release it explicitly. {reason}")
+            hint = ("The 3ds Max this server was bound to is gone (exited or restarted). Do not retry. Check "
+                    "list_max_instances, then select_max_instance(pid) or release_max_instance "
+                    "to use the default Max. Re-inspect the scene: handles from the old session "
+                    "are invalid.")
+            tools = ["list_max_instances", "select_max_instance", "release_max_instance"]
         self.bridge_message = json.dumps({
-            "type": "TargetUnavailable", "code": self.code, "retryable": False, "message": message,
-            "hint": {
-                "message": ("The 3ds Max this server was bound to is gone (exited or restarted). Do not retry. Check "
-                            "list_max_instances, then select_max_instance(pid) or release_max_instance "
-                            "to use the default Max. Re-inspect the scene: handles from the old session "
-                            "are invalid."),
-                "suggested_tools": ["list_max_instances", "select_max_instance", "release_max_instance"],
-            },
-            "details": {"target_pid": target.get("target_pid"), "target_source": target.get("target_source")},
+            "type": "TargetUnavailable", "code": self.code, "retryable": self.retryable, "message": message,
+            "hint": {"message": hint, "suggested_tools": tools},
+            "details": {"target_pid": target.get("target_pid"), "target_source": target.get("target_source"),
+                        **({"other_pids": awaiting_restart} if awaiting_restart is not None else {})},
         })
         super().__init__(message)
 
@@ -355,6 +367,11 @@ CALL_STATE_ERRORS = (DialogBlocked, RequestOutcomeUnknown, TargetUnavailable, Ma
 # chose a Max must never reach another one silently.
 _REBINDABLE_SOURCES = frozenset({"default", "claim"})
 
+
+def _filetime_now() -> int:
+    """Now as a Windows FILETIME (100 ns since 1601), comparable with process_start_time."""
+    return int(time.time() * 10_000_000) + 116_444_736_000_000_000
+
 # expected_pid of the tool call running on this thread, shared by every MaxClient.
 _call_guard = threading.local()
 
@@ -470,6 +487,9 @@ class MaxClient:
         self._pinned_pipe_name: str | None = None
         self._bound_target: dict[str, Any] | None = None
         self._bound_started: int | None = None  # creation time of the bound Max, against PID reuse
+        # FILETIME of the bound Max's last reply. A Max started after it can be that Max's restart;
+        # one already running then is another session's and is never taken over unasked.
+        self._bound_alive_at: int | None = None
         # Bumped on every select, release, default bind and exited-default re-resolve. The selection
         # is per server process, so a session that sees it change unasked shares this server.
         self._selection_generation = 0
@@ -489,7 +509,16 @@ class MaxClient:
             self._startup_pipe = pipe_name
 
     def clear_last_response(self) -> None:
-        """Clear thread-local metadata from the previous command."""
+        """Start a tool call: forget the previous call's metadata, including a re-route note."""
+        self._reset_response()
+        self._local.retargeted = None
+
+    def _reset_response(self) -> None:
+        """Before each request: clear the last request's metadata.
+
+        A re-route note survives until the next tool call (clear_last_response), so a
+        tool that sends several requests still reports that its Max changed.
+        """
         self._local.last_response = None
         self._local.last_error = None
 
@@ -513,11 +542,18 @@ class MaxClient:
             if meta.get("quietOverride"):
                 # Quiet mode was off for this script (it may reset, open or quit), so its prompts were shown.
                 transport["quiet_override"] = meta["quietOverride"]
-            return transport
+            return self._with_retarget(transport)
         error = getattr(self._local, "last_error", None)
         if isinstance(error, dict):
-            return error
-        return None
+            return self._with_retarget(error)
+        return self._with_retarget(None)
+
+    def _with_retarget(self, transport: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Add this tool call's re-route note when an earlier request carried it."""
+        note = getattr(self._local, "retargeted", None)
+        if not note or (transport and transport.get("retargeted_from")):
+            return transport
+        return {**note, **(transport or {}), "retargeted_from": note["retargeted_from"]}
 
     @property
     def native_available(self) -> bool:
@@ -527,7 +563,8 @@ class MaxClient:
         if self.transport == "tcp":
             return False
         try:
-            return self._probe_pipe_available(self._resolve_pipe_name())
+            # Routed like the call that follows, so a restarted Max is not mistaken for a missing bridge.
+            return self._probe_pipe_available(self._next_pipe())
         except (ConnectionError, TimeoutError):
             return False
 
@@ -631,7 +668,15 @@ class MaxClient:
         if self._pinned_pipe_name is not None:
             candidates.append((self._pinned_pipe_name, "explicit"))
         if self._bound_target:
-            candidates.append((self._bound_target.get("target_pipe"), self._bound_target.get("target_source")))
+            bound = (self._bound_target.get("target_pipe"), self._bound_target.get("target_source"))
+            if self._bound_exited():
+                # Where the next call goes (_drop_exited_default): the one Max started since this
+                # one last answered. Otherwise report the exited selection, never another session's Max.
+                gone = self._bound_target.get("target_pid")
+                restarted = [p["pid"] for p in list_processes() if p["pid"] != gone and self._started_since_alive(p["pid"])]
+                if len(restarted) == 1:
+                    bound = (fr"\\.\pipe\3dsmax-mcp-pid-{restarted[0]}", "restarted")
+            candidates.append(bound)
         if self._startup_pipe:
             candidates.append((self._startup_pipe, self._startup_source))
         for pipe, source in candidates:
@@ -656,33 +701,97 @@ class MaxClient:
         self._bound_target = {**target, "selection_generation": self._selection_generation}
         pid = target.get("target_pid")
         self._bound_started = process_start_time(pid) if pid else None
+        self._bound_alive_at = _filetime_now()
         return self._bound_target
 
-    def _drop_exited_default(self) -> None:
-        """Forget a default/claim target whose Max has exited, so the next call re-resolves.
+    def _mark_alive(self, pid: int | None) -> None:
+        """The bound Max answered: a Max started before now is not its restart."""
+        if pid and self._bound_target and self._bound_target.get("target_pid") == pid:
+            self._bound_alive_at = _filetime_now()
 
-        Only when the new default is unambiguous: at most one other Max runs, or one is claimed.
-        Explicit and environment targets keep failing hard, and a busy or hung Max is never dropped.
+    def _started_since_alive(self, pid: int | None) -> bool:
+        """`pid` started after the bound Max last answered, so it can be that Max's restart."""
+        started = process_start_time(pid) if pid else None
+        return bool(started and self._bound_alive_at and started > self._bound_alive_at)
+
+    def _drop_exited_default(self) -> None:
+        """Follow a default/claim target whose Max has exited to its restart, never to another session's Max.
+
+        The restart is the Max that started after the old one last answered. A Max that was
+        already running then belongs to another session and is never taken over unasked:
+          - a live claim wins (the user chose it);
+          - exactly one Max started since: bind it, and the reply warns;
+          - several started since: AmbiguousMaxInstanceError;
+          - none started since, other Max running: TargetUnavailable, retryable, binding kept,
+            so the restart is picked up once it is up;
+          - no other Max at all: forget the target; the next call resolves the Max that starts.
+        Explicit and environment targets never move, and a busy or hung Max is never dropped.
+        Nothing is sent before this decision.
         """
         target = self._bound_target
-        if (target is None or self._control_channel or self._pinned_pipe_name is not None
-                or target.get("target_source") not in _REBINDABLE_SOURCES):
+        if self._control_channel or self._pinned_pipe_name is not None or not self._bound_exited():
             return
-        pid = target.get("target_pid")
-        if not pid or not process_gone(pid, self._bound_started):
-            return
+        pid = target["target_pid"]
         others = [item for item in self._live_instances() if item["pipe"] != target.get("target_pipe")]
-        if len(others) > 1 and self._default_target()["target_source"] != "claim":
-            pids = ", ".join(str(self._pid_for_pipe(item["pipe"]) or item["pipe"]) for item in others)
-            raise AmbiguousMaxInstanceError(
-                f"The default 3ds Max target (PID {pid}) has exited and {len(others)} other instances are running "
-                f"(PIDs {pids}). Nothing was sent. Call select_max_instance with the one you mean.")
+        chosen: dict[str, Any] | None = None
+        if others:
+            default = self._default_target()
+            if default["target_source"] == "claim":
+                chosen = default
+            else:
+                pid_of = lambda item: item.get("pid") or self._pid_for_pipe(item["pipe"])  # noqa: E731
+                restarted = [item for item in others if self._started_since_alive(pid_of(item))]
+                if len(restarted) > 1:
+                    pids = ", ".join(str(pid_of(item)) for item in restarted)
+                    raise AmbiguousMaxInstanceError(
+                        f"The default 3ds Max target (PID {pid}) has exited and {len(restarted)} instances started "
+                        f"since (PIDs {pids}). Nothing was sent. Call select_max_instance with the one you mean.")
+                if not restarted:
+                    raise TargetUnavailable(target, "", awaiting_restart=[pid_of(item) for item in others])
+                chosen = self._target(restarted[0]["pipe"], "default")
         self._close_pipe_handle()
         self._selected_pipe_name = None
         self._bound_target = None
         self._bound_started = None
+        self._bound_alive_at = None
         self._selection_generation += 1
         self._retargeted = {"pid": pid, "pipe": target.get("target_pipe"), "source": target.get("target_source")}
+        if chosen is not None:
+            self._bind(chosen)
+
+    def _route(self) -> str:
+        """The pipe a call reaches. The single routing step for every path (main, control,
+        native_available), with the pipe lock held: an exited default/claim target is dropped
+        first, so no path keeps aiming at a Max that is gone after a restart."""
+        self._drop_exited_default()
+        return self._resolve_pipe_name()
+
+    def _next_pipe(self) -> str:
+        """The pipe the next call reaches. A call in flight holds the lock on a live target."""
+        if not self._pipe_lock.acquire(blocking=False):
+            return self._resolve_pipe_name()
+        try:
+            return self._route()
+        finally:
+            self._pipe_lock.release()
+
+    def _bound_exited(self) -> bool:
+        """The bound default/claim target's Max has exited, so the next call re-resolves."""
+        target = self._bound_target
+        return bool(target and target.get("target_source") in _REBINDABLE_SOURCES and target.get("target_pid")
+                    and process_gone(target["target_pid"], self._bound_started))
+
+    def _unreachable_target(self, target: dict[str, Any], exc: Exception) -> Exception:
+        """The error for a selected target that could not be reached. Nothing was sent.
+
+        TargetUnavailable (not retryable) when its pipe is gone, as after a crash or
+        restart; otherwise a retryable ConnectionError (busy pipe, slow start).
+        """
+        self._local.last_error = {**target, "transport": "namedpipe", "error": str(exc)}
+        if not self._probe_pipe_available(target["target_pipe"]):
+            return TargetUnavailable(target, str(exc))
+        return ConnectionError(f"Selected 3ds Max target {target['target_pipe']} is unavailable. "
+                               f"Select another instance or release it explicitly. {exc}")
 
     def get_selected_max_instance(self) -> dict[str, Any]:
         with self._instance_lock():
@@ -692,10 +801,10 @@ class MaxClient:
                         "available": False, "selection_generation": self._selection_generation}
             result = {"selection_generation": self._selection_generation, **target,
                       "available": self._probe_pipe_available(target["target_pipe"])}
-            if (target is self._bound_target and target.get("target_source") in _REBINDABLE_SOURCES
-                    and target.get("target_pid") and process_gone(target["target_pid"], self._bound_started)):
+            if target is self._bound_target and self._bound_exited():
                 result["exited"] = True
-                result["note"] = "This default target's Max has exited; the next call re-resolves to the current default."
+                result["note"] = ("This default target's Max has exited. The next call follows its restart; "
+                                  "a Max that was already open is never taken over unasked.")
             return result
 
     def select_max_instance(self, pid: int) -> dict[str, Any]:
@@ -949,35 +1058,52 @@ class MaxClient:
 
     def _send_control_command(self, command: str, cmd_type: str, timeout: Optional[float],
                               probe: bool = False, diagnose: bool = True) -> dict[str, Any]:
-        """Bypass an in-flight request's pipe lock, without changing Max targets.
+        """Bypass an in-flight request's pipe lock; routed like any other call.
 
-        Cancellation, dialog recovery, pure desktop capture and the main-thread-free
-        health probe use this channel. It cannot fall back to TCP or re-resolve another
-        Max after a claim/environment change. probe=True drops a read-only request at
-        its deadline instead of waiting out a stuck bridge; diagnose=False skips the
+        Cancellation, dialog recovery, pure desktop capture, the main-thread-free
+        health probe, job progress and core control use this channel. Without a call
+        in flight it routes through _route(), so a default whose Max restarted moves
+        to the new default (with the same warning) and a selected Max that is gone
+        fails with TargetUnavailable. A call in flight keeps its own, live, target.
+        It never falls back to TCP. probe=True drops a read-only request at its
+        deadline instead of waiting out a stuck bridge; diagnose=False skips the
         process diagnosis on that drop, for callers that discard the error.
         """
         acquired = self._pipe_lock.acquire(blocking=False)
         try:
             if not acquired and self._bound_target is None:
                 raise ConnectionError("Max target selection is in progress; retry the control request")
-            pipe = self._bound_target["target_pipe"] if self._bound_target else self._resolve_pipe_name()
+            pipe = self._route() if acquired else self._bound_target["target_pipe"]
+            selected = self._bound_target is not None or bool(self._startup_pipe)
             target = dict(self._bound_target or getattr(self._local, "route_candidate", self._target(pipe, "default")))
+            self._local.control_pipe = pipe
             control = MaxClient(host=self.host, port=self.port, timeout=timeout or min(self.timeout, 15.0),
                                 transport="pipe", pipe_name=pipe)
             control._control_channel = True
             control._diagnose_probes = diagnose
             control._bound_target = target
-            self.clear_last_response()
+            if acquired:
+                control._retargeted, self._retargeted = self._retargeted, None  # the reply carries the warning
+            self._reset_response()
             try:
                 response = control.send_command(command, cmd_type=cmd_type, timeout=timeout, probe=probe)
                 if acquired and self._bound_target is None:
                     self._bind(target)
+                self._mark_alive(target.get("target_pid"))
                 return response
+            except (AmbiguousMaxInstanceError, MaxTargetMismatchError, TargetUnavailable):
+                raise
+            except (ConnectionError, TimeoutError) as exc:
+                # Nothing was sent: a request lost after sending raises RequestOutcomeUnknown.
+                if selected and not self._probe_pipe_available(target["target_pipe"]):
+                    raise self._unreachable_target(target, exc) from exc
+                raise
             finally:
                 if acquired and self._bound_target is None and getattr(control._local, "request_target", None):
                     self._bind(target)
                 self._local.last_response = getattr(control._local, "last_response", None)
+                if getattr(control._local, "retargeted", None):
+                    self._local.retargeted = control._local.retargeted
                 self._local.last_error = getattr(control._local, "last_error", None)
                 control._close_pipe_handle()
         finally:
@@ -1008,7 +1134,7 @@ class MaxClient:
         started_at = time.perf_counter()
         transport_used = self.transport
         fallback_error: str | None = None
-        self.clear_last_response()
+        self._reset_response()
 
         request = json.dumps({
             **(request_fields or {}),
@@ -1031,15 +1157,13 @@ class MaxClient:
                 transport_used = "namedpipe"
                 response_data = self._send_via_pipe(request, effective_timeout, cmd_type=cmd_type,
                                                     request_id=request_id, probe=probe, job_wait=job_wait)
-            except (AmbiguousMaxInstanceError, MaxBusyError, MaxNotRespondingError, MaxTargetMismatchError):
+            except (AmbiguousMaxInstanceError, MaxBusyError, MaxNotRespondingError, MaxTargetMismatchError,
+                    TargetUnavailable):
                 raise
             except (ConnectionError, TimeoutError) as exc:
                 if self._bound_target or self._startup_pipe or self._pinned_pipe_name:
                     target = self._bound_target or self._target(self._startup_pipe or self._pinned_pipe_name, self._startup_source)
-                    self._local.last_error = {**target, "transport": "namedpipe", "error": str(exc)}
-                    if not self._probe_pipe_available(target["target_pipe"]):
-                        raise TargetUnavailable(target, str(exc)) from exc
-                    raise ConnectionError(f"Selected 3ds Max target {target['target_pipe']} is unavailable. Select another instance or release it explicitly. {exc}") from exc
+                    raise self._unreachable_target(target, exc) from exc
                 fallback_error = str(exc)
                 transport_used = "tcp"
                 self._refuse_unverifiable_pid()
@@ -1091,8 +1215,7 @@ class MaxClient:
             raise self._busy_error(lock_wait)
         deadline = time.perf_counter() + timeout  # the call's own time starts once it holds the pipe
         try:
-            self._drop_exited_default()
-            pipe_name = self._resolve_pipe_name()
+            pipe_name = self._route()
             if self._selected_pipe_name != pipe_name:
                 self._close_pipe_handle()
                 self._selected_pipe_name = pipe_name
@@ -1109,6 +1232,7 @@ class MaxClient:
                 self._local.request_target = dict(self._bound_target)
                 if self._retargeted:
                     self._local.request_target["retargeted_from"] = self._retargeted
+                    self._local.retargeted = dict(self._local.request_target)
                     self._retargeted = None
                 self._inflight = {"cmd_type": cmd_type, "request_id": request_id, "target_pipe": pipe_name,
                                   "target_pid": pid, "timeout_s": timeout, "started": time.perf_counter()}
@@ -1141,6 +1265,7 @@ class MaxClient:
                                                  probe=probe or cmd_type in _PROBE_CMD_TYPES, job_wait=job_wait)
                     if pid:
                         self._hung_pids.pop(pid, None)  # Max answered, so any old verdict is stale
+                        self._mark_alive(pid)
                     self._check_queue_timeout(reply, pid)
                     return reply
                 except BrokenPipeError:
@@ -1401,6 +1526,7 @@ class MaxClient:
             result = json.loads(response.get("result") or "{}")
             return result if isinstance(result, dict) else {}
         except MaxBridgeError as exc:
+            pipe = getattr(self._local, "control_pipe", None) or pipe  # the pipe the call was routed to
             if pipe and "unknown command type" in exc.bridge_message.lower():
                 self._no_dialog_watch.add(pipe)
             raise
