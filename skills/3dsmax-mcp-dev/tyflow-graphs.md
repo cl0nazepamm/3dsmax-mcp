@@ -2,27 +2,27 @@
 
 Read this reference completely before building, inspecting, editing, or verifying tyFlow event graphs.
 
-## Closed-graph reality
+## What MAXScript cannot do, and the tools can
 
-- tyFlow's event graph is private: events, operators, and wiring are invisible to `refs.dependsOn`, `refs.dependents`, sub-anim enumeration (`numsubs` is 0), `getClassInstances`, and PB2 params — at MAXScript and SDK level alike. Only dynamic name lookups (`bo[#'EventName']`) and `showProperties` parsing work.
-- Wiring WRITES use the documented `op.connect eventHandle` / `op.disconnect()`; wiring READS are impossible — the MCP layer records every connect/disconnect in a JSON ledger stored as AppData on the flow node (travels with the scene file).
-- Operator type identity is only the display name at creation time; renames erase it. The ledger's `operator_types` map (recorded at creation through MCP tools) is the durable type record.
+- tyFlow has no MAXScript getter for wiring or operator types. `get_tyflow_graph` reads both from the flow itself: `edges` (from_event, from_op, to_event) and each operator's `type` are current, including wires drawn in the tyFlow editor and operators renamed by the user. Never reconstruct wiring from names or captures when `wiring_source` is `scene`.
+- Shape, Birth Burst, Actor and Spline Paths have no Operator interface in MAXScript (`op.Operator` fails), so `execute_maxscript` cannot rename, enable or remove them. The tyFlow tools handle them like any other operator; prefer the tools for these edits.
+- An event holds operators of one family, set by its first operator: particle, terrain, VDB or Inferno (Value and Global stand alone). An operator of another family is refused with an error, never silently dropped. Check `family` in `list_tyflow_operators` and give each family its own event.
 
 ## The agentic loop
 
-- Read with `get_tyflow_graph` — events (name/position/width/enabled), operators, optional properties, ledger `edges`, `operator_types`, `graph_hash`, and `ledger_status`.
-- `ledger_status`: `fresh` (live structure matches the last MCP mutation), `stale` (flow edited outside MCP — edges may be outdated), `absent` (no MCP ledger yet).
-- Edit transactionally with `tyflow_apply_patch`, passing `expected_hash` from the last `get_tyflow_graph`; a hash conflict means the user edited the flow — re-read before retrying.
-- Patch ops: `add_event`, `remove_event`, `add_operator`, `remove_operator`, `set_properties`, `connect`, `disconnect`, `rename_event`, `rename_operator`, `set_event_position`, `set_enabled`. Always pass explicit operator `name`s in `add_operator` — ledger keys are `"Event/OpName"`.
+- Read with `get_tyflow_graph` — events (name/position/width/enabled), operators with `type` and `enabled`, optional properties, `edges`, `operator_types`, `graph_hash` and `wiring_source`.
+- `graph_hash` covers wiring as well as structure. A hash conflict in `tyflow_apply_patch` means the flow changed since the read (often a user edit in the editor): re-read before retrying.
+- Edit transactionally with `tyflow_apply_patch`, passing `expected_hash` from the last `get_tyflow_graph`.
+- Patch ops: `add_event`, `remove_event`, `add_operator`, `remove_operator`, `set_properties`, `connect`, `disconnect`, `rename_event`, `rename_operator`, `set_event_position`, `set_enabled`. Always pass explicit operator `name`s in `add_operator`: edges and `operator_types` key operators as `"Event/OpName"`.
 - Verify empirically: `verify_frames` + `min_particles`/`max_particles` resets the sim and asserts counts; there is no compile step, so structural success does not imply behavioral success.
 - On failure, additive-only patches (add_event/add_operator/connect/set_event_position) roll back via synthesized inverse operations (`rollback_mode: inverse`) — no node clone involved. Patches containing other ops use a checkpoint clone (`rollback_mode: checkpoint`); that node swap breaks references other scene objects hold to the flow (e.g. tyMesher) — use `checkpoint=false` when such references exist.
 - Prefer additive patches plus a follow-up destructive patch over mixed batches: additive batches avoid clone churn entirely, which matters for tyFlow stability.
-- Single edges outside a patch: `connect_tyflow_operator` / `disconnect_tyflow_operator` (any test or Send Out operator; `create_if_missing=true` adds a missing Send Out). Re-connecting re-targets: the ledger edge for that (event, operator) is replaced.
+- Single edges outside a patch: `connect_tyflow_operator` / `disconnect_tyflow_operator` (any test or Send Out operator; `create_if_missing=true` adds a missing Send Out). Re-connecting re-targets: the edge for that (event, operator) is replaced.
 
 ## Operator manifest
 
-- `harvest_tyflow_manifest` probes every known operator type in a scratch flow and caches per tyFlow version; run once per installation (or `refresh=true` after a tyFlow update). `list_tyflow_operators` queries the cache with no Max traffic.
-- Use manifest property names verbatim — tyFlow PB2 names are non-obvious (`shape_type_tab`, `type_3d_ID_tab`, `frequency_tab`). Never guess.
+- `harvest_tyflow_manifest` probes every known operator type in a scratch flow and caches per tyFlow version; run once per installation (or `refresh=true` after a tyFlow update). `list_tyflow_operators` queries the cache with no Max traffic and reports each type's `available` and `family`.
+- Use manifest type and property names verbatim — tyFlow PB2 names are non-obvious (`shape_type_tab`, `type_3d_ID_tab`, `frequency_tab`), and export operators are named `Export Particles`, `Export Terrain`, `Export VDB`, `Export Inferno`. Never guess.
 - `Script` and `MAXScript` operators are executable code: `tyflow_apply_patch` fails closed unless MCP safe mode is disabled AND `allow_executable=true`. Creating them empty via harvest probing is inert and allowed.
 
 ## Per-event census
@@ -31,11 +31,10 @@ Read this reference completely before building, inspecting, editing, or verifyin
 - `method="groups"` (export-group bits) is limited to 16 events and misreports particles that accumulated bits across multiple events; prefer the default mapping method.
 - The response's `instrumentation` block names the properties actually resolved on the Mapping operator — check it before trusting zeros.
 
-## Foreign flows (not built through MCP)
+## Older bridges (`wiring_source: ledger`)
 
-- Structure (events/operators/properties) reads fine; edges are unknown (`ledger_status: absent`).
-- `capture_tyflow_editor` (requires `enabled=true`) opens the tyFlow editor, captures the screen, and returns per-event rectangles (`position`/`width`) — read the wires visually from the image, then record them with `set_tyflow_wiring_ledger` (mode `replace` or `merge`; unknown event names are warned, edges keyed by from-event + from-operator).
-- After reconciliation the ledger is fresh by definition; subsequent MCP edits keep it current.
+- A bridge that cannot read the flow reports edges from an MCP ledger instead: `ledger_status` is `fresh` (matches the last MCP edit), `stale` (edited outside MCP; edges may be outdated) or `absent` (no MCP edits yet).
+- To reconcile, `capture_tyflow_editor` (requires `enabled=true`) captures the editor with per-event rectangles; read the wires from the image and record them with `set_tyflow_wiring_ledger` (mode `replace` or `merge`). With `wiring_source: scene` neither is needed.
 
 ## Physics gotchas (live-verified, tyFlow 2.05 / Max 2027)
 
@@ -47,10 +46,10 @@ Read this reference completely before building, inspecting, editing, or verifyin
 
 ## Runtime rules
 
-- tyFlow's dispatch exposes spaced names underscored: an operator displayed "Send Out" reads back as `Send_Out`, and graph reads / ledger keys use that underscore form canonically. Tools accept either form in lookups; expect underscores in responses.
-- Event/operator lookups are name-based: duplicate operator names within an event make ledger keys and patch targets ambiguous — keep names unique.
+- tyFlow's dispatch exposes spaced names underscored: an operator displayed "Send Out" reads back as `Send_Out`, and graph reads and edges use that underscore form canonically. Tools accept either form in lookups; expect underscores in responses.
+- Event/operator lookups are name-based: duplicate operator names within an event make edges and patch targets ambiguous — keep names unique.
 - Probe gently: never loop create→simulate→delete of tyFlow objects inside a single MAXScript program — tyFlow's Qt cleanup can deadlock Max (live-confirmed). Reuse one scratch flow, mutate in place, pump messages (`windows.processPostedMessages()`) between sim iterations, delete once at the end.
 - `add_operator` position is 0-based; `-1` appends.
 - Census and patch verification call `reset_simulation` — cached sim state is discarded. Never fire renders from these tools.
 - Probe/scratch objects are named `zzz_mcp_*` and are cleaned up by the tools; if a crash leaves one behind, delete it manually.
-- The ledger lives in AppData channel 1415075927 on the flow node; `manage_scene(hold)` before risky sessions still protects everything, and clones of the flow carry the ledger with them.
+- `manage_scene(hold)` before risky sessions still protects everything.

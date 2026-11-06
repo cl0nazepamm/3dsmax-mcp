@@ -1,21 +1,29 @@
-"""Shared tyFlow graph-core helpers: shadow wiring ledger, structural hash, graph read.
+"""Shared tyFlow graph-core helpers: scene graph, structural hash, graph read.
 
-tyFlow keeps its event graph in private structures — wiring cannot be read back
-through refs/sub-anims/PB2 at any layer (live-probed on tyFlow 2.05 / Max 2027).
-The MCP layer therefore owns wiring knowledge: every connect/disconnect made
-through MCP tools is recorded in a JSON ledger stored as AppData on the flow
-node, so it travels with the scene file.  Staleness is detected by comparing a
-structural hash of everything that IS readable (events, operators, properties)
-against the hash stored at the last MCP mutation.
+tyFlow has no getter for its wiring or operator types. The bridge reads them
+from the flow's own save stream (native:tyflow_graph_stream, decoded by
+helpers/tyflow_stream.py), so edges and types are always the flow's current
+state, including edits made in the tyFlow editor.
+
+Bridges without that handler fall back to the shadow ledger: every
+connect/disconnect made through MCP tools is recorded as JSON AppData on the
+flow node, and staleness is detected by comparing a structural hash of what
+MAXScript can read against the hash stored at the last MCP mutation.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from ..helpers.maxscript import node_by_name, safe_string
+from ..helpers.tyflow_catalog import TYFLOW_OPERATOR_TYPE_IDS
+from ..helpers.tyflow_stream import StreamError, decode_base64
+from ..max_client import MaxBridgeError
 
 
 def _client():
@@ -86,6 +94,168 @@ def canon_name(name: Any) -> str:
     return str(name).replace(" ", "_")
 
 
+# ── Scene graph (the flow's save stream) ──────────────────────────
+
+class SceneGraphUnavailable(Exception):
+    """The bridge cannot read the flow's graph stream (older bridge)."""
+
+
+_harvested_types: tuple[float, dict[int, str]] = (0.0, {})
+
+
+def _harvested_type_ids() -> dict[int, str]:
+    """Type IDs harvest_tyflow_manifest recorded beyond the built-in table."""
+    global _harvested_types
+    root = Path(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()) / "3dsmax-mcp"
+    try:
+        newest = max(root.glob("tyflow_manifest_*.json"), key=lambda p: p.stat().st_mtime)
+        mtime = newest.stat().st_mtime
+    except (OSError, ValueError):
+        return {}
+    if mtime == _harvested_types[0]:
+        return _harvested_types[1]
+    found: dict[int, str] = {}
+    try:
+        data = json.loads(newest.read_text(encoding="utf-8"))
+        for entry in data.get("operators") or []:
+            if isinstance(entry, dict) and isinstance(entry.get("type_id"), int):
+                found[entry["type_id"]] = str(entry.get("type"))
+    except (OSError, ValueError, AttributeError):
+        found = {}
+    _harvested_types = (mtime, found)
+    return found
+
+
+def operator_type_name(type_id: int | None) -> str | None:
+    """Operator type for a saved type ID; unknown IDs read as their hex value."""
+    if type_id is None:
+        return None
+    return TYFLOW_OPERATOR_TYPE_IDS.get(type_id) or _harvested_type_ids().get(type_id) or f"0x{type_id:08X}"
+
+
+def scene_graph(name: str) -> dict[str, Any]:
+    """Events, operators (type, enabled, anim handle) and edges of the flow as saved.
+
+    Raises SceneGraphUnavailable when the bridge has no stream handler; other
+    bridge errors propagate.
+    """
+    try:
+        response = _client().send_command(
+            json.dumps({"name": name}), cmd_type="native:tyflow_graph_stream"
+        )
+    except MaxBridgeError as exc:
+        if "unknown command type" in str(getattr(exc, "bridge_message", exc)).lower():
+            raise SceneGraphUnavailable(
+                "this 3ds Max bridge cannot read tyFlow wiring; update 3dsmax-mcp"
+            ) from exc
+        raise
+    payload = json.loads(response.get("result") or "{}")
+    if not isinstance(payload, dict) or "stream" not in payload:
+        raise SceneGraphUnavailable("the bridge returned no tyFlow graph stream")
+    try:
+        decoded = decode_base64(str(payload["stream"]))
+    except StreamError as exc:
+        raise SceneGraphUnavailable(f"the tyFlow graph stream could not be decoded: {exc}") from exc
+    return merge_scene(payload.get("events") or [], decoded)
+
+
+def merge_scene(native_events: list[dict[str, Any]], decoded: dict[str, Any]) -> dict[str, Any]:
+    """Join the bridge's sub-anim walk (handles, interface access) with the
+    decoded stream (uids, types, wiring). Both list events and operators in
+    editor order; names are checked so a mismatch is reported, not guessed."""
+    warnings: list[str] = []
+    saved = decoded.get("events") or []
+    if len(saved) != len(native_events) or any(
+        canon_name(s.get("name")) != canon_name(n.get("name")) for s, n in zip(saved, native_events)
+    ):
+        warnings.append("Saved events do not line up with the flow's events; handles were left out.")
+        native_events = []
+    events: list[dict[str, Any]] = []
+    op_index: dict[int, tuple[str, str]] = {}
+    event_names: dict[int, str] = {}
+    for position, event in enumerate(saved):
+        live = native_events[position] if native_events else {}
+        live_ops = live.get("operators") or []
+        ops_saved = event.get("operators") or []
+        ops_match = len(live_ops) == len(ops_saved) and all(
+            canon_name(s.get("name")) == canon_name(n.get("name")) for s, n in zip(ops_saved, live_ops)
+        )
+        if live and not ops_match:
+            warnings.append(f"Operators of {event.get('name')} do not line up; their handles were left out.")
+        ev_name = canon_name(event.get("name"))
+        operators = []
+        for i, op in enumerate(ops_saved):
+            entry = {
+                "name": canon_name(op.get("name")),
+                "type": operator_type_name(op.get("type_id")),
+                "type_id": op.get("type_id"),
+                "enabled": op.get("enabled"),
+                "uid": op.get("uid"),
+            }
+            if ops_match:
+                entry["anim_handle"] = live_ops[i].get("anim_handle")
+                entry["operator_interface"] = live_ops[i].get("operator_interface")
+            operators.append(entry)
+            if op.get("uid") is not None:
+                op_index[op["uid"]] = (ev_name, entry["name"])
+        if event.get("uid") is not None:
+            event_names[event["uid"]] = ev_name
+        events.append({
+            "name": ev_name,
+            "uid": event.get("uid"),
+            "position": event.get("position"),
+            "width": event.get("width"),
+            "enabled": event.get("enabled"),
+            "anim_handle": live.get("anim_handle"),
+            "operators": operators,
+        })
+    edges = []
+    for source, target in decoded.get("connections") or []:
+        if source not in op_index or target not in event_names:
+            warnings.append(f"A saved connection names an unknown operator or event ({source:#x} -> {target:#x}).")
+            continue
+        from_event, from_op = op_index[source]
+        edges.append({"from_event": from_event, "from_op": from_op, "to_event": event_names[target]})
+    return {"events": events, "edges": edges, "warnings": warnings}
+
+
+def find_scene_operator(scene: dict[str, Any], event: str, operator: str) -> dict[str, Any]:
+    """The one operator named `operator` in `event`; raises ValueError otherwise."""
+    ev_name, op_name = canon_name(event), canon_name(operator)
+    matches = [ev for ev in scene.get("events") or [] if ev["name"] == ev_name]
+    if not matches:
+        raise ValueError(f"Event not found: {event}")
+    ops = [op for op in matches[0]["operators"] if op["name"] == op_name]
+    if not ops:
+        raise ValueError(f"Operator not found: {operator} in {event}")
+    if len(ops) > 1:
+        raise ValueError(f"{len(ops)} operators in {event} are named {operator}; rename one first")
+    if not ops[0].get("anim_handle"):
+        raise ValueError(f"Operator {operator} in {event} could not be resolved; read the graph again")
+    return ops[0]
+
+
+def operator_call(name: str, operator_handle: int, function: str, *,
+                  value: Any = None, event_handle: int | None = None) -> Any:
+    """Call one Operator interface function natively, including on operators
+    whose own interface MAXScript cannot reach. Returns the function's result."""
+    payload: dict[str, Any] = {"name": name, "operator_handle": int(operator_handle), "function": function}
+    if value is not None:
+        payload["value"] = value
+    if event_handle is not None:
+        payload["event_handle"] = int(event_handle)
+    try:
+        response = _client().send_command(json.dumps(payload), cmd_type="native:tyflow_operator")
+    except MaxBridgeError as exc:
+        if "unknown command type" in str(getattr(exc, "bridge_message", exc)).lower():
+            raise SceneGraphUnavailable(
+                "this 3ds Max bridge cannot reach this operator's interface; update 3dsmax-mcp"
+            ) from exc
+        raise
+    result = json.loads(response.get("result") or "{}")
+    return result.get("result") if isinstance(result, dict) else None
+
+
 def parse_ledger(raw: Any) -> dict[str, Any]:
     """Defensive ledger parse; any garbage yields an empty valid ledger."""
     base: dict[str, Any] = {"v": LEDGER_VERSION, "hash": "", "edges": [], "ops": {}}
@@ -153,7 +323,14 @@ def _hash_view(graph: dict[str, Any]) -> dict[str, Any]:
                 ],
             }
         )
-    return {"events": events}
+    view: dict[str, Any] = {"events": events}
+    scene = graph.get("scene")
+    if scene:
+        # Wiring is part of the structure once it can be read.
+        view["edges"] = sorted(
+            (e["from_event"], e["from_op"], e["to_event"]) for e in scene.get("edges") or []
+        )
+    return view
 
 
 def structural_hash(graph: dict[str, Any]) -> str:
@@ -348,7 +525,41 @@ if flow == undefined then (
             graph["warnings"].append([_decode_token(part) for part in parts[1:]])
     graph["events"] = list(events.values())
     graph["eventCount"] = len(graph["events"])
+    _attach_scene(name, graph)
     return graph
+
+
+def _attach_scene(name: str, graph: dict[str, Any]) -> None:
+    """Add saved types, uids and enabled states to the MAXScript read, and keep
+    the scene graph (with its edges) under graph["scene"]. Without the stream
+    handler graph["scene"] stays None and the ledger supplies edges."""
+    graph["scene"] = None
+    try:
+        scene = scene_graph(name)
+    except SceneGraphUnavailable as exc:
+        graph["sceneUnavailable"] = str(exc)
+        return
+    except Exception as exc:
+        graph["sceneUnavailable"] = f"the tyFlow graph stream could not be read: {exc}"
+        graph["warnings"].append(["SCENE_GRAPH", graph["sceneUnavailable"]])
+        return
+    graph["scene"] = scene
+    by_name = {ev["name"]: ev for ev in scene["events"]}
+    for event in graph["events"]:
+        saved = by_name.get(canon_name(event["name"]))
+        if saved is None:
+            continue
+        if event.get("enabled") is None:
+            event["enabled"] = saved.get("enabled")
+        # A truncated read lists the first operators, in the same order.
+        for op, saved_op in zip(event["operators"], saved["operators"]):
+            if canon_name(op["name"]) != saved_op["name"]:
+                continue
+            op["type"] = saved_op.get("type")
+            if op.get("enabled") is None:
+                op["enabled"] = saved_op.get("enabled")
+    for warning in scene.get("warnings") or []:
+        graph["warnings"].append(["SCENE_GRAPH", warning])
 
 
 def graph_payload(
@@ -368,17 +579,33 @@ def graph_payload(
         return graph
     graph_hash = structural_hash(graph)
     ledger = parse_ledger(graph.pop("ledgerRaw", ""))
-    if not ledger["hash"]:
-        status = "absent"
-    elif ledger["hash"] == graph_hash:
-        status = "fresh"
-    else:
-        status = "stale"
+    scene = graph.pop("scene", None)
+    unavailable = graph.pop("sceneUnavailable", None)
     graph["graph_hash"] = graph_hash
-    graph["edges"] = ledger["edges"]
-    graph["operator_types"] = ledger["ops"]
-    graph["ledger_status"] = status
-    graph["ledger"] = ledger
+    if scene is not None:
+        graph["wiring_source"] = "scene"
+        graph["edges"] = scene["edges"]
+        graph["operator_types"] = {
+            f"{event['name']}/{op['name']}": op["type"]
+            for event in scene["events"]
+            for op in event["operators"]
+            if op.get("type")
+        }
+        graph["ledger_status"] = "scene"
+    else:
+        if not ledger["hash"]:
+            status = "absent"
+        elif ledger["hash"] == graph_hash:
+            status = "fresh"
+        else:
+            status = "stale"
+        graph["wiring_source"] = "ledger"
+        if unavailable:
+            graph["wiring_note"] = unavailable
+        graph["edges"] = ledger["edges"]
+        graph["operator_types"] = ledger["ops"]
+        graph["ledger_status"] = status
+        graph["ledger"] = ledger
     if not include_properties:
         for event in graph["events"]:
             for op in event["operators"]:
@@ -419,9 +646,22 @@ def store_ledger(
     if "error" in graph:
         return graph
     ledger = dict(ledger)
+    scene = graph.get("scene")
+    if scene:
+        # The flow's own wiring wins; the ledger mirrors it for older bridges.
+        ledger["edges"] = [dict(edge) for edge in scene["edges"]]
+        ledger["ops"] = {
+            f"{event['name']}/{op['name']}": op["type"]
+            for event in scene["events"]
+            for op in event["operators"]
+            if op.get("type")
+        }
     ledger["v"] = LEDGER_VERSION
     ledger["hash"] = structural_hash(graph)
-    return write_ledger_appdata(name, ledger)
+    stored = write_ledger_appdata(name, ledger)
+    if "error" not in stored:
+        stored["edges"] = ledger["edges"]
+    return stored
 
 
 def refresh_ledger_after_mutation(name: str) -> dict[str, Any]:
@@ -524,4 +764,4 @@ def _ledger_update(
     stored = store_ledger(name, ledger, graph=graph)
     if "error" in stored:
         return {"ledgerWarning": f"Ledger not updated: {stored['error']}"}
-    return {"ledgerHash": stored["hash"], "edges": ledger["edges"]}
+    return {"ledgerHash": stored["hash"], "edges": stored["edges"]}

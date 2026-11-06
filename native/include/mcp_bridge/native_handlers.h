@@ -195,6 +195,10 @@ namespace NativeHandlers {
     std::string InvokeInterface(const std::string& params, MCPBridgeGUP* gup);
     std::string RunMacroscript(const std::string& params, MCPBridgeGUP* gup);
 
+    // tyFlow graph access (tyflow_handlers.cpp)
+    std::string TyFlowGraphStream(const std::string& params, MCPBridgeGUP* gup);
+    std::string TyFlowOperator(const std::string& params, MCPBridgeGUP* gup);
+
     // Live tool smoke testing (in-Max production path)
     std::string InvokeTool(const std::string& params, MCPBridgeGUP* gup);
     std::string RunToolSmoke(const std::string& params, MCPBridgeGUP* gup);

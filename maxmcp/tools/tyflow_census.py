@@ -280,9 +280,10 @@ def capture_tyflow_editor(
 ) -> str:
     """Open the tyFlow editor and capture the screen for visual wire inspection.
 
-    Wiring of flows not built through MCP cannot be read structurally; this
-    capture plus the returned event rectangles (position/width per event) lets
-    an agent map wires visually and reconcile them via set_tyflow_wiring_ledger.
+    get_tyflow_graph reads wiring from the flow itself. With an older bridge
+    (wiring_source "ledger"), this capture plus the returned event rectangles
+    (position/width per event) lets an agent map wires visually and reconcile
+    them via set_tyflow_wiring_ledger.
     Fullscreen capture is disabled by default — pass enabled=true. The editor is
     left open afterwards.
     """

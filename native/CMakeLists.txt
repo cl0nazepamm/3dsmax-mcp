@@ -125,6 +125,7 @@ set(MCP_CORE_SOURCES
     src/handlers/material_library_handlers.cpp
     src/handlers/controller_handlers.cpp
     src/handlers/keyframe_handlers.cpp
+    src/handlers/tyflow_handlers.cpp
     src/handlers/plugin_introspect_handlers.cpp
     src/plugin_access.cpp
     src/handlers/plugin_access_handlers.cpp

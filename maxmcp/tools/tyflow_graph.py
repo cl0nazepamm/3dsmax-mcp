@@ -1,10 +1,10 @@
-"""Agent-facing tyFlow graph view and wiring tools (shadow-ledger backed).
+"""Agent-facing tyFlow graph view and wiring tools.
 
-Wiring cannot be read back from tyFlow (closed internal graph), so connects and
-disconnects made here are recorded in a ledger stored on the flow node; see
-`_tyflow_core`. `get_tyflow_graph` is the one-call graph view for agents:
-structure from live readback, edges from the ledger, staleness from the
-structural hash.
+`get_tyflow_graph` is the one-call graph view for agents: structure from live
+readback, edges and operator types from the flow's save stream (see
+`_tyflow_core`). Connects and disconnects made here are also recorded in the
+ledger on the flow node, which supplies edges for bridges that cannot read the
+stream.
 """
 
 from __future__ import annotations
@@ -50,12 +50,15 @@ def get_tyflow_graph(
     max_operators_per_event: int = 200,
     max_properties_per_operator: int = 200,
 ) -> str:
-    """Full tyFlow graph view: events, operators, properties, ledger edges, staleness.
+    """Full tyFlow graph view: events, operators with their types, properties, edges.
 
-    `graph_hash` is the optimistic-concurrency token for `tyflow_apply_patch`.
-    `ledger_status`: fresh (ledger matches live structure), stale (flow was edited
-    outside MCP — edges may be outdated), absent (no MCP ledger on this flow yet;
-    reconcile with set_tyflow_wiring_ledger, e.g. after reading an editor capture).
+    Edges (from_event, from_op, to_event) and each operator's `type` are read
+    from the flow itself (`wiring_source` "scene"), so wires drawn in the tyFlow
+    editor and renamed operators are reported as they are. `graph_hash` covers
+    the wiring and is the optimistic-concurrency token for `tyflow_apply_patch`.
+    With an older bridge, `wiring_source` is "ledger": edges come from the MCP
+    ledger and `ledger_status` is fresh, stale (edited outside MCP) or absent
+    (reconcile with set_tyflow_wiring_ledger after an editor capture).
     """
     payload = graph_payload(
         name,
@@ -90,10 +93,10 @@ def _run_connect_maxscript(
             try (srcReal = src.object) catch ()
             if srcReal == undefined do srcReal = src
             try (
-                op = srcReal.Event.addOperator "Send Out" -1
+                op = mcpTyAddOperator srcReal "Send Out" -1
                 op.Operator.setName "{safe_string(from_operator)}"
                 created = true
-            ) catch (err = getCurrentException())
+            ) catch (err = mcpTyThrown())
         )"""
     if to_event is None:
         action = 'if err == "" do (try (realOp.disconnect(); ok = true) catch (err = getCurrentException()))'
@@ -213,7 +216,8 @@ def disconnect_tyflow_operator(name: str, from_event: str, from_operator: str) -
 def set_tyflow_wiring_ledger(name: str, edges: DictList, mode: str = "replace") -> str:
     """Reconcile the wiring ledger by hand (e.g. after reading an editor capture).
 
-    Each edge: {"from_event", "from_op" (alias "from_operator"), "to_event"}.
+    Only needed when get_tyflow_graph reports wiring_source "ledger" (an older
+    bridge); with "scene" the edges are read from the flow itself. Each edge: {"from_event", "from_op" (alias "from_operator"), "to_event"}.
     mode=replace overwrites all ledger edges; mode=merge keeps existing edges
     except those with a matching (from_event, from_op). Event names not present
     in the live flow are recorded but flagged in warnings. Marks the ledger
@@ -261,12 +265,17 @@ def set_tyflow_wiring_ledger(name: str, edges: DictList, mode: str = "replace") 
     stored = store_ledger(name, ledger, graph=graph)
     if "error" in stored:
         return json.dumps(stored)
+    if graph.get("scene") and stored["edges"] != ledger["edges"]:
+        warnings.append(
+            "The flow's own wiring was read from the scene and recorded instead of these edges; "
+            "use connect/disconnect to change wiring."
+        )
     return json.dumps(
         {
             "name": name,
             "mode": mode_key,
-            "edgeCount": len(ledger["edges"]),
-            "edges": ledger["edges"],
+            "edgeCount": len(stored["edges"]),
+            "edges": stored["edges"],
             "ledger_hash": stored["hash"],
             "warnings": warnings,
         }

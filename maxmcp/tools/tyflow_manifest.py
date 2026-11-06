@@ -1,10 +1,10 @@
 """tyFlow operator manifest: probe-harvested catalog of operator types and params.
 
-Operator display names are the only type identity tyFlow exposes at runtime, and
 PB2 param names are non-obvious (`shape_type_tab`, `type_3d_ID_tab`, ...). The
-manifest gives agents exact type names, availability on this installation, and
-per-type property names/defaults. Harvest probes a scratch flow (one operator of
-each type added, introspected, removed) and caches per tyFlow version.
+manifest gives agents exact type names, availability on this installation,
+saved type IDs, and per-type property names/defaults. Harvest probes a scratch
+flow (one operator of each type added and introspected, then confirmed against
+the flow's saved graph) and caches per tyFlow version.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from ..helpers.tyflow_catalog import EXECUTABLE_OPERATOR_NAMES, TYFLOW_OPERATOR_
 from ..coerce import StrList
 from ..max_client import CALL_STATE_ERRORS
 from ..server import client, mcp
-from ._tyflow_core import CORE_HELPERS, MAXSCRIPT_ERROR
+from ._tyflow_core import CORE_HELPERS, MAXSCRIPT_ERROR, SceneGraphUnavailable, canon_name, scene_graph
 
 _PROBE_FLOW = "zzz_mcp_manifest_probe"
 _BATCH_SIZE = 40
@@ -72,7 +72,93 @@ else ((tyFlow_version()) as string)
         return {"error": f"Could not read tyFlow version: {raw[:100]}"}
 
 
-def _probe_batch(names: list[str]) -> dict[str, Any] | list[dict[str, Any]]:
+def _saved_event(event_name: str) -> dict[str, Any]:
+    """The probe event as saved: {canonical operator name: saved operator}."""
+    scene = scene_graph(_PROBE_FLOW)
+    event = next((ev for ev in scene["events"] if ev["name"] == canon_name(event_name)), None)
+    if event is None:
+        raise RuntimeError(f"probe event {event_name} was not in the saved graph")
+    return {op["name"]: op for op in event["operators"]}
+
+
+def _confirm_in_scene(event_name: str, entries: list[dict[str, Any]], family: str) -> str | None:
+    """Record family and type ID for the types that joined the probe event.
+
+    An event holds operators of one family, set by its first operator; tyFlow
+    answers addOperator for another family with an object that never joins.
+    Types that did not join are marked `pending` for _group_families. Returns
+    why the saved graph could not be checked.
+    """
+    try:
+        saved = _saved_event(event_name)
+    except SceneGraphUnavailable as exc:
+        return str(exc)
+    except CALL_STATE_ERRORS:
+        raise
+    except Exception as exc:
+        return f"the probe flow's graph could not be read: {exc}"
+    for entry in entries:
+        op = saved.get(canon_name(entry["type"]))
+        if op is not None:
+            entry["type_id"] = op.get("type_id")
+            entry["family"] = family
+        elif entry.get("available"):
+            entry["pending"] = True
+    return None
+
+
+def _family_label(types: list[str]) -> str:
+    for word, label in (("Terrain", "terrain"), ("VDB", "vdb"), ("Inferno", "inferno")):
+        if sum(word in item for item in types) * 2 > len(types):
+            return label
+    return canon_name(types[0]).lower()
+
+
+def _group_families(entries: list[dict[str, Any]]) -> str | None:
+    """Sort types that would not join a particle event into their families: each
+    round adds the remaining types to one new event, whose first operator sets
+    its family. Returns why grouping stopped early."""
+    pending = [entry for entry in entries if entry.pop("pending", False)]
+    for round_index in range(1, len(pending) + 1):
+        if not pending:
+            return None
+        event_name = f"zzz_family_{round_index}"
+        array_literal = "#(" + ", ".join(f'"{safe_string(e["type"])}"' for e in pending) + ")"
+        maxscript = f"""(
+{NODE_LOOKUP_FNS}
+local flows = mcpNamedNodes "{_PROBE_FLOW}"
+if flows.count != 1 then "__ERROR__|The probe flow is missing" else (
+    local eh = flows[1].tyFlow.addEvent()
+    eh.Event.setName "{event_name}"
+    for opType in {array_literal} do (try (eh.Event.addOperator opType -1) catch ())
+    "OK"
+)
+)"""
+        raw = str(client.send_command(maxscript, timeout=300).get("result", ""))
+        if raw.startswith("__ERROR__|"):
+            return raw.split("|", 1)[1]
+        try:
+            saved = _saved_event(event_name)
+        except CALL_STATE_ERRORS:
+            raise
+        except Exception as exc:
+            return f"the probe flow's graph could not be read: {exc}"
+        joined = [entry for entry in pending if canon_name(entry["type"]) in saved]
+        if not joined:
+            # Not even an empty event takes the first type.
+            first = pending.pop(0)
+            first["available"] = False
+            first["note"] = "addOperator returned an object, but the operator never joined an event"
+            continue
+        family = _family_label([entry["type"] for entry in joined])
+        for entry in joined:
+            entry["type_id"] = saved[canon_name(entry["type"])].get("type_id")
+            entry["family"] = family
+        pending = [entry for entry in pending if entry not in joined]
+    return None if not pending else f"{len(pending)} type(s) were not grouped"
+
+
+def _probe_batch(names: list[str], event_name: str) -> dict[str, Any] | list[dict[str, Any]]:
     array_literal = "#(" + ", ".join(f'"{safe_string(item)}"' for item in names) + ")"
     maxscript = f"""(
 {CORE_HELPERS}
@@ -88,6 +174,10 @@ if tyFlow == undefined then (
     if flow == undefined do flow = tyFlow name:"{_PROBE_FLOW}" pos:[0,0,-100000]
     local eh = flow.tyFlow.addEvent()
     local ev = eh.Event
+    ev.setName "{safe_string(event_name)}"
+    -- Birth first makes this a particle event. Operators stay in it until the
+    -- flow is deleted, so the saved graph can confirm each type and its ID.
+    try (ev.addOperator "Birth" -1) catch ()
     for opName in {array_literal} do (
         local op = undefined
         try (op = ev.addOperator opName -1) catch ()
@@ -108,7 +198,6 @@ if tyFlow == undefined then (
                 if v.count > 120 do v = (substring v 1 120) + "..."
                 format "PP|%|%|%|%\\n" (mcpTyClean opName) (mcpTyClean (p as string)) (mcpTyClean v) (mcpTyClean cls) to:out
             )
-            try (op.remove()) catch ()
         )
     )
     out as string
@@ -180,8 +269,9 @@ def harvest_tyflow_manifest(
     Without `refresh`, an existing cache is returned untouched (no Max traffic).
     `operator_names` limits the probe to specific types and merges results into
     the existing cache. Probing adds each operator (inert) to a hidden scratch
-    flow, reads its property names/defaults, then removes it; the scratch flow
-    is deleted afterwards.
+    flow and reads its property names/defaults; the saved graph then confirms
+    which types joined the flow (`available`) and records their type IDs. The
+    scratch flow is deleted afterwards.
     """
     version = _tyflow_version()
     if isinstance(version, dict):
@@ -204,16 +294,25 @@ def harvest_tyflow_manifest(
     errors: list[str] = []
     step = max(1, int(batch_size))
     cleanup_error: str | None = None
+    unconfirmed: str | None = None
     try:
         for start in range(0, len(names), step):
             batch = names[start : start + step]
-            outcome = _probe_batch(batch)
+            event_name = f"zzz_probe_{start // step + 1}"
+            outcome = _probe_batch(batch, event_name)
             if isinstance(outcome, dict):
                 errors.append(str(outcome.get("error", "probe failed")))
                 break
+            unconfirmed = _confirm_in_scene(event_name, outcome, "particle") or unconfirmed
             harvested.extend(outcome)
+        if not unconfirmed:
+            grouping = _group_families(harvested)
+            if grouping:
+                unconfirmed = f"family grouping stopped: {grouping}"
     finally:
         cleanup_error = _cleanup_probe_flow()
+        for entry in harvested:
+            entry.pop("pending", None)
 
     if not harvested:
         return json.dumps({"error": "Manifest probe produced no entries", "details": errors})
@@ -251,6 +350,8 @@ def harvest_tyflow_manifest(
             f"The probe stopped early; {len(unprobed)} operator type(s) were not probed: "
             + "; ".join(errors)
         )
+    if unconfirmed:
+        warnings.append(f"Availability, family or type ID may be missing for some types: {unconfirmed}")
     if cleanup_error:
         warnings.append(f"Scratch flow {_PROBE_FLOW} may remain in the scene: {cleanup_error}")
     if warnings:
@@ -270,8 +371,10 @@ def list_tyflow_operators(
 
     Matches query tokens against operator type names and property names
     (case-insensitive substrings). Each entry's `available` reports whether this
-    installation could add that type when probed. Run harvest_tyflow_manifest
-    first if no cache exists.
+    installation could add that type when probed, and `family` which events
+    take it: an event holds operators of one family (particle, terrain, vdb,
+    inferno), set by its first operator. Run harvest_tyflow_manifest first if no
+    cache exists.
     """
     path = _latest_cache()
     manifest = _read_manifest(path) if path else None
@@ -306,6 +409,7 @@ def list_tyflow_operators(
         entry = {
             "type": op["type"],
             "available": op.get("available", False),
+            "family": op.get("family"),
             "executable": op.get("executable", False),
             "propertyCount": op.get("propertyCount", 0),
         }

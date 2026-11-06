@@ -14,7 +14,8 @@ from ..helpers.maxscript import (
 
 from ..server import client, mcp
 from ..coerce import StrList, FloatList, IntList, DictList
-from ._tyflow_core import MAXSCRIPT_ERROR, ledger_update, merge_ledger
+from ..max_client import CALL_STATE_ERRORS
+from ._tyflow_core import MAXSCRIPT_ERROR, ledger_update, merge_ledger, operator_call
 
 
 SHAPE_3D_IDS: dict[str, int] = {
@@ -85,6 +86,30 @@ fn findEventSubAnim flowNode eventName =
 fn findOperatorSubAnim eventSub operatorName =
 (
     mcpTyChildByName eventSub operatorName
+)
+
+fn mcpTyAddOperator eventTarget opType position =
+(
+    -- An event holds operators of one family, set by its first operator. tyFlow
+    -- answers addOperator for another family with an object that never joins
+    -- the event, so the operator count is the proof.
+    local realEv = eventTarget
+    try (realEv = eventTarget.object) catch ()
+    local before = realEv.numsubs
+    local op = undefined
+    try (op = realEv.Event.addOperator opType position) catch ()
+    if op == undefined do throw ("tyFlow has no operator type " + opType)
+    if realEv.numsubs <= before do throw ("tyFlow did not add " + opType + " to " + (realEv.Event.getName()) + ": an event holds operators of one family (particle, terrain, VDB or Inferno), set by its first operator. Add it to an event of its own family.")
+    op
+)
+
+fn mcpTyThrown =
+(
+    -- The message of the exception being handled, without MAXScript's prefix.
+    local text = (getCurrentException()) as string
+    local marker = findString text "Runtime error: "
+    if marker != undefined do text = substring text (marker + 15) -1
+    trimRight text
 )
 """
 
@@ -254,10 +279,16 @@ def create_tyflow(
         op_name = safe_string(str(op.get("name", op.get("type", f"Operator{idx}"))))
         op_pos = int(op.get("position", idx - 1))
         var = f"op{idx}"
-        # Some operators (Shape) expose no Operator interface to MAXScript and
-        # keep their type name; that is only a failure for a custom name.
-        naming_failure = ("()" if op_name == op_type
-                          else f'append opErrors "Could not name {op_type} operator {op_name}"')
+        # A new operator is named after its type. Shape and a few others expose
+        # no Operator interface to MAXScript; the bridge names those afterwards.
+        if op_name == op_type:
+            naming = ""
+        else:
+            naming = (
+                f'iface = undefined\n    try (iface = {var}.Operator) catch ()\n    '
+                f'if iface == undefined then append bridgeNames #((formattedPrint ((getHandleByAnim {var}) as integer64) format:"d"), "{op_name}", "{op_type}") '
+                f'else (try (iface.setName "{op_name}") catch (append opErrors "Could not name {op_type} operator {op_name}"))'
+            )
         props = op.get("properties", {})
         if not isinstance(props, dict):
             props = {}
@@ -272,12 +303,13 @@ def create_tyflow(
         op_blocks.append(
             f"""
 local {var} = undefined
-try ({var} = ev.addOperator "{op_type}" {op_pos}) catch ()
+addError = ""
+try ({var} = mcpTyAddOperator eventHandle "{op_type}" {op_pos}) catch (addError = mcpTyThrown())
 if {var} == undefined then (
     append failedOps "{op_name}"
-    append opErrors "Could not add {op_type} operator {op_name}"
+    append opErrors ("Could not add {op_type} operator {op_name}: " + addError)
 ) else (
-    try ({var}.Operator.setName "{op_name}") catch ({naming_failure})
+    {naming}
     {assign_script}
     operatorCount += 1
 )
@@ -300,17 +332,35 @@ if tyFlow == undefined then (
         local operatorCount = 0
         local opErrors = #()
         local failedOps = #()
+        local bridgeNames = #()
+        local addError = ""
+        local iface = undefined
         {"".join(op_blocks)}
-        "{{\\"name\\":\\"" + (esc flow.name) + "\\",\\"event\\":\\"" + (esc (ev.getName())) + "\\",\\"operatorCount\\":" + (operatorCount as string) + ",\\"errorCount\\":" + (opErrors.count as string) + ",\\"errors\\":" + (jsonStringArray opErrors) + ",\\"failedOperators\\":" + (jsonStringArray failedOps) + "}}"
+        local renames = "["
+        for i = 1 to bridgeNames.count do (
+            if i > 1 do renames += ","
+            renames += jsonStringArray bridgeNames[i]
+        )
+        renames += "]"
+        "{{\\"name\\":\\"" + (esc flow.name) + "\\",\\"event\\":\\"" + (esc (ev.getName())) + "\\",\\"operatorCount\\":" + (operatorCount as string) + ",\\"errorCount\\":" + (opErrors.count as string) + ",\\"errors\\":" + (jsonStringArray opErrors) + ",\\"failedOperators\\":" + (jsonStringArray failedOps) + ",\\"bridgeNames\\":" + renames + "}}"
     )
 )
 )"""
     payload = _send_json(maxscript, {"error": "Could not parse create_tyflow response."})
     if isinstance(payload, dict) and "name" in payload and "error" not in payload:
+        errors = [str(e) for e in payload.get("errors") or []]
+        for handle, op_name, op_type in payload.pop("bridgeNames", None) or []:
+            try:
+                operator_call(str(payload["name"]), int(handle), "setName", value=op_name)
+            except CALL_STATE_ERRORS:
+                raise
+            except Exception as exc:
+                errors.append(f"Could not name {op_type} operator {op_name}: {exc}")
+        payload["errors"] = errors
+        payload["errorCount"] = len(errors)
         # The flow exists even when operators or values were refused, so this
         # is a partial result, never an error.
-        _batch_outcome(payload, [str(e) for e in payload.get("errors") or []],
-                       applied=True, nothing="")
+        _batch_outcome(payload, errors, applied=True, nothing="")
         failed_ops = {str(n) for n in payload.get("failedOperators") or []}
         record_ops: dict[str, str] = {}
         for idx, op in enumerate(op_defs, start=1):
@@ -693,17 +743,25 @@ if flow == undefined then (
     ) else (
         local shapeOp = findOperatorSubAnim ev "{safe_string(operator_name)}"
         local created = false
+        local renameHandle = ""
+        local addError = ""
         if shapeOp == undefined and {str(bool(create_if_missing)).lower()} then (
             local evI = undefined
             try (evI = ev.Event) catch ()
             if evI != undefined then (
-                shapeOp = evI.addOperator "Shape" -1
+                try (shapeOp = mcpTyAddOperator ev "Shape" -1) catch (addError = mcpTyThrown())
                 if shapeOp != undefined do created = true
-                try (shapeOp.Operator.setName "{safe_string(operator_name)}") catch ()
+                -- Shape has no Operator interface in MAXScript; the bridge names it.
+                if created and "{safe_string(operator_name)}" != "Shape" do (
+                    local iface = undefined
+                    try (iface = shapeOp.Operator) catch ()
+                    if iface == undefined then renameHandle = formattedPrint ((getHandleByAnim shapeOp) as integer64) format:"d"
+                    else try (iface.setName "{safe_string(operator_name)}") catch ()
+                )
             )
         )
         if shapeOp == undefined then (
-            "{{\\"error\\":\\"Shape operator not found\\"}}"
+            if addError != "" then "{{\\"error\\":\\"" + (esc addError) + "\\"}}" else "{{\\"error\\":\\"Shape operator not found\\"}}"
         ) else (
             local applied = #()
             local errors = #()
@@ -711,12 +769,20 @@ if flow == undefined then (
             try (shapeOp.type_3d_ID_tab = #({shape_id}); append applied "type_3d_ID_tab") catch (append errors "type_3d_ID_tab")
             try (shapeOp.frequency_tab = #({float(frequency)}); append applied "frequency_tab") catch (append errors "frequency_tab")
             try (shapeOp.scaleVal_tab = #({float(scale)}); append applied "scaleVal_tab") catch (append errors "scaleVal_tab")
-            "{{\\"name\\":\\"" + (esc flow.name) + "\\",\\"shape\\":\\"{safe_string(key)}\\",\\"shapeId\\":{shape_id},\\"created\\":" + (created as string) + ",\\"applied\\":" + (jsonStringArray applied) + ",\\"errors\\":" + (jsonStringArray errors) + "}}"
+            "{{\\"name\\":\\"" + (esc flow.name) + "\\",\\"shape\\":\\"{safe_string(key)}\\",\\"shapeId\\":{shape_id},\\"created\\":" + (created as string) + ",\\"applied\\":" + (jsonStringArray applied) + ",\\"errors\\":" + (jsonStringArray errors) + ",\\"renameHandle\\":\\"" + renameHandle + "\\"}}"
         )
     )
 )
 )"""
     payload = _send_json(maxscript, {"error": "Could not parse set_tyflow_shape response."})
+    rename_handle = payload.pop("renameHandle", "") if isinstance(payload, dict) else ""
+    if rename_handle:
+        try:
+            operator_call(name, int(rename_handle), "setName", value=operator_name)
+        except CALL_STATE_ERRORS:
+            raise
+        except Exception as exc:
+            payload.setdefault("errors", []).append(f"name {operator_name} ({exc})")
     if isinstance(payload, dict) and "error" not in payload:
         created = bool(payload.get("created"))
         _batch_outcome(payload, [f"Could not set {e}" for e in payload.get("errors") or []],
@@ -767,17 +833,18 @@ if flow == undefined then (
     ) else (
         local collOp = findOperatorSubAnim ev "{safe_string(operator_name)}"
         local created = false
+        local addError = ""
         if collOp == undefined and {str(bool(create_if_missing)).lower()} then (
             local evI = undefined
             try (evI = ev.Event) catch ()
             if evI != undefined then (
-                collOp = evI.addOperator "Collision" -1
+                try (collOp = mcpTyAddOperator ev "Collision" -1) catch (addError = mcpTyThrown())
                 if collOp != undefined do created = true
                 try (collOp.Operator.setName "{safe_string(operator_name)}") catch ()
             )
         )
         if collOp == undefined then (
-            "{{\\"error\\":\\"Collision operator not found\\"}}"
+            if addError != "" then "{{\\"error\\":\\"" + (esc addError) + "\\"}}" else "{{\\"error\\":\\"Collision operator not found\\"}}"
         ) else (
             local applied = #()
             local errors = #()
@@ -883,8 +950,18 @@ if flow == undefined then (
                 "{{\\"error\\":\\"Operator not found: {safe_string(operator_name)}\\"}}"
             ) else (
                 local ok = false
-                try (op.remove(); ok = true) catch ()
-                if ok then "{{\\"removed\\":\\"operator\\",\\"event\\":\\"{safe_string(event_name)}\\",\\"operator\\":\\"{safe_string(operator_name)}\\"}}" else "{{\\"error\\":\\"Could not remove operator\\"}}"
+                local realOp = undefined
+                try (realOp = op.object) catch ()
+                if realOp == undefined do realOp = op
+                local iface = undefined
+                try (iface = realOp.Operator) catch ()
+                if iface == undefined then (
+                    -- No Operator interface in MAXScript (Shape and a few others): the bridge removes it.
+                    "{{\\"native\\":\\"remove\\",\\"handle\\":" + (formattedPrint ((getHandleByAnim realOp) as integer64) format:"d") + "}}"
+                ) else (
+                    try (iface.remove(); ok = true) catch ()
+                    if ok then "{{\\"removed\\":\\"operator\\",\\"event\\":\\"{safe_string(event_name)}\\",\\"operator\\":\\"{safe_string(operator_name)}\\"}}" else "{{\\"error\\":\\"Could not remove operator\\"}}"
+                )
             )
         ) else (
             local ok = false
@@ -895,6 +972,15 @@ if flow == undefined then (
 )
 )"""
     payload = _send_json(maxscript, {"error": "Could not parse remove_tyflow_element response."})
+    if isinstance(payload, dict) and payload.get("native") == "remove":
+        try:
+            operator_call(name, int(payload["handle"]), "remove")
+        except CALL_STATE_ERRORS:
+            raise
+        except Exception as exc:
+            payload = {"error": f"Could not remove operator: {exc}"}
+        else:
+            payload = {"removed": "operator", "event": event_name, "operator": operator_name}
     if isinstance(payload, dict) and "error" not in payload:
         if payload.get("removed") == "event":
             merge_ledger(payload, ledger_update(name, remove_event=event_name))

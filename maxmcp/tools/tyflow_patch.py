@@ -2,8 +2,9 @@
 
 The tyFlow equivalent of `mcg_apply_patch`. There is no compile step — a patch
 is verified empirically by resetting the simulation and asserting particle
-counts at probe frames. The wiring ledger (see `_tyflow_core`) is maintained
-incrementally from the operations that succeeded.
+counts at probe frames. Wiring is read from the flow itself; the ledger (see
+`_tyflow_core`), kept for older bridges, is maintained incrementally from the
+operations that succeeded.
 
 Rollback caveat: the checkpoint is a hidden clone of the flow node; rolling back
 deletes the patched node and renames the clone back, so OTHER scene objects that
@@ -27,6 +28,7 @@ from ._tyflow_core import (
     MAXSCRIPT_ERROR,
     canon_name,
     graph_payload,
+    operator_call,
     parse_ledger,
     read_graph,
     store_ledger,
@@ -52,7 +54,27 @@ fn mcpTyReal sub = (
     if r == undefined do r = sub
     r
 )
+fn mcpTyOperatorIface op = (
+    local iface = undefined
+    try (iface = op.Operator) catch ()
+    iface
+)
+fn mcpTyAnimId anim = formattedPrint ((getHandleByAnim anim) as integer64) format:"d"
 """
+
+
+def _operator_call(target: str, function: str, arg: str = "", event: str = "") -> str:
+    """MAXScript calling one Operator function on `target`. Operators that do not
+    answer the interface in MAXScript (Shape, Birth Burst, Actor, Spline Paths)
+    leave the call to the bridge: `native` names it, the program stops after
+    this operation and _run_operations makes the call natively."""
+    call = f"iface.{function} {arg}" if arg else f"iface.{function}()"
+    event_id = f"mcpTyAnimId {event}" if event else '""'
+    return (
+        f"local iface = mcpTyOperatorIface {target}\n"
+        f'if iface == undefined then native = #("{function}", mcpTyAnimId {target}, {event_id}) '
+        f"else {call}"
+    )
 
 # Operations whose effects can be rolled back by synthesized inverse operations
 # (no checkpoint clone needed — clone/delete churn destabilizes tyFlow's Qt UI).
@@ -173,21 +195,23 @@ def _op_body(operation: dict[str, Any], index: int) -> str:
         lines = [
             f'local ev = mcpTyRequireEvent flow "{safe_string(str(operation["event"]))}"',
             "local realEv = mcpTyReal ev",
-            f'local newOp = realEv.Event.addOperator "{safe_string(op_type)}" {position}',
-            f'if newOp == undefined do throw ("Could not add operator: " + "{safe_string(op_type)}")',
-            f'newOp.Operator.setName "{safe_string(op_name)}"',
+            f'local newOp = mcpTyAddOperator realEv "{safe_string(op_type)}" {position}',
         ]
         properties = operation.get("properties")
         if isinstance(properties, dict) and properties:
             assignments, _ = _assignment_lines(properties, "newOp")
             lines.append(assignments)
+        # A new operator is already named after its type. The rename comes last:
+        # the bridge may have to make it after this program stops.
+        if op_name != op_type:
+            lines.append(_operator_call("newOp", "setName", f'"{safe_string(op_name)}"'))
         return "\n".join(lines)
     if kind == "remove_operator":
         return (
             f'local ev = mcpTyRequireEvent flow "{safe_string(str(operation["event"]))}"\n'
             f'local op = mcpTyRequireOperator ev "{safe_string(str(operation["operator"]))}"\n'
             "local realOp = mcpTyReal op\n"
-            "realOp.remove()"
+            + _operator_call("realOp", "remove")
         )
     if kind == "set_properties":
         assignments, _ = _assignment_lines(
@@ -205,8 +229,7 @@ def _op_body(operation: dict[str, Any], index: int) -> str:
         if ensure:
             missing_branch = (
                 "local realEv = mcpTyReal ev\n"
-                '        op = realEv.Event.addOperator "Send Out" -1\n'
-                '        if op == undefined do throw "Could not create Send Out"\n'
+                '        op = mcpTyAddOperator realEv "Send Out" -1\n'
                 f'        op.Operator.setName "{safe_string(from_operator)}"\n'
                 '        detail = "created"'
             )
@@ -223,14 +246,14 @@ def _op_body(operation: dict[str, Any], index: int) -> str:
             ")\n"
             "local realOp = mcpTyReal op\n"
             "local realTarget = mcpTyReal dst\n"
-            "realOp.connect realTarget"
+            + _operator_call("realOp", "connect", "realTarget", event="realTarget")
         )
     if kind == "disconnect":
         return (
             f'local ev = mcpTyRequireEvent flow "{safe_string(str(operation["from_event"]))}"\n'
             f'local op = mcpTyRequireOperator ev "{safe_string(str(operation["from_operator"]))}"\n'
             "local realOp = mcpTyReal op\n"
-            "realOp.disconnect()"
+            + _operator_call("realOp", "disconnect")
         )
     if kind == "rename_event":
         return (
@@ -243,7 +266,7 @@ def _op_body(operation: dict[str, Any], index: int) -> str:
             f'local ev = mcpTyRequireEvent flow "{safe_string(str(operation["event"]))}"\n'
             f'local op = mcpTyRequireOperator ev "{safe_string(str(operation["operator"]))}"\n'
             "local realOp = mcpTyReal op\n"
-            f'realOp.Operator.setName "{safe_string(str(operation["new_name"]))}"'
+            + _operator_call("realOp", "setName", f'"{safe_string(str(operation["new_name"]))}"')
         )
     if kind == "set_event_position":
         position = operation["position"]
@@ -260,7 +283,7 @@ def _op_body(operation: dict[str, Any], index: int) -> str:
                 f'local ev = mcpTyRequireEvent flow "{safe_string(str(operation["event"]))}"\n'
                 f'local op = mcpTyRequireOperator ev "{safe_string(str(operator))}"\n'
                 "local realOp = mcpTyReal op\n"
-                f"realOp.Operator.setEnabled {enabled}"
+                + _operator_call("realOp", "setEnabled", enabled)
             )
         return (
             f'local ev = mcpTyRequireEvent flow "{safe_string(str(operation["event"]))}"\n'
@@ -395,35 +418,42 @@ def _write_ledger_mutations(name: str, mutations: list[tuple[Any, ...]]) -> dict
     stored = store_ledger(name, ledger, graph=graph)
     if "error" in stored:
         return {"ledgerWarning": f"Ledger not updated: {stored['error']}"}
-    return {"ledgerHash": stored["hash"], "edges": edges}
+    return {"ledgerHash": stored["hash"], "edges": stored["edges"]}
 
 
-def _run_operations(name: str, operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Build one MAXScript program for the operation batch, run it, parse OPRES lines."""
+def _operations_program(name: str, operations: list[dict[str, Any]], start: int) -> str:
+    """One MAXScript program for operations[start:]. An operation that leaves an
+    Operator call to the bridge prints NATIVE and stops the program there."""
     from .tyflow import HELPERS  # lazy: avoids import cycle
 
     op_blocks: list[str] = []
-    for index, operation in enumerate(operations, start=1):
-        body = _op_body(operation, index)
-        indented = "\n        ".join(body.splitlines())
+    for index in range(start + 1, len(operations) + 1):
+        body = _op_body(operations[index - 1], index)
+        indented = "\n            ".join(body.splitlines())
         op_blocks.append(
             f"""
-    (
+    if not halted do (
         local opok = true
         local operr = ""
         local detail = ""
         local applied = #()
         local errors = #()
+        local native = undefined
         try (
             {indented}
-        ) catch (opok = false; operr = (getCurrentException()) as string)
+        ) catch (opok = false; operr = mcpTyThrown())
         local errJoin = ""
         for e in errors do (if errJoin != "" do errJoin += ";"; errJoin += e)
-        format "OPRES|%|%|%|%\\n" {index} (if opok then "ok" else "err") (mcpTyClean (if opok then detail else operr)) (mcpTyClean errJoin) to:out
+        if opok and native != undefined then (
+            halted = true
+            format "NATIVE|%|%|%|%|%|%\\n" {index} native[1] native[2] native[3] (mcpTyClean detail) (mcpTyClean errJoin) to:out
+        ) else (
+            format "OPRES|%|%|%|%\\n" {index} (if opok then "ok" else "err") (mcpTyClean (if opok then detail else operr)) (mcpTyClean errJoin) to:out
+        )
     )
 """
         )
-    apply_script = f"""(
+    return f"""(
 {HELPERS}
 {CORE_HELPERS}
 {PATCH_HELPERS}
@@ -432,24 +462,54 @@ if flow == undefined then (
     "__ERROR__|Object not found: {safe_string(name)}"
 ) else (
     local out = stringstream ""
+    local halted = false
     {"".join(op_blocks)}
     try (windows.processPostedMessages()) catch ()
     out as string
 )
 )"""
-    raw, apply_error = _run_simple(apply_script)
+
+
+def _native_value(operation: dict[str, Any], function: str) -> Any:
+    if function == "setName":
+        key = "new_name" if operation.get("op") == "rename_operator" else "name"
+        return str(operation[key])
+    if function == "setEnabled":
+        return bool(operation["enabled"])
+    return None
+
+
+def _property_errors(token: str) -> list[str]:
+    return [item.replace("<pipe>", "|") for item in token.split(";") if item]
+
+
+def _run_operations(name: str, operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Run the batch in order and return one result per operation.
+
+    The batch runs as one MAXScript program; an Operator call MAXScript cannot
+    make is made by the bridge, then the rest of the batch runs from the next
+    operation, so later operations see its effect.
+    """
     op_results: list[dict[str, Any]] = [
         {"index": i + 1, "op": operations[i].get("op"), "status": "unknown"}
         for i in range(len(operations))
     ]
-    if apply_error:
-        for result in op_results:
-            result["status"] = "err"
-            result["error"] = apply_error
-        return op_results
-    for line in raw.splitlines():
-        parts = line.split("|")
-        if len(parts) >= 5 and parts[0] == "OPRES":
+    start = 0
+    while start < len(operations):
+        raw, apply_error = _run_simple(_operations_program(name, operations, start))
+        if apply_error:
+            for result in op_results[start:]:
+                result["status"] = "err"
+                result["error"] = apply_error
+            return op_results
+        native: list[str] | None = None
+        for line in raw.splitlines():
+            parts = line.split("|")
+            if len(parts) >= 7 and parts[0] == "NATIVE":
+                native = parts
+                continue
+            if len(parts) < 5 or parts[0] != "OPRES":
+                continue
             try:
                 slot = int(parts[1]) - 1
             except ValueError:
@@ -463,9 +523,30 @@ if flow == undefined then (
             else:
                 op_results[slot]["error"] = parts[3].replace("<pipe>", "|")
             if parts[4]:
-                op_results[slot]["propertyErrors"] = [
-                    item.replace("<pipe>", "|") for item in parts[4].split(";") if item
-                ]
+                op_results[slot]["propertyErrors"] = _property_errors(parts[4])
+        if native is None:
+            break
+        _, index, function, op_handle, event_handle, detail, prop_errors = native[:7]
+        slot = int(index) - 1
+        result = op_results[slot]
+        try:
+            operator_call(
+                name, int(op_handle), function,
+                value=_native_value(operations[slot], function),
+                event_handle=int(event_handle) if event_handle else None,
+            )
+        except CALL_STATE_ERRORS:
+            raise  # the call may still run in Max; never report it as a plain failure
+        except Exception as exc:
+            result["status"] = "err"
+            result["error"] = f"{function} failed: {exc}"
+        else:
+            result["status"] = "ok"
+            if detail:
+                result["detail"] = detail.replace("<pipe>", "|")
+        if prop_errors:
+            result["propertyErrors"] = _property_errors(prop_errors)
+        start = slot + 1
     return op_results
 
 
@@ -759,13 +840,15 @@ def tyflow_apply_patch(
                     payload["rolled_back"] = True
                     # maxOps.cloneNodes does not carry AppData (live-verified),
                     # so the restored node needs the pre-patch ledger rewritten.
-                    try:
-                        restored = write_ledger_appdata(name, current["ledger"])
-                    except Exception as exc:
-                        restored = {"error": str(exc)}
-                    payload["ledger_restored"] = "error" not in restored
-                    if "error" in restored:
-                        payload["ledgerWarning"] = restored["error"]
+                    # Scene-read wiring lives in the flow itself and needs no restore.
+                    if current.get("ledger") is not None:
+                        try:
+                            restored = write_ledger_appdata(name, current["ledger"])
+                        except Exception as exc:
+                            restored = {"error": str(exc)}
+                        payload["ledger_restored"] = "error" not in restored
+                        if "error" in restored:
+                            payload["ledgerWarning"] = restored["error"]
             elif rollback_on_failure and not needs_clone:
                 payload["rollback_mode"] = "inverse"
                 inverse_ops = _inverse_operations(operations, op_results, current)
