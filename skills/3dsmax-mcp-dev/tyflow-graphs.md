@@ -23,7 +23,17 @@ Read this reference completely before building, inspecting, editing, or verifyin
 
 - `harvest_tyflow_manifest` probes every known operator type in a scratch flow and caches per tyFlow version; run once per installation (or `refresh=true` after a tyFlow update). `list_tyflow_operators` queries the cache with no Max traffic and reports each type's `available` and `family`.
 - Use manifest type and property names verbatim — tyFlow PB2 names are non-obvious (`shape_type_tab`, `type_3d_ID_tab`, `frequency_tab`), and export operators are named `Export Particles`, `Export Terrain`, `Export VDB`, `Export Inferno`. Never guess.
-- `Script` and `MAXScript` operators are executable code: `tyflow_apply_patch` fails closed unless MCP safe mode is disabled AND `allow_executable=true`. Creating them empty via harvest probing is inert and allowed.
+- `Script` and `MAXScript` operators are executable code: `tyflow_apply_patch` and `tyflow_script(action="set")` fail closed unless MCP safe mode is disabled AND `allow_executable=true`. Creating them empty via harvest probing is inert and allowed.
+
+## Script operator (C#)
+
+- The Script operator runs C# per simulation step, for custom solvers. Work through `tyflow_script`, never through `set_properties` or `execute_maxscript`: tyFlow compiles a Script operator once and ignores later code changes, and it reports neither compile errors nor runtime exceptions on its own.
+- The loop: `action="api"` (the installed tyFlow's API: `tf`, `f`, `eventParticleCount`, `Print`, `GetFloat`, `Point3`, `Matrix3`, `tfObj`…) → write the code → `action="check"` until there are no diagnostics → `action="set"` with `allow_executable=true` (safe mode off) and `frames` → read `run`. Repeat until `compiled` is true, `exceptions` is empty and `output` shows the intended values.
+- Declare `simulationStart()`, `simulationStep()` and `simulationStepThreaded(int startInx, int endInx, int threadInx)`, even when empty; tyFlow refuses scripts without them. `postSimulationStep()` is optional.
+- Loop particles with `for (int i = 0; i < eventParticleCount; i++) { int s = tf.GetSimIndex(i); ... }`; every `tf.Get*`/`tf.Set*` call takes the simulation index `s`.
+- `Print()` lines come back in `output` (tyFlow keeps at most 100 per step); use them to verify values. A callback that throws is reported in `exceptions` and tyFlow stops calling it.
+- `set` on an operator that already compiled replaces it in place (same name, position, settings and wiring) so the new code compiles; read the graph again before the next patch.
+- Script objects are `obj001`… and texmaps `tex001`… in listbox order, and `GetFloat(name)` reads an enabled float slot; `action="get"` lists them.
 
 ## Per-event census
 

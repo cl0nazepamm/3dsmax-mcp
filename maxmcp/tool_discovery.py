@@ -125,8 +125,8 @@ TOOLSET_SPECS = (
     ),
     ToolsetSpec(
         "tyflow",
-        "tyFlow creation, graph patching, manifests, wiring, census, and simulation reads.",
-        ("tyflow", "tyflow_graph", "tyflow_patch", "tyflow_manifest", "tyflow_census"),
+        "tyFlow creation, graph patching, manifests, wiring, census, simulation reads, and C# Script operators.",
+        ("tyflow", "tyflow_graph", "tyflow_patch", "tyflow_manifest", "tyflow_census", "tyflow_script"),
     ),
     ToolsetSpec(
         "railclone",

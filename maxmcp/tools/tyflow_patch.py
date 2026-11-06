@@ -151,6 +151,12 @@ def _validate_operations(operations: list[dict[str, Any]]) -> tuple[str | None, 
                 return f"Operation {index} ({kind}): missing field '{field}'", False
         if kind == "set_properties" and not isinstance(operation.get("properties"), dict):
             return f"Operation {index}: properties must be an object", False
+        if kind == "set_properties" and any(str(key).casefold() == "script" for key in operation["properties"]):
+            # tyFlow compiles a Script operator once; a later code change would be ignored.
+            return (
+                f"Operation {index}: set Script operator code with tyflow_script(action='set'), "
+                "which checks it, makes tyFlow compile it and reports errors", False
+            )
         if kind == "add_operator" and "properties" in operation and not isinstance(
             operation["properties"], dict
         ):
