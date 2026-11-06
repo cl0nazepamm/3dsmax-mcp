@@ -15,7 +15,7 @@ from pathlib import Path
 
 from ..max_client import MaxClient
 
-from .cosmos_client import (DEFAULT_BASE_URL, Cosmos, CosmosError,
+from .cosmos_client import (DEFAULT_BASE_URL, Cosmos, CosmosError, kind_of,
                             asset_id as normalize_id, runtime_base_url)
 
 _KIND_TAGS = {"all": (), "model": (1,), "material": (38,), "hdri": (427,)}
@@ -185,17 +185,84 @@ def _contact_sheet(items):
             "tiles": len(items), "missing_previews": missing}
 
 
-def search(client, query, kind, downloaded, limit, offset, renderer, thumbnails=False):
+_MCP_STATES = {"READY_TO_IMPORT": "ready", "READY_TO_DOWNLOAD": "not_downloaded"}
+_CDN_PACKAGES = "https://content-cdn.chaosgroup.com/api/v1/package"
+_IMAGE_TYPES = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def _image_matches(service, image_path):
+    """Assets resembling an image, via Chaos's Cosmos MCP, in its ranking order."""
+    path = Path(image_path)
+    if not path.is_absolute() or path.suffix.lower() not in _IMAGE_TYPES:
+        raise ValueError("image_path must be an absolute path to a .png, .jpg, .jpeg or .webp file")
+    if not path.is_file():
+        raise ValueError("image_path does not exist: %s" % image_path)
+    found = service.mcp_tool("find_packages", {"importerId": service.importer_id, "imagePath": str(path)})
+    assets = []
+    for package in found.get("packages") or []:
+        if not package:
+            continue
+        preview = next(iter(package.get("previews") or []), None)
+        if preview and preview.startswith(_CDN_PACKAGES):
+            # The local service serves the same files and caches them.
+            preview = service.base_url + "/api/v1/package" + preview[len(_CDN_PACKAGES):]
+        status = package.get("availabilityStatus") or "unknown"
+        assets.append({"asset_id": package["id"], "name": package["name"],
+                       "kind": kind_of(t.get("id") for t in package.get("tags") or [] if t),
+                       "revision": package["revision"], "state": _MCP_STATES.get(status, status.lower()),
+                       "size_bytes": None, "thumbnail": preview})
+    return assets
+
+
+def _add_sizes(client, service, items, out):
+    """Attach Cosmos bounding boxes (cm) and their size in scene units; never fails the search."""
+    try:
+        per_cm = float(_max(client, '((units.decodeValue "1cm") as string)'))
+    except Exception:
+        per_cm = None
+    for item in items:
+        try:
+            box = service.mcp_tool("find_package_metadata", {"packageId": item["asset_id"]}).get("boundingBox")
+        except CosmosError as exc:
+            out["sizes_error"] = "%s: %s" % (exc.code, exc)
+            if exc.code == "COSMOS_MCP_UNAVAILABLE":
+                return
+            continue
+        if not box:
+            continue  # Materials and HDRIs define no bounding box.
+        low = [box["min"][a] for a in "xyz"]
+        high = [box["max"][a] for a in "xyz"]
+        item["bbox_cm"] = {"min": [round(v, 2) for v in low], "max": [round(v, 2) for v in high]}
+        item["size_cm"] = [round(h - l, 2) for l, h in zip(low, high)]
+        if per_cm:
+            item["size_scene"] = [round((h - l) * per_cm, 4) for l, h in zip(low, high)]
+
+
+def search(client, query, kind, downloaded, limit, offset, renderer, thumbnails=False,
+           image_path="", sizes=False):
     if kind not in _KIND_TAGS:
         raise ValueError("kind must be all, model, material or hdri")
     if len(query) > 500:
         raise ValueError("query must be at most 500 characters")
+    if query and image_path:
+        raise ValueError("Use query or image_path, not both")
+    if not 1 <= limit <= 100 or offset < 0:
+        raise ValueError("Use limit 1..100 and a nonnegative offset")
     service, importer = _context(client, renderer)
-    result = service.search(query, limit=limit, offset=offset,
-                            tag_ids=_KIND_TAGS[kind], downloaded=downloaded)
-    items = [_summary(service, a) for a in result["items"]]
+    if image_path:
+        matches = [a for a in _image_matches(service, image_path)
+                   if (kind == "all" or a["kind"] == kind) and (not downloaded or a["state"] == "ready")]
+        items = matches[offset:offset + limit]
+        next_offset = offset + len(items) if offset + len(items) < len(matches) else None
+    else:
+        result = service.search(query, limit=limit, offset=offset,
+                                tag_ids=_KIND_TAGS[kind], downloaded=downloaded)
+        items = [_summary(service, a) for a in result["items"]]
+        next_offset = offset + len(items) if len(items) == limit else None
     out = {"renderer": importer["renderer"], "max_pid": importer["pid"], "assets": items,
-           "offset": offset, "next_offset": offset + len(items) if len(items) == limit else None}
+           "offset": offset, "next_offset": next_offset}
+    if sizes and items:
+        _add_sizes(client, service, items, out)
     if thumbnails and items:
         for tile, item in enumerate(items, 1):
             item["tile"] = tile

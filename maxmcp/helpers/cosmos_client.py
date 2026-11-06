@@ -83,6 +83,14 @@ def _text(fields, number):
     return _one(fields, number).decode("utf-8")
 
 
+KIND_TAGS = ((1, "model"), (38, "material"), (427, "hdri"))
+
+
+def kind_of(tag_ids):
+    tag_ids = set(tag_ids)
+    return next((kind for tag, kind in KIND_TAGS if tag in tag_ids), "other")
+
+
 def _package(data):
     p = _decode(data)
     identity = _decode(_one(p, 3))
@@ -96,8 +104,7 @@ def _package(data):
         "size": _one(details, 10, 0),
         "paid": bool(_one(details, 15, 0)),
         "preview_path": _text(_decode(details.get(6, [b""])[0]), 1),
-        "kind": next((kind for tag, kind in ((1, "model"), (38, "material"), (427, "hdri"))
-                      if any(_one(t, 1, 0) == tag for t in tags)), "other"),
+        "kind": kind_of(_one(t, 1, 0) for t in tags),
         "tags": [{"id": _one(t, 1, 0),
                   "label": _text(_decode(_one(t, 3)), 1)} for t in tags],
     }
@@ -105,6 +112,21 @@ def _package(data):
 
 # Chaos's documented local Cosmos address; runtime.json may name another instance.
 DEFAULT_BASE_URL = "http://127.0.0.1:30305"
+# Cosmos Browser 2026.11.04+ serves Chaos's documented MCP endpoint at <base>/mcp.
+MCP_PROTOCOL = "2025-06-18"
+MCP_MISSING = ("This Cosmos Browser has no MCP endpoint; image search and asset sizes "
+               "need Cosmos Browser 2026.11.04 or newer.")
+
+
+def _mcp_message(raw, content_type, request_id):
+    if "text/event-stream" in content_type:
+        for line in raw.splitlines():
+            if line.startswith("data:"):
+                message = json.loads(line[5:].strip())
+                if message.get("id") == request_id:
+                    return message
+        raise CosmosError("Cosmos MCP stream ended without a response.", "COSMOS_MCP_ERROR", True)
+    return json.loads(raw)
 
 
 def runtime_base_url():
@@ -125,6 +147,65 @@ class Cosmos:
         self.base_url = (base_url or runtime_base_url()).rstrip("/")
         self.importer_id = importer_id
         self.timeout = timeout
+        self._mcp_session = None
+        self._mcp_ready = False
+        self._mcp_id = 1
+
+    def _mcp_post(self, body):
+        headers = {"Content-Type": "application/json", "MCP-Protocol-Version": MCP_PROTOCOL,
+                   "Accept": "application/json, text/event-stream"}
+        if self._mcp_session:
+            headers["Mcp-Session-Id"] = self._mcp_session
+        request = urllib.request.Request(self.base_url + "/mcp", data=json.dumps(body).encode(),
+                                         headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                self._mcp_session = response.headers.get("Mcp-Session-Id") or self._mcp_session
+                raw = response.read(16 * 1024 * 1024 + 1)
+                content_type = response.headers.get("Content-Type", "")
+        except urllib.error.HTTPError as exc:
+            if exc.code in (404, 405):
+                raise CosmosError(MCP_MISSING, "COSMOS_MCP_UNAVAILABLE") from exc
+            raise CosmosError("Cosmos MCP HTTP %s." % exc.code, "COSMOS_UNAVAILABLE",
+                              exc.code >= 500) from exc
+        except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+            raise CosmosError("Could not complete the Cosmos MCP request: %s" % exc,
+                              "COSMOS_UNAVAILABLE", True) from exc
+        if len(raw) > 16 * 1024 * 1024:
+            raise CosmosError("Cosmos MCP response exceeded the size limit.")
+        if raw and "json" not in content_type and "event-stream" not in content_type:
+            # Older builds answer unknown paths with the web UI instead of an MCP reply.
+            raise CosmosError(MCP_MISSING, "COSMOS_MCP_UNAVAILABLE")
+        return raw.decode("utf-8", "replace"), content_type
+
+    def mcp_tool(self, name, arguments):
+        """Call a tool on Chaos's Cosmos MCP server; returns its structured result."""
+        if not self._mcp_ready:
+            raw, content_type = self._mcp_post({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": MCP_PROTOCOL, "capabilities": {},
+                           "clientInfo": {"name": "3dsmax-mcp", "version": "1"}}})
+            if "error" in _mcp_message(raw, content_type, 1):
+                raise CosmosError("Cosmos MCP refused the session.", "COSMOS_MCP_ERROR")
+            self._mcp_post({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            self._mcp_ready = True
+        self._mcp_id += 1
+        raw, content_type = self._mcp_post({"jsonrpc": "2.0", "id": self._mcp_id, "method": "tools/call",
+                                            "params": {"name": name, "arguments": arguments}})
+        message = _mcp_message(raw, content_type, self._mcp_id)
+        if "error" in message:
+            raise CosmosError("Cosmos %s failed: %s" % (name, message["error"].get("message", "unknown error")),
+                              "COSMOS_MCP_ERROR")
+        result = message.get("result") or {}
+        text = " ".join(c.get("text", "") for c in result.get("content", []) if c.get("type") == "text")
+        if result.get("isError"):
+            raise CosmosError("Cosmos %s failed: %s" % (name, text or "unknown error"), "COSMOS_MCP_ERROR")
+        if isinstance(result.get("structuredContent"), dict):
+            return result["structuredContent"]
+        try:
+            return json.loads(text)
+        except ValueError:
+            return {"text": text}
 
     def _rpc(self, service, method, message=b""):
         headers = {"Content-Type": "application/grpc-web-text", "X-Grpc-Web": "1"}
