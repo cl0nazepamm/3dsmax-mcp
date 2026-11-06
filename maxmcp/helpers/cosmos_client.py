@@ -103,20 +103,26 @@ def _package(data):
     }
 
 
+# Chaos's documented local Cosmos address; runtime.json may name another instance.
+DEFAULT_BASE_URL = "http://127.0.0.1:30305"
+
+
+def runtime_base_url():
+    runtime = Path(os.environ["LOCALAPPDATA"]) / "Chaos/Cosmos/runtime.json"
+    try:
+        server = json.loads(runtime.read_text())["servers"]["http"]
+    except (OSError, ValueError, KeyError) as exc:
+        raise CosmosError("Cosmos is not running. Open Chaos Cosmos in 3ds Max.",
+                          "COSMOS_UNAVAILABLE", True) from exc
+    if server["host"] not in ("127.0.0.1", "localhost", "::1"):
+        raise CosmosError("Cosmos runtime must point to a local service.",
+                          "COSMOS_UNAVAILABLE")
+    return "http://%s:%s" % (server["host"], server["port"])
+
+
 class Cosmos:
     def __init__(self, base_url=None, importer_id=None, timeout=30):
-        if base_url is None:
-            runtime = Path(os.environ["LOCALAPPDATA"]) / "Chaos/Cosmos/runtime.json"
-            try:
-                server = json.loads(runtime.read_text())["servers"]["http"]
-            except (OSError, ValueError, KeyError) as exc:
-                raise CosmosError("Cosmos is not running. Open Chaos Cosmos in 3ds Max.",
-                                  "COSMOS_UNAVAILABLE", True) from exc
-            if server["host"] not in ("127.0.0.1", "localhost", "::1"):
-                raise CosmosError("Cosmos runtime must point to a local service.",
-                                  "COSMOS_UNAVAILABLE")
-            base_url = "http://%s:%s" % (server["host"], server["port"])
-        self.base_url = base_url.rstrip("/")
+        self.base_url = (base_url or runtime_base_url()).rstrip("/")
         self.importer_id = importer_id
         self.timeout = timeout
 

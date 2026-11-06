@@ -1,15 +1,22 @@
 """Cosmos orchestration; network I/O remains in the external MCP process."""
 from __future__ import annotations
 
+import io
 import json
+import math
 import re
+import tempfile
 import threading
 import time
+import urllib.request
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from ..max_client import MaxClient
 
-from .cosmos_client import Cosmos, CosmosError, asset_id as normalize_id
+from .cosmos_client import (DEFAULT_BASE_URL, Cosmos, CosmosError,
+                            asset_id as normalize_id, runtime_base_url)
 
 _KIND_TAGS = {"all": (), "model": (1,), "material": (38,), "hdri": (427,)}
 _STATES = {1: "unavailable", 2: "not_downloaded", 3: "ready",
@@ -42,16 +49,37 @@ def _context(client, renderer):
     if not wanted:
         raise CosmosError("Current renderer has no Cosmos integration; choose corona or vray.",
                           "COSMOS_NO_IMPORTER")
-    service = Cosmos(timeout=15)
-    matches = [i for i in service.importers()
-               if i["pid"] == target["target_pid"]
-               and re.sub(r"[^a-z0-9]", "", i["renderer"].lower()) == wanted]
-    if len(matches) != 1:
-        raise CosmosError("Expected one %s Cosmos importer for Max PID %s; open Cosmos in that renderer."
-                          % (wanted, target["target_pid"]), "COSMOS_NO_IMPORTER")
-    importer = matches[0]
-    service.importer_id = importer["id"]
-    return service, importer
+    # A renderer can start a second Cosmos while another one holds the default
+    # port. runtime.json then names the new instance, but hosts may stay
+    # registered with the old one, so try the default port as well.
+    urls, errors, answered = [], [], False
+    try:
+        urls.append(runtime_base_url())
+    except CosmosError as exc:
+        errors.append(exc)
+    if DEFAULT_BASE_URL not in urls:
+        urls.append(DEFAULT_BASE_URL)
+    for url in urls:
+        service = Cosmos(base_url=url, timeout=15)
+        try:
+            importers = service.importers()
+        except CosmosError as exc:
+            errors.append(exc)
+            continue
+        answered = True
+        matches = [i for i in importers
+                   if i["pid"] == target["target_pid"]
+                   and re.sub(r"[^a-z0-9]", "", i["renderer"].lower()) == wanted]
+        if len(matches) > 1:
+            raise CosmosError("Cosmos at %s lists %d %s importers for Max PID %s; restart Cosmos."
+                              % (url, len(matches), wanted, target["target_pid"]), "COSMOS_NO_IMPORTER")
+        if matches:
+            service.importer_id = matches[0]["id"]
+            return service, matches[0]
+    if not answered:
+        raise errors[0]
+    raise CosmosError("Expected one %s Cosmos importer for Max PID %s; open Cosmos in that renderer."
+                      % (wanted, target["target_pid"]), "COSMOS_NO_IMPORTER")
 
 
 def _summary(service, asset):
@@ -62,7 +90,102 @@ def _summary(service, asset):
                           if asset.get("preview_path") else None)}
 
 
-def search(client, query, kind, downloaded, limit, offset, renderer):
+# Cosmos only publishes 1000 px previews (no thumbnail size exists on the service, the
+# CDN or disk), so contact sheets downscale them here, off Max's main thread.
+_SHEET_DIR = Path(tempfile.gettempdir()) / "3dsmax-mcp" / "cosmos"
+_TILE = 192
+_LABEL = 34
+_SHEET_COLUMNS = 5
+_PREVIEW_LIMIT = 16 * 1024 * 1024
+_tiles: OrderedDict = OrderedDict()
+_tiles_lock = threading.Lock()
+
+
+def _preview_tile(url):
+    from PIL import Image
+
+    with _tiles_lock:
+        if url in _tiles:
+            _tiles.move_to_end(url)
+            return _tiles[url]
+    with urllib.request.urlopen(url, timeout=10) as response:
+        data = response.read(_PREVIEW_LIMIT + 1)
+    if len(data) > _PREVIEW_LIMIT:
+        raise ValueError("preview exceeds the size limit")
+    with Image.open(io.BytesIO(data)) as image:
+        image.thumbnail((_TILE, _TILE), Image.Resampling.LANCZOS)
+        tile = Image.new("RGB", image.size, (43, 43, 43))
+        rgba = image.convert("RGBA")
+        tile.paste(rgba, mask=rgba.getchannel("A"))
+    with _tiles_lock:
+        _tiles[url] = tile
+        while len(_tiles) > 256:
+            _tiles.popitem(last=False)
+    return tile
+
+
+def _font(size):
+    from PIL import ImageFont
+
+    for name in ("segoeui.ttf", "arial.ttf"):
+        try:
+            return ImageFont.truetype(name, size)
+        except OSError:
+            pass
+    return ImageFont.load_default(size)
+
+
+def _fit(draw, text, font, width):
+    if draw.textlength(text, font=font) <= width:
+        return text
+    while text and draw.textlength(text + "...", font=font) > width:
+        text = text[:-1]
+    return text + "..."
+
+
+def _contact_sheet(items):
+    """Compose one labeled JPEG; tile N is items[N-1]. Missing previews get a placeholder."""
+    from PIL import Image, ImageDraw
+
+    with ThreadPoolExecutor(max_workers=min(8, len(items))) as pool:
+        futures = [pool.submit(_preview_tile, item["thumbnail"]) if item.get("thumbnail") else None
+                   for item in items]
+    tiles, missing = [], []
+    for item, future in zip(items, futures):
+        try:
+            tiles.append(future.result() if future else None)
+        except Exception:
+            tiles.append(None)
+        if tiles[-1] is None:
+            missing.append(item["asset_id"])
+    columns = min(_SHEET_COLUMNS, len(items))
+    rows = math.ceil(len(items) / columns)
+    cell_h = _TILE + _LABEL
+    sheet = Image.new("RGB", (columns * _TILE, rows * cell_h), (30, 30, 30))
+    draw = ImageDraw.Draw(sheet)
+    number_font, name_font = _font(15), _font(12)
+    for index, (item, tile) in enumerate(zip(items, tiles)):
+        x, y = (index % columns) * _TILE, (index // columns) * cell_h
+        if tile is None:
+            draw.rectangle((x + 4, y + 4, x + _TILE - 5, y + _TILE - 5), outline=(90, 90, 90))
+            draw.text((x + _TILE // 2, y + _TILE // 2), "no preview", fill=(140, 140, 140),
+                      font=name_font, anchor="mm")
+        else:
+            sheet.paste(tile, (x + (_TILE - tile.width) // 2, y + (_TILE - tile.height) // 2))
+        number = str(index + 1)
+        draw.text((x + 6, y + _TILE + 3), number, fill=(255, 255, 255), font=number_font)
+        left = x + 12 + int(draw.textlength(number, font=number_font))
+        draw.text((left, y + _TILE + 6), _fit(draw, item["name"], name_font, x + _TILE - 6 - left),
+                  fill=(200, 200, 200), font=name_font)
+    _SHEET_DIR.mkdir(parents=True, exist_ok=True)
+    path = _SHEET_DIR / ("cosmos_search_%d.jpg" % time.time_ns())
+    sheet.save(path, "JPEG", quality=85)
+    return {"type": "image_file", "file": str(path), "mime_type": "image/jpeg",
+            "width": sheet.width, "height": sheet.height, "size_bytes": path.stat().st_size,
+            "tiles": len(items), "missing_previews": missing}
+
+
+def search(client, query, kind, downloaded, limit, offset, renderer, thumbnails=False):
     if kind not in _KIND_TAGS:
         raise ValueError("kind must be all, model, material or hdri")
     if len(query) > 500:
@@ -71,8 +194,17 @@ def search(client, query, kind, downloaded, limit, offset, renderer):
     result = service.search(query, limit=limit, offset=offset,
                             tag_ids=_KIND_TAGS[kind], downloaded=downloaded)
     items = [_summary(service, a) for a in result["items"]]
-    return {"renderer": importer["renderer"], "max_pid": importer["pid"], "assets": items,
-            "offset": offset, "next_offset": offset + len(items) if len(items) == limit else None}
+    out = {"renderer": importer["renderer"], "max_pid": importer["pid"], "assets": items,
+           "offset": offset, "next_offset": offset + len(items) if len(items) == limit else None}
+    if thumbnails and items:
+        for tile, item in enumerate(items, 1):
+            item["tile"] = tile
+        try:
+            out["contact_sheet"] = _contact_sheet(items)
+        except Exception as exc:
+            # The search result stands on its own; report the sheet failure next to it.
+            out["contact_sheet_error"] = "%s: %s" % (type(exc).__name__, exc)
+    return out
 
 
 def _download(service, package_id, wait_seconds):

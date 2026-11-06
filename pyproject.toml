@@ -41,6 +41,8 @@ dependencies = [
     # mcp 2.0 removed mcp.server.fastmcp (now mcp.server.mcpserver). Keep the
     # upper bound until server.py is ported, or fresh resolves break on import.
     "mcp[cli]>=1.0.0,<2.0.0",
+    # Cosmos search contact sheets (thumbnail decode/resize/compose).
+    "pillow>=10.0",
 ]
 
 [project.urls]
