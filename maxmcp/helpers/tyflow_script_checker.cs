@@ -19,6 +19,22 @@ public static class McpTyScriptChecker
 {
     const string ClassPrefix = "TF_OP_script_";
 
+    // 3ds Max 2023-2025 (.NET Framework) load this checker prebuilt with its own Roslyn
+    // (tyflow_checker/lib). Its System.* dependencies differ in version from what Roslyn
+    // asks for and 3dsmax.exe has no binding redirects for them, so a request for any
+    // bundled assembly resolves to the copy next to the checker. Compiled in memory by
+    // Max 2026+ the checker has no location and adds nothing.
+    static McpTyScriptChecker()
+    {
+        var dir = Path.GetDirectoryName(typeof(McpTyScriptChecker).Assembly.Location);
+        if (string.IsNullOrEmpty(dir)) return;
+        AppDomain.CurrentDomain.AssemblyResolve += (sender, e) =>
+        {
+            var path = Path.Combine(dir, new AssemblyName(e.Name).Name + ".dll");
+            return File.Exists(path) ? Assembly.LoadFrom(path) : null;
+        };
+    }
+
     // Hiding an inherited member is expected: the code redefines the script methods.
     static readonly HashSet<string> Ignored = new HashSet<string> { "CS0108", "CS0114", "CS0109" };
 
@@ -67,6 +83,18 @@ public static class McpTyScriptChecker
     // two-line unsafe helper is compiled here once with Roslyn.
     static MetadataReference InMemoryReference(Assembly asm, List<MetadataReference> framework)
     {
+        // .NET Framework (3ds Max 2023-2025) keeps the image of an assembly loaded from
+        // bytes behind RuntimeAssembly.GetRawBytes; TryGetRawMetadata works only on .NET Core.
+        var getRaw = asm.GetType().GetMethod("GetRawBytes", BindingFlags.NonPublic | BindingFlags.Instance);
+        if (getRaw != null)
+        {
+            try
+            {
+                var image = getRaw.Invoke(asm, null) as byte[];
+                if (image != null && image.Length > 0) return MetadataReference.CreateFromImage(image);
+            }
+            catch { }
+        }
         if (rawMetadata == null)
         {
             const string helper =
@@ -101,7 +129,14 @@ public static class McpTyScriptChecker
         if (!string.IsNullOrEmpty(tpa))
             foreach (var path in tpa.Split(Path.PathSeparator)) add(path);
         else
-            foreach (var path in Directory.GetFiles(Path.GetDirectoryName(typeof(object).Assembly.Location), "*.dll")) add(path);
+        {
+            // .NET Framework (3ds Max 2023-2025): the framework folder also holds native
+            // DLLs, so reference the core assemblies by name.
+            var framework = Path.GetDirectoryName(typeof(object).Assembly.Location);
+            foreach (var name in new[] { "mscorlib", "System", "System.Core", "System.Numerics", "System.Runtime",
+                                         "System.Xml", "System.Xml.Linq", "System.Data", "Microsoft.CSharp", "netstandard" })
+                add(Path.Combine(framework, name + ".dll"));
+        }
         // What tyFlow's own compile references beyond the framework.
         foreach (var name in script.GetReferencedAssemblies())
         {

@@ -38,6 +38,11 @@ _CHECKER_SOURCE = Path(__file__).resolve().parent.parent.joinpath(
     "helpers", "tyflow_script_checker.cs"
 ).read_text(encoding="utf-8")
 _CHECKER_GLOBAL = "mcpTyScriptChecker_" + hashlib.sha1(_CHECKER_SOURCE.encode("utf-8")).hexdigest()[:10]
+# The same checker prebuilt with its own Roslyn (netstandard2.0), for 3ds Max versions
+# without CSharpUtilities.CSharpCompilationHelper; rebuild from tyflow_checker/*.csproj.
+_PREBUILT_CHECKER = Path(__file__).resolve().parent.parent.joinpath(
+    "helpers", "tyflow_checker", "lib", "McpTyScriptChecker.dll"
+)
 _BOOTSTRAP_FLOW = "zzz_mcp_script_bootstrap"
 _NO_SCRIPT_LOADED = "No compiled tyFlow script is loaded"
 _MAX_OUTPUT_LINES = 200
@@ -57,7 +62,13 @@ def _checker_prelude() -> str:
 global {_CHECKER_GLOBAL}
 if {_CHECKER_GLOBAL} == undefined do (
     local root = (getDir #maxroot) + "bin\\\\assemblies\\\\"
-    local asm = (dotNetClass "CSharpUtilities.CSharpCompilationHelper").Compile "{safe_string(_CHECKER_SOURCE)}" #(root + "Microsoft.CodeAnalysis.dll", root + "Microsoft.CodeAnalysis.CSharp.dll")
+    local helper = try (dotNetClass "CSharpUtilities.CSharpCompilationHelper") catch undefined
+    local asm = if helper != undefined and doesFileExist (root + "Microsoft.CodeAnalysis.CSharp.dll") then (
+        helper.Compile "{safe_string(_CHECKER_SOURCE)}" #(root + "Microsoft.CodeAnalysis.dll", root + "Microsoft.CodeAnalysis.CSharp.dll")
+    ) else (
+        -- Max 2023-2025 ship neither the helper nor Roslyn: load the prebuilt checker.
+        (dotNetClass "System.Reflection.Assembly").LoadFrom "{safe_string(str(_PREBUILT_CHECKER))}"
+    )
     {_CHECKER_GLOBAL} = asm.GetType "McpTyScriptChecker"
 )
 fn mcpTyChecker methodName args = (({_CHECKER_GLOBAL}.GetMethod methodName).Invoke undefined args)
