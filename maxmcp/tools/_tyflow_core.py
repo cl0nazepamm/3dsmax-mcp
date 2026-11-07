@@ -304,11 +304,11 @@ def update_ledger_mxs(flow_var: str, ledger: dict[str, Any]) -> str:
 def _hash_view(graph: dict[str, Any]) -> dict[str, Any]:
     events = []
     for event in graph.get("events", []):
+        # Editor position and width stay out: tyFlow nudges events by itself
+        # (live-observed), and layout is not structure.
         events.append(
             {
                 "name": event.get("name"),
-                "position": event.get("position"),
-                "width": event.get("width"),
                 "enabled": event.get("enabled"),
                 "operators": [
                     {

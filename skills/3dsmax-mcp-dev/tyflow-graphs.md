@@ -11,7 +11,7 @@ Read this reference completely before building, inspecting, editing, or verifyin
 ## The agentic loop
 
 - Read with `get_tyflow_graph` — events (name/position/width/enabled), operators with `type` and `enabled`, optional properties, `edges`, `operator_types`, `graph_hash` and `wiring_source`.
-- `graph_hash` covers wiring as well as structure. A hash conflict in `tyflow_apply_patch` means the flow changed since the read (often a user edit in the editor): re-read before retrying.
+- `graph_hash` covers wiring as well as structure, but not event positions, which tyFlow adjusts by itself. A hash conflict in `tyflow_apply_patch` means the flow changed since the read (often a user edit in the editor): re-read before retrying.
 - Edit transactionally with `tyflow_apply_patch`, passing `expected_hash` from the last `get_tyflow_graph`.
 - Patch ops: `add_event`, `remove_event`, `add_operator`, `remove_operator`, `set_properties`, `connect`, `disconnect`, `rename_event`, `rename_operator`, `set_event_position`, `set_enabled`. Always pass explicit operator `name`s in `add_operator`: edges and `operator_types` key operators as `"Event/OpName"`.
 - Verify empirically: `verify_frames` + `min_particles`/`max_particles` resets the sim and asserts counts; there is no compile step, so structural success does not imply behavioral success.
@@ -35,6 +35,15 @@ Read this reference completely before building, inspecting, editing, or verifyin
 - Never put `%` in `Print`/`PrintAll` text, including `ToString("P")` and `{x:P}`: tyFlow formats it printf-style and 3ds Max crashes. Write `pct` or print a ratio.
 - `set` on an operator that already compiled replaces it in place (same name, position, settings and wiring) so the new code compiles; read the graph again before the next patch.
 - Script objects are `obj001`… and texmaps `tex001`… in listbox order, and `GetFloat(name)` reads an enabled float slot; `action="get"` lists them.
+
+## VDB events
+
+- VDB operators go in their own event, started by `Birth VDB`; it needs no wire from particle events (particle-to-VDB wires are refused). `Particles to VDB` with `includeThis=true` reads this flow's particles from any event.
+- Most VDB operators (`Particles to VDB`, `VDB Clear`, `VDB Filter`, ...) default to `timingInterval=0`, which runs them once, at the VDB's birth. Set `timingInterval=1` (continuous) on every operator that must update each step, or the grid stays empty or frozen.
+- `Particles to VDB` `gridType` 0 is the SDF grid (`sdfGridName`); `VDB Mesh` `inputMode` 0 meshes it at `sdfISO`. `radiusMode` 0 is an absolute `radius`; particles need no shape for it.
+- Its simulation/export group boxes all unchecked mean every particle; checked boxes restrict to particles in those groups. A Script operator can route particles with `tf.SetSimulationGroups(s, 1 << (group - 1))`.
+- Continuous rasterizing accumulates (that is how trails form); put a continuous `VDB Clear` first for a grid rebuilt each step.
+- Start with a voxel size near the particle spacing and refine. Check output with a capture or `snapshotAsMesh` face count at a frame.
 
 ## Per-event census
 
