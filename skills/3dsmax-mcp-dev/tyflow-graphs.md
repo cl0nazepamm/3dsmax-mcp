@@ -35,6 +35,9 @@ Read this reference completely before building, inspecting, editing, or verifyin
 - Never put `%` in `Print`/`PrintAll` text, including `ToString("P")` and `{x:P}`: tyFlow formats it printf-style and 3ds Max crashes. Write `pct` or print a ratio.
 - `set` on an operator that already compiled replaces it in place (same name, position, settings and wiring) so the new code compiles; read the graph again before the next patch.
 - Script objects are `obj001`… and texmaps `tex001`… in listbox order, and `GetFloat(name)` reads an enabled float slot; `action="get"` lists them.
+- Call `objects[i].PrepAPI()` before `NumVerts`/`GetVert`/`GetFace`; without it they report 0 vertices. `GetFace` returns 0-based `v1/v2/v3` that match `GetVert`.
+- Scripts cannot build meshes (`tfMesh` is read-only). For a surface, rasterize particles with Particles to VDB, or deform a twin mesh with a `tyParticleSkin` modifier: `particleNode` = the flow, `maxCount` 1 and a small `distance` bind each vertex to its own particle, which must sit on the vertex at `refFrame`.
+- Keep scripts small: a ~90 KB script with a large embedded data literal reported `compiled` false with no diagnostics, while 8 KB compiled. Compute data in `simulationStart` instead.
 
 ## VDB events
 
@@ -44,6 +47,18 @@ Read this reference completely before building, inspecting, editing, or verifyin
 - Its simulation/export group boxes all unchecked mean every particle; checked boxes restrict to particles in those groups. A Script operator can route particles with `tf.SetSimulationGroups(s, 1 << (group - 1))`.
 - Continuous rasterizing accumulates (that is how trails form); put a continuous `VDB Clear` first for a grid rebuilt each step.
 - Start with a voxel size near the particle spacing and refine. Check output with a capture or `snapshotAsMesh` face count at a frame.
+- `Particles to VDB` `radiusMode` 1 uses each particle's scale as its diameter; 0 uses the absolute `radius`.
+- Simulation groups split one event: a script sets `tf.SetSimulationGroups(s, bits)`; a Display with a group checked shows only that group (viewport only, renders include all), and Particles to VDB with a group checked rasterizes only that group.
+- VDB rebuilds are expensive (a 350-unit tree at voxel 1.0 cost ~2 s per frame). Once the source stops changing, end `timingIntervalEnd` on VDB Clear, Particles to VDB and VDB Filter; the mesh holds.
+
+## Splines and cloth
+
+- Spline Paths sends to a `tySplines` object through `splinePathsNode`, an internal NodeMonitor: assigning a node is refused, and constructing a NodeMonitor in MAXScript crashed Max. Reuse an already linked flow and tySplines pair (for example from a merged example scene); the tySplines object lists its flows in `flowNodes`, `flows` and `flowInfo`.
+- Spline Paths modes, per the docs: Trajectories, Siblings, Connect to parent, Parent, Target, Neighbors, Particle bindings, PhysX bindings. Only mode 0 (Trajectories) is verified; index 4 with a `target` float channel produced no splines (unresolved).
+- Trajectories on tens of thousands of particles under a tySplineMesher produced 1.4M vertices and stalled Max. Test spline modes on a handful of particles.
+- Cloth recipe (tyFlow example): Birth Objects (hidden source mesh) → Cloth Bind → Force (small gravity, e.g. -0.25) → Collision (`colliderList`, Bounce 0, high friction). Cloth Bind generates the cloth mesh.
+- Against collision poke-through, raise Collision `radius` and `offset` and use a finer flow `timeStep` (2 measured at twice the cost of 1, same motion).
+- Cloth Bind `enableCollisions` makes the cloth ignore Collision operators, and switching it back off on a cached sim crashed Max (seen once). Reset the sim at frame 0 before editing Cloth Bind.
 
 ## Per-event census
 
@@ -70,6 +85,10 @@ Read this reference completely before building, inspecting, editing, or verifyin
 - Event/operator lookups are name-based: duplicate operator names within an event make edges and patch targets ambiguous — keep names unique.
 - Probe gently: never loop create→simulate→delete of tyFlow objects inside a single MAXScript program — tyFlow's Qt cleanup can deadlock Max (live-confirmed). Reuse one scratch flow, mutate in place, pump messages (`windows.processPostedMessages()`) between sim iterations, delete once at the end.
 - `add_operator` position is 0-based; `-1` appends.
+- tyFlow simulates only inside the scene animation range; later frames hold the last state.
+- In MAXScript, reach operators as `flow.baseobject[#EventName][#Operator_Name]`; tyFlow nodes have no `.events` property.
+- `modify_tyflow_operator(raw_values=true)` takes MAXScript expressions, e.g. `{"objectList": "#($Name)"}` for node lists.
+- `inspect_max_file` lists a .max file's objects without opening it; operator settings need the flow loaded (merge it, read it, delete the merged objects).
 - Census and patch verification call `reset_simulation` — cached sim state is discarded. Never fire renders from these tools.
 - Probe/scratch objects are named `zzz_mcp_*` and are cleaned up by the tools; if a crash leaves one behind, delete it manually.
 - `manage_scene(hold)` before risky sessions still protects everything.
