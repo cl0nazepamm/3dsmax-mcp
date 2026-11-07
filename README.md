@@ -11,11 +11,11 @@ Connect AI agents to Autodesk 3ds Max through the [Model Context Protocol](https
 
 Automate everything!
 
-**Current release: 1.7.7** — see [CHANGELOG.md](docs/CHANGELOG.md).
+**Current release: 1.7.8** — see [CHANGELOG.md](docs/CHANGELOG.md).
 
 ## Features
 
-- **161 MCP tools** — For scene reads, modeling, materials, modifiers, controllers, viewport capture, procedural graphs, and plugin workflows.
+- **162 MCP tools** — For scene reads, modeling, materials, modifiers, controllers, viewport capture, procedural graphs, and plugin workflows.
 - **Native Bridge** — only 2023-2027 versions.
 - **Introspection** — discover arbitrary Max classes for all kinds of automation and scripting purposes. 
 - **Bundled agent skill** — There is a bundled maxscript documentation if you want to create your own tools.
@@ -29,7 +29,7 @@ Automate everything!
 ## Quick start
 
 1. Close 3ds Max and fully exit your AI clients.
-2. Run `3dsmax-mcp-1.7.7-Setup.exe` and select your clients.
+2. Run `3dsmax-mcp-1.7.8-Setup.exe` and select your clients.
 3. Open 3ds Max and restart your AI client.
 
 The installer includes Python, dependencies, native bridges and agent skills.

@@ -4,7 +4,19 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [1.7.8] — 2026-11-07
+
+- Added `tyflow_script` for tyFlow Script operators (C#). tyFlow compiles a Script operator once and ignores later code changes, and reports neither compile errors nor runtime exceptions, so this tool gives the full loop: `api` returns the installed tyFlow's script API; `check` compiles the code against that API with line and column diagnostics and enforces the required callbacks; `set` refuses code with errors and replaces an already compiled operator in place (name, position, settings and wiring kept) so the new code compiles; `run` resets and simulates, then reports whether tyFlow compiled the operator, its `Print()` output and any exceptions the callbacks threw. `set` needs safe mode off and `allow_executable=true`. `tyflow_apply_patch` refuses script changes through `set_properties`, which tyFlow ignored on compiled operators.
+- `tyflow_script` refuses a `%` in `Print`/`PrintAll` text (`TYFLOW002`): tyFlow formats it printf-style and 3ds Max crashes.
+- `get_tyflow_graph` reads the wiring and each operator's type from the flow itself (`wiring_source: "scene"`), so wires drawn in the tyFlow editor and renamed operators are reported as they are; the MCP ledger remains only for older bridges. `graph_hash` covers the wiring but not event positions, which tyFlow moves by itself, so patches are no longer refused for a change nobody made.
+- tyFlow tools reach every operator: Shape, Birth Burst, Actor and Spline Paths can now be renamed, enabled and removed. An operator of the wrong family for its event (particle, terrain, VDB, Inferno) is refused instead of reported as added, and the manifest records each type's family.
+- `cosmos_search(image_path=...)` finds Cosmos assets that resemble a local image, best match first, through Chaos's Cosmos MCP endpoint (Cosmos Browser 2026.11.04 or later); `sizes=true` adds each model's bounding box in centimeters and scene units. Without the endpoint, image search reports `COSMOS_MCP_UNAVAILABLE` and the rest of the search is unaffected.
+- `cosmos_search(thumbnails=true)` returns one labeled contact sheet of the page's previews instead of full-size images. Adds Pillow to the dependencies.
+- Cosmos tools find the importer when a second Cosmos instance holds the default port, and report duplicate importers instead of guessing.
+- `cosmos_import` detects the nodes a V-Ray model import created (Chaos importers do not tag them), instead of waiting 30 s and returning `imported_unverified`, and reports plain node handles that other tools accept.
 - The call right after a dialog is answered no longer fails with "Named pipe ... not found". The bridge has no pipe instance for a moment while the calls queued behind the dialog finish, so the client retries the connect for up to 0.25 s before it calls the bridge gone.
+- The agent skill's tyFlow reference covers VDB events, the Script operator (reading meshes, surfaces through VDB or `tyParticleSkin`), Spline Paths and tySplines, cloth setup, and the settings that crashed or stalled 3ds Max.
+- Rebuilt bridges for Max 2023-2027.
 
 ## [1.7.7] — 2026-10-31
 
