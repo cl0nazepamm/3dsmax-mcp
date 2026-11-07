@@ -281,6 +281,75 @@ def _authorize(allow_executable: bool) -> None:
         raise ScriptToolError(denied)
 
 
+_PRINT_CALL = re.compile(r"\b(Print|PrintAll)\s*\(")
+_PERCENT_FORMAT = re.compile(r"^[Pp]\d*$|\{[^}]*:[Pp]\d*\}")
+
+
+def _call_literals(code: str, open_paren: int) -> list[str]:
+    """String literals inside the call whose '(' is at open_paren."""
+    literals: list[str] = []
+    depth, i = 0, open_paren
+    while i < len(code):
+        ch = code[i]
+        if ch in "\"'":
+            verbatim = i > 0 and code[i - 1] == "@"
+            j, text = i + 1, []
+            while j < len(code):
+                if code[j] == "\\" and not verbatim and ch == '"':
+                    text.append(code[j:j + 2])
+                    j += 2
+                    continue
+                if code[j] == ch:
+                    if verbatim and code[j + 1:j + 2] == ch:
+                        text.append(ch)
+                        j += 2
+                        continue
+                    break
+                text.append(code[j])
+                j += 1
+            if ch == '"':
+                literals.append("".join(text))
+            i = j + 1
+            continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        i += 1
+    return literals
+
+
+def _print_hazards(code: str) -> list[dict[str, Any]]:
+    """tyFlow hands Print/PrintAll text to a printf-style formatter: a '%' in it
+    makes the C runtime abort 3ds Max (live: two crashes). Literal text is checked;
+    text built at run time cannot be."""
+    hazards = []
+    for match in _PRINT_CALL.finditer(code):
+        if any("%" in text or _PERCENT_FORMAT.search(text) for text in _call_literals(code, match.end() - 1)):
+            line = code.count("\n", 0, match.start()) + 1
+            column = match.start() - (code.rfind("\n", 0, match.start()) + 1) + 1
+            hazards.append({
+                "severity": "error", "id": "TYFLOW002", "line": line, "column": column,
+                "message": f"{match.group(1)} text must not contain '%' (or a P percent format): tyFlow passes it "
+                           "to a printf-style formatter and 3ds Max crashes. Write 'pct' or a ratio instead.",
+            })
+    return hazards
+
+
+def _with_hazards(check: Any, code: str) -> Any:
+    """Add the Print hazards to a checker result."""
+    hazards = _print_hazards(code)
+    if not hazards or not isinstance(check, dict) or "error" in check:
+        return check
+    check = dict(check)
+    check["diagnostics"] = hazards + list(check.get("diagnostics") or [])
+    check["errors"] = int(check.get("errors") or 0) + len(hazards)
+    check["ok"] = False
+    return check
+
+
 def _diagnostics_failed(check: dict[str, Any]) -> bool:
     return not check.get("ok") or bool(check.get("error"))
 
@@ -313,8 +382,9 @@ def tyflow_script(
               by the callbacks (tyFlow itself reports none) and the particle count.
     A script must declare simulationStart(), simulationStep() and
     simulationStepThreaded(int startInx, int endInx, int threadInx);
-    postSimulationStep() is optional. Edit until check is clean and run shows
-    compiled=true with no exceptions.
+    postSimulationStep() is optional. Never put '%' in Print/PrintAll text:
+    tyFlow formats it printf-style and 3ds Max crashes (check refuses literals).
+    Edit until check is clean and run shows compiled=true with no exceptions.
     """
     action_key = action.strip().lower()
     try:
@@ -339,12 +409,20 @@ def tyflow_script(
         if action_key == "check":
             info = _read_operator(name, event, operator)
             source = code or info["script"]
-            return json.dumps(_checker_with_api("Check", source, _members(info), info.get("assemblies") or ""))
+            check = _checker_with_api("Check", source, _members(info), info.get("assemblies") or "")
+            return json.dumps(_with_hazards(check, source))
 
         if action_key == "set":
             if not code.strip():
                 raise ScriptToolError("code is required for set")
             _authorize(allow_executable)
+            hazards = _print_hazards(code)
+            if hazards:
+                # Refused before anything reaches Max: running it would crash Max.
+                raise ScriptToolError(
+                    "The code would crash 3ds Max; the operator was not changed. Fix the diagnostics and retry.",
+                    check={"ok": False, "errors": len(hazards), "warnings": 0, "diagnostics": hazards},
+                )
             info = _read_operator(name, event, operator)
             check = _checker_with_api("Check", code, _members(info), info.get("assemblies") or "")
             if _diagnostics_failed(check):

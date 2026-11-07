@@ -32,6 +32,7 @@ Read this reference completely before building, inspecting, editing, or verifyin
 - Declare `simulationStart()`, `simulationStep()` and `simulationStepThreaded(int startInx, int endInx, int threadInx)`, even when empty; tyFlow refuses scripts without them. `postSimulationStep()` is optional.
 - Loop particles with `for (int i = 0; i < eventParticleCount; i++) { int s = tf.GetSimIndex(i); ... }`; every `tf.Get*`/`tf.Set*` call takes the simulation index `s`.
 - `Print()` lines come back in `output` (tyFlow keeps at most 100 per step); use them to verify values. A callback that throws is reported in `exceptions` and tyFlow stops calling it.
+- Never put `%` in `Print`/`PrintAll` text, including `ToString("P")` and `{x:P}`: tyFlow formats it printf-style and 3ds Max crashes. Write `pct` or print a ratio.
 - `set` on an operator that already compiled replaces it in place (same name, position, settings and wiring) so the new code compiles; read the graph again before the next patch.
 - Script objects are `obj001`… and texmaps `tex001`… in listbox order, and `GetFloat(name)` reads an enabled float slot; `action="get"` lists them.
 
