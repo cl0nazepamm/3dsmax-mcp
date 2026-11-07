@@ -19,6 +19,7 @@
 #include "mcp_bridge/handler_helpers.h"
 #include "mcp_bridge/core_bridge.h"
 
+#include <maxversion.h>
 #include <ioapi.h>
 #include <ifnpub.h>
 #include <plugin.h>
@@ -89,8 +90,11 @@ public:
         return IO_OK;
     }
     FileIOType DoingWhat() override { return IOTYPE_MAX; }
+#if MAX_VERSION_MAJOR >= 28
+    // ISave gained these pure virtuals in the 3ds Max 2026 SDK.
     void DisableChunkWarnings(bool disable) override { warnings_ = !disable; }
     bool AreChunkWarningsEnabled() const override { return warnings_; }
+#endif
 
     const std::string& Bytes() const { return bytes_; }
     bool Complete() const { return balanced_ && !overflow_ && open_.empty(); }
