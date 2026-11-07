@@ -86,6 +86,7 @@ Read this reference completely before building, inspecting, editing, or verifyin
 - Probe gently: never loop create→simulate→delete of tyFlow objects inside a single MAXScript program — tyFlow's Qt cleanup can deadlock Max (live-confirmed). Reuse one scratch flow, mutate in place, pump messages (`windows.processPostedMessages()`) between sim iterations, delete once at the end.
 - `add_operator` position is 0-based; `-1` appends.
 - tyFlow simulates only inside the scene animation range; later frames hold the last state.
+- tyFlow 2.101 adds operators from MAXScript only to a flow whose editor is open: `addOperator` otherwise returns undefined for every type. The tools handle this; raw MAXScript must call `flow.tyFlow.editor_open()` first, and should close it only if it was not already open (its window is titled `<flow name> : [tyFlow ... Editor]`).
 - In MAXScript, reach operators as `flow.baseobject[#EventName][#Operator_Name]`; tyFlow nodes have no `.events` property.
 - `modify_tyflow_operator(raw_values=true)` takes MAXScript expressions, e.g. `{"objectList": "#($Name)"}` for node lists.
 - `inspect_max_file` lists a .max file's objects without opening it; operator settings need the flow loaded (merge it, read it, delete the merged objects).

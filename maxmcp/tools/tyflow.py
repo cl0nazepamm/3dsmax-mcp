@@ -15,7 +15,7 @@ from ..helpers.maxscript import (
 from ..server import client, mcp
 from ..coerce import StrList, FloatList, IntList, DictList
 from ..max_client import CALL_STATE_ERRORS
-from ._tyflow_core import MAXSCRIPT_ERROR, ledger_update, merge_ledger, operator_call
+from ._tyflow_core import EDITOR_HELPERS, MAXSCRIPT_ERROR, ledger_update, merge_ledger, operator_call
 
 
 SHAPE_3D_IDS: dict[str, int] = {
@@ -36,7 +36,7 @@ SHAPE_3D_IDS: dict[str, int] = {
 }
 
 
-HELPERS = """
+HELPERS = EDITOR_HELPERS + """
 local esc = MCP_Server.escapeJsonString
 
 fn jsonStringArray arr =
@@ -105,15 +105,15 @@ fn mcpTyFlowOfEvent realEv =
 
 fn mcpTyAddWithEditor realEv opType position =
 (
-    -- tyFlow 2.101 (live, Max 2023) adds operators only to the flow whose editor
-    -- is open; otherwise addOperator answers undefined for every type. Open the
-    -- editor on the event's flow for the add, then close it again.
+    -- tyFlow 2.101 (live, Max 2023 and 2027) adds operators only to the flow whose
+    -- editor is open; otherwise addOperator answers undefined for every type. Open
+    -- the editor on the event's flow for the add, and close it only if it was closed.
     local flow = mcpTyFlowOfEvent realEv
     if flow == undefined then return undefined
     local op = undefined
-    try (flow.tyFlow.editor_open()) catch ()
+    local wasOpen = mcpTyEditorOpen flow
     try (op = realEv.Event.addOperator opType position) catch ()
-    try (flow.tyFlow.editor_close()) catch ()
+    mcpTyEditorRestore flow wasOpen
     op
 )
 

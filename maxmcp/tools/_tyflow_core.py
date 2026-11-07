@@ -39,9 +39,38 @@ LEDGER_VERSION = 1
 # The bridge returns an uncaught MAXScript exception as this prefixed string.
 MAXSCRIPT_ERROR = "__MCP_MS_ERR__:"
 
+# tyFlow 2.101 adds operators from MAXScript only to a flow whose editor is open. Each
+# flow's editor is a top-level window titled "<flow name> : [tyFlow <edition> Editor]"
+# (live, 2.101 on Max 2027); tyFlow has no query for it, so the title tells whether the
+# user already had it open, and only an editor these tools opened is closed again.
+EDITOR_HELPERS = """
+fn mcpTyEditorIsOpen flowNode =
+(
+    local prefix = flowNode.name + " : ["
+    local open = false
+    for w in (windows.getChildrenHWND 0) where w[5] != undefined do (
+        if not open and (findString w[5] prefix) == 1 and (findString w[5] "tyFlow") != undefined do open = true
+    )
+    open
+)
+
+fn mcpTyEditorOpen flowNode =
+(
+    -- Opens the flow's editor; returns whether it was open already.
+    local wasOpen = mcpTyEditorIsOpen flowNode
+    if not wasOpen do (try (flowNode.tyFlow.editor_open()) catch ())
+    wasOpen
+)
+
+fn mcpTyEditorRestore flowNode wasOpen =
+(
+    if not wasOpen do (try (flowNode.tyFlow.editor_close()) catch ())
+)
+"""
+
 # Shared MAXScript helpers (esc/jsonStringArray/find*SubAnim come from tyflow.HELPERS
 # where needed; this block is standalone for core reads).
-CORE_HELPERS = """
+CORE_HELPERS = EDITOR_HELPERS + """
 fn mcpTyParseSubNames targetObj =
 (
     local names = #()
