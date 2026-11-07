@@ -142,6 +142,8 @@ if flow == undefined then (
     try (
         if evNames.count == 0 do throw "Flow has no events"
         {"if evNames.count > 16 do throw \"groups method supports at most 16 events\"" if method_key == "groups" else ""}
+        -- tyFlow 2.101 adds operators only to the flow whose editor is open.
+        try (flow.tyFlow.editor_open()) catch ()
         for ei = 1 to evNames.count do (
             local ev = mcpTySubAnimByName bo evNames[ei]
             local realEv = undefined
@@ -157,6 +159,7 @@ if flow == undefined then (
                 {instrument_block}
             )
         )
+        try (flow.tyFlow.editor_close()) catch ()
         try (flow.tyFlow.reset_simulation()) catch ()
         for f in #({frame_list}) do (
             try (flow.tyFlow.updateParticles f) catch ()

@@ -130,7 +130,10 @@ local flows = mcpNamedNodes "{_PROBE_FLOW}"
 if flows.count != 1 then "__ERROR__|The probe flow is missing" else (
     local eh = flows[1].tyFlow.addEvent()
     eh.Event.setName "{event_name}"
+    -- tyFlow 2.101 adds operators only to the flow whose editor is open.
+    try (flows[1].tyFlow.editor_open()) catch ()
     for opType in {array_literal} do (try (eh.Event.addOperator opType -1) catch ())
+    try (flows[1].tyFlow.editor_close()) catch ()
     "OK"
 )
 )"""
@@ -175,6 +178,8 @@ if tyFlow == undefined then (
     local eh = flow.tyFlow.addEvent()
     local ev = eh.Event
     ev.setName "{safe_string(event_name)}"
+    -- tyFlow 2.101 adds operators only to the flow whose editor is open.
+    try (flow.tyFlow.editor_open()) catch ()
     -- Birth first makes this a particle event. Operators stay in it until the
     -- flow is deleted, so the saved graph can confirm each type and its ID.
     try (ev.addOperator "Birth" -1) catch ()
@@ -200,6 +205,7 @@ if tyFlow == undefined then (
             )
         )
     )
+    try (flow.tyFlow.editor_close()) catch ()
     out as string
 )
 )"""
@@ -316,6 +322,14 @@ def harvest_tyflow_manifest(
 
     if not harvested:
         return json.dumps({"error": "Manifest probe produced no entries", "details": errors})
+    if not any(op.get("available") for op in harvested):
+        # tyFlow refused every type. Caching that would mark the whole catalog
+        # unavailable for this tyFlow version.
+        return json.dumps({
+            "error": "tyFlow added none of the probed operators; the cache was not written. "
+            "Check that tyFlow is installed and working, then retry.",
+            "tyflowVersion": version,
+        })
 
     probed = {op["type"] for op in harvested}
     unprobed = [item for item in names if item not in probed]

@@ -97,20 +97,32 @@ def _bootstrap_script_assembly() -> None:
     Two round trips: tyFlow's Qt cleanup must not run inside the program that
     simulated the flow.
     """
-    _run(f"""(
+    from .tyflow import HELPERS  # lazy: avoids an import cycle
+
+    # The flow is deleted in the second round trip even when tyFlow refused the
+    # operators, so a failed bootstrap leaves nothing in the scene.
+    status = _run(f"""(
+{HELPERS}
 local flow = tyFlow name:"{_BOOTSTRAP_FLOW}" pos:[0,0,-100000]
 local eh = flow.tyFlow.addEvent()
-eh.Event.addOperator "Birth" -1
-eh.Event.addOperator "Script" -1
-flow.baseobject.reset_simulation()
-flow.updateParticles 1
-"OK"
+local addError = ""
+try (mcpTyAddOperator eh "Birth" -1; mcpTyAddOperator eh "Script" -1) catch (addError = mcpTyThrown())
+if addError == "" do (
+    flow.baseobject.reset_simulation()
+    flow.updateParticles 1
+)
+if addError == "" then "OK" else ("__ADD_FAILED__|" + addError)
 )""")
     _run(f"""(
 {NODE_LOOKUP_FNS}
 for n in (mcpNamedNodes "{_BOOTSTRAP_FLOW}") do (try (delete n) catch ())
 "OK"
 )""")
+    if status.startswith("__ADD_FAILED__|"):
+        raise ScriptToolError(
+            "Could not load tyFlow's script API: the bootstrap flow needs a Birth and a Script operator. "
+            + status.split("|", 1)[1]
+        )
 
 
 def _checker_with_api(method: str, *args: str) -> Any:

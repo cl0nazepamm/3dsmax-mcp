@@ -88,6 +88,35 @@ fn findOperatorSubAnim eventSub operatorName =
     mcpTyChildByName eventSub operatorName
 )
 
+fn mcpTyFlowOfEvent realEv =
+(
+    -- The tyFlow node whose event sub-anim holds realEv.
+    local owner = undefined
+    for n in objects where owner == undefined and (classof n.baseobject as string) == "tyFlow" do (
+        local bo = n.baseobject
+        for i = 1 to bo.numsubs while owner == undefined do (
+            local o = undefined
+            try (o = bo[i].object) catch ()
+            if o == realEv do owner = n
+        )
+    )
+    owner
+)
+
+fn mcpTyAddWithEditor realEv opType position =
+(
+    -- tyFlow 2.101 (live, Max 2023) adds operators only to the flow whose editor
+    -- is open; otherwise addOperator answers undefined for every type. Open the
+    -- editor on the event's flow for the add, then close it again.
+    local flow = mcpTyFlowOfEvent realEv
+    if flow == undefined then return undefined
+    local op = undefined
+    try (flow.tyFlow.editor_open()) catch ()
+    try (op = realEv.Event.addOperator opType position) catch ()
+    try (flow.tyFlow.editor_close()) catch ()
+    op
+)
+
 fn mcpTyAddOperator eventTarget opType position =
 (
     -- An event holds operators of one family, set by its first operator. tyFlow
@@ -98,7 +127,8 @@ fn mcpTyAddOperator eventTarget opType position =
     local before = realEv.numsubs
     local op = undefined
     try (op = realEv.Event.addOperator opType position) catch ()
-    if op == undefined do throw ("tyFlow has no operator type " + opType)
+    if op == undefined do op = mcpTyAddWithEditor realEv opType position
+    if op == undefined do throw ("tyFlow has no operator type " + opType + " (list_tyflow_operators shows the installed types)")
     if realEv.numsubs <= before do throw ("tyFlow did not add " + opType + " to " + (realEv.Event.getName()) + ": an event holds operators of one family (particle, terrain, VDB or Inferno), set by its first operator. Add it to an event of its own family.")
     op
 )
