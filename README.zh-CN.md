@@ -19,7 +19,7 @@
 ## 环境要求
 
 - Windows
-- [Python 3.12+](https://www.python.org/)
+- [Python 3.13+](https://www.python.org/)
 - Autodesk **3ds Max 2023–2027**
 - [uv](https://docs.astral.sh/uv/)（仅源代码安装或开发时需要）
 

@@ -12,7 +12,7 @@ description = "MCP server for AI agents to control Autodesk 3ds Max"
 readme = "docs/PYPI.md"
 license = { file = "LICENSE" }
 authors = [{ name = "clone - m3org", email = "cl0nazepam@proton.me" }]
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 keywords = [
     "3dsmax",
     "3ds-max",
@@ -32,7 +32,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Multimedia :: Graphics :: 3D Modeling",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]

@@ -30,7 +30,7 @@ user config, and registers the server with the AI clients it can find. Local or 
 can save context with `3dsmax-mcp-install --tool-profile progressive` for an unattended install.
 **Restart 3ds Max afterwards** so the plugin loads.
 
-**Requirements:** Windows · Python 3.12+ · 3ds Max 2023–2027
+**Requirements:** Windows · Python 3.13+ · 3ds Max 2023–2027
 
 Manual MCP client setup, tool profiles, safe mode and architecture notes are documented in
 [docs/ADVANCED.md](https://github.com/cl0nazepamm/3dsmax-mcp/blob/master/docs/ADVANCED.md).
@@ -68,7 +68,7 @@ pip install 3dsmax-mcp -i https://pypi.tuna.tsinghua.edu.cn/simple
 `ApplicationPlugins` 目录、写入用户配置，并尽可能自动注册到已安装的 AI 客户端。本地或较小模型可用
 `3dsmax-mcp-install --tool-profile progressive`。**装完请重启 3ds Max**，插件才会加载。
 
-**环境要求：** Windows · Python 3.12+ · 3ds Max 2023–2027
+**环境要求：** Windows · Python 3.13+ · 3ds Max 2023–2027
 
 国内常用的 **Cline + DeepSeek** 配置方式、建筑可视化与 MMD 动画上手示例、以及其他国内镜像，
 见中文文档

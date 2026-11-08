@@ -46,7 +46,7 @@ unattended install.
 <details>
 <summary>Install from source</summary>
 
-Requires [Python 3.12+](https://www.python.org/), [uv](https://docs.astral.sh/uv/) and Git.
+Requires [Python 3.13+](https://www.python.org/), [uv](https://docs.astral.sh/uv/) and Git.
 Close Max and your AI clients before installing.
 
 ```powershell

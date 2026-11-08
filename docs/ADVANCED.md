@@ -16,7 +16,7 @@ Release builds link the whole bridge into that one GUP. Development builds can s
 
 ## Requirements
 
-- Python 3.12+
+- Python 3.13+
 - [uv](https://docs.astral.sh/uv/)
 - Autodesk 3ds Max 2023–2027
 
