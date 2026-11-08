@@ -58,8 +58,10 @@ def _run_in_server(code: str, timeout_s: float) -> dict[str, Any]:
 def _launcher(code: str, timeout_s: float) -> str:
     """MAXScript that runs the script through maxmcp.inmax inside Max and returns its JSON reply.
 
-    No `undo on` here: the runner groups the script's tool calls with theHold.SuperBegin,
-    and a hold opened around it would make every tool call refuse with USER_BUSY.
+    No hold may be open around the script: the runner groups its tool calls with
+    theHold.SuperBegin, and inside a hold every tool call refuses with USER_BUSY. So no
+    `undo on`, and no python.Execute either, which runs its code inside a hold of its own;
+    builtins.exec called through python.import opens none.
     """
     root = str(Path(__file__).resolve().parents[2])
     site = sysconfig.get_paths()["purelib"]
@@ -80,7 +82,8 @@ def _launcher(code: str, timeout_s: float) -> str:
         local reply
         MCP_RunPython_Result = undefined
         try (
-            python.Execute "{bootstrap}" clearUndoBuffer:false
+            local py = python.import "builtins"
+            py.exec "{bootstrap}" (py.dict())
             reply = MCP_RunPython_Result
         ) catch (
             MCP_RunPython_Result = previous
