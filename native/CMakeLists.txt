@@ -294,7 +294,15 @@ if(MCP_MX_PYTHON)
     find_package(Python ${MCP_MX_PYTHON_VERSION} EXACT REQUIRED COMPONENTS Interpreter Development.Module)
     find_package(nanobind CONFIG REQUIRED PATHS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanobind/cmake" NO_DEFAULT_PATH)
 
-    nanobind_add_module(_mx NB_STATIC NB_DOMAIN mcp_mx python/mx_module.cpp)
+    nanobind_add_module(_mx NB_STATIC NB_DOMAIN mcp_mx
+        python/mx_module.cpp
+        python/mx_core.cpp
+        python/mx_params.cpp
+        python/mx_nodes.cpp
+        python/mx_anim.cpp
+        python/mx_modifiers.cpp
+        python/mx_materials.cpp
+        python/mx_maxscript.cpp)
     mcp_bridge_apply_settings(_mx)
 
     set(MCP_MX_TAG_DIR "${CMAKE_CURRENT_BINARY_DIR}/mx_generated")
