@@ -193,6 +193,44 @@ ModifierRef AddModifier(const Node& n, const std::string& cls, const std::string
 std::optional<MaterialRef> NodeMaterial(const Node& n);
 void SetNodeMaterial(const Node& n, std::optional<MaterialRef> material);
 
+// ── Bridge handlers (mx_native.cpp) ──────────────────────────────
+
+// Run a bridge handler in-process ("native:scene_patch", "maxscript", ...)
+// and return its parsed reply. A handler error becomes the matching _mx
+// error. Heavy operations reuse their existing handler this way.
+nlohmann::json NativeJson(const std::string& type, const nlohmann::json& args);
+nb::object ToPython(const nlohmann::json& value);
+// dict/list/tuple/str/number/bool/None, and Node as its handle.
+nlohmann::json FromPython(nb::handle value);
+
+// ── Extending bound classes ──────────────────────────────────────
+// A domain file adds methods and properties to classes bound elsewhere (Node,
+// Params, Track, ...) without editing that file. Call after the class is bound.
+
+template <typename Cls, typename F, typename... Extra>
+void AddMethod(const char* name, F&& f, const Extra&... extra) {
+    nb::handle cls = nb::type<Cls>();
+    nb::setattr(cls, name, nb::cpp_function(std::forward<F>(f), nb::is_method(), nb::scope(cls), nb::name(name), extra...));
+}
+
+// A property is a Python property over hidden accessor methods
+// (_get_<name>, _set_<name>): nanobind accessor functions crash when a
+// property object calls them directly, bound methods do not.
+nb::object MakeProperty(nb::handle cls, const char* name, bool settable, const char* doc);
+
+template <typename Cls, typename G>
+void AddProperty(const char* name, G&& getter, const char* doc) {
+    AddMethod<Cls>(("_get_" + std::string(name)).c_str(), std::forward<G>(getter));
+    nb::setattr(nb::type<Cls>(), name, MakeProperty(nb::type<Cls>(), name, false, doc));
+}
+
+template <typename Cls, typename G, typename S>
+void AddProperty(const char* name, G&& getter, S&& setter, const char* doc) {
+    AddMethod<Cls>(("_get_" + std::string(name)).c_str(), std::forward<G>(getter));
+    AddMethod<Cls>(("_set_" + std::string(name)).c_str(), std::forward<S>(setter));
+    nb::setattr(nb::type<Cls>(), name, MakeProperty(nb::type<Cls>(), name, true, doc));
+}
+
 // ── Bindings ─────────────────────────────────────────────────────
 
 void BindParams(nb::module_& m);
@@ -200,6 +238,7 @@ void BindNodes(nb::module_& m);
 void BindAnimation(nb::module_& m);
 void BindModifiers(nb::module_& m);
 void BindMaterials(nb::module_& m);
+void BindNative(nb::module_& m);
 
 } // namespace MX_ABI_TAG
 } // namespace mx

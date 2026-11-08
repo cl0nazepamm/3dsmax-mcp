@@ -60,6 +60,7 @@ static void Bind(nb::module_& m) {
     BindAnimation(m);
     BindModifiers(m);
     BindMaterials(m);
+    BindNative(m);
 
     m.def("redraw", [] { RequireMain(); GetCOREInterface()->RedrawViews(GetCOREInterface()->GetTime()); },
           "Redraw the viewports.");

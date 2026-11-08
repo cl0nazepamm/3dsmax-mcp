@@ -302,8 +302,10 @@ if(MCP_MX_PYTHON)
         python/mx_anim.cpp
         python/mx_modifiers.cpp
         python/mx_materials.cpp
-        python/mx_maxscript.cpp)
+        python/mx_maxscript.cpp
+        python/mx_native.cpp)
     mcp_bridge_apply_settings(_mx)
+    target_link_libraries(_mx PRIVATE psapi.lib)
 
     set(MCP_MX_TAG_DIR "${CMAKE_CURRENT_BINARY_DIR}/mx_generated")
     set(MCP_MX_TAG_HEADER "${MCP_MX_TAG_DIR}/mx_build_tag.h")
