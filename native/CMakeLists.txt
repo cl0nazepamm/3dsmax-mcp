@@ -278,6 +278,44 @@ else()
     add_dependencies(mcp_bridge mcp_core_objs)
 endif()
 
+# ── Python module (_mx) ──────────────────────────────────────────
+# The agent-facing Python API, bound from the SDK with nanobind (vendored in
+# third_party/nanobind). It loads into 3ds Max's embedded Python, so it is built
+# against that Python's minor version. Python_ROOT_DIR picks the CPython whose
+# headers and import library are used.
+option(MCP_MX_PYTHON "Build the _mx Python module" OFF)
+option(MCP_MX_DEV_RELOAD "Tag _mx's binding types per build, so a rebuilt module loads beside the old one (dev only)" OFF)
+if(MCP_MX_PYTHON)
+    set(MCP_MX_PYTHON_2027 3.13)
+    set(MCP_MX_PYTHON_VERSION "${MCP_MX_PYTHON_${MAX_VERSION}}")
+    if(NOT MCP_MX_PYTHON_VERSION)
+        message(FATAL_ERROR "_mx: no Python version recorded for 3ds Max ${MAX_VERSION}")
+    endif()
+    find_package(Python ${MCP_MX_PYTHON_VERSION} EXACT REQUIRED COMPONENTS Interpreter Development.Module)
+    find_package(nanobind CONFIG REQUIRED PATHS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanobind/cmake" NO_DEFAULT_PATH)
+
+    nanobind_add_module(_mx NB_STATIC NB_DOMAIN mcp_mx python/mx_module.cpp)
+    mcp_bridge_apply_settings(_mx)
+
+    set(MCP_MX_TAG_DIR "${CMAKE_CURRENT_BINARY_DIR}/mx_generated")
+    set(MCP_MX_TAG_HEADER "${MCP_MX_TAG_DIR}/mx_build_tag.h")
+    if(MCP_MX_DEV_RELOAD)
+        add_custom_target(mx_build_tag
+            COMMAND "${CMAKE_COMMAND}" "-DOUT=${MCP_MX_TAG_HEADER}" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/mx_build_tag.cmake"
+            BYPRODUCTS "${MCP_MX_TAG_HEADER}"
+            COMMENT "Tagging _mx build")
+        add_dependencies(_mx mx_build_tag)
+    else()
+        string(MAKE_C_IDENTIFIER "v${MCP_BRIDGE_VERSION}" MCP_MX_RELEASE_TAG)
+        execute_process(COMMAND "${CMAKE_COMMAND}" "-DOUT=${MCP_MX_TAG_HEADER}" "-DTAG=${MCP_MX_RELEASE_TAG}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/mx_build_tag.cmake")
+    endif()
+    target_include_directories(_mx PRIVATE "${MCP_MX_TAG_DIR}")
+    set_target_properties(_mx PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/python"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/python")
+endif()
+
 # ── Deploy ───────────────────────────────────────────────────────
 option(MCP_BUILD_TRANSACTION_POLICY_TESTS "Build SDK-independent dispatcher transaction policy tests" OFF)
 if(MCP_BUILD_TRANSACTION_POLICY_TESTS)
