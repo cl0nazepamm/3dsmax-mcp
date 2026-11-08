@@ -22,6 +22,7 @@ import tempfile
 from pathlib import Path
 
 from maxmcp.opencode_config import resolve_opencode_config, update_opencode
+from maxmcp.user_config import TOOL_PROFILES, with_ini_value
 
 ROOT = Path(__file__).resolve().parent
 # Installed from a wheel this file is `maxmcp/installer.py`, so ROOT is the package
@@ -48,7 +49,6 @@ MS_SERVER = ROOT / "maxscript" / "mcp_server.ms"
 CONFIG_SRC = ROOT / "mcp_config.ini"
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "3dsmax-mcp"
 CONFIG_DST = CONFIG_DIR / "mcp_config.ini"
-TOOL_PROFILES = ("full", "progressive", "core")
 
 
 def pkg_version() -> str:
@@ -98,10 +98,11 @@ def choose_tool_profile(requested: str | None = None) -> str:
             raise ValueError(f"Unsupported tool profile: {requested}")
         return normalized
 
-    print("\nMCP tool profile:")
-    print("  1) Full (default and RECOMMENDED!) - advertise every tool for maximum client compatibility")
-    print("  2) Progressive (New!) - 3 discovery tools; potentially saves context for local/smaller models")
-    print("  3) Core - advertise the smaller everyday tool subset")
+    print("\nMCP tool profile (tool definitions are sent with every request to the model):")
+    print("  1) Full (default) - all 181 tools listed directly; about 73k tokens")
+    print("  2) Progressive - common tools listed, the rest found on demand; about 7k tokens,")
+    print("     for local models and small context windows")
+    print("  3) Core - the everyday tools listed directly; about 50k tokens")
     try:
         choice = input("  Choice [1]: ").strip()
     except EOFError:
@@ -112,36 +113,7 @@ def choose_tool_profile(requested: str | None = None) -> str:
 def set_ini_value(path: Path, section: str, key: str, value: str) -> None:
     """Update one INI value while preserving unrelated comments and formatting."""
     text = path.read_text("utf-8") if path.exists() else ""
-    lines = text.splitlines()
-    section_start: int | None = None
-    section_end = len(lines)
-    section_pattern = re.compile(r"^\s*\[([^]]+)]\s*(?:[#;].*)?$", re.IGNORECASE)
-    key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=", re.IGNORECASE)
-
-    for index, line in enumerate(lines):
-        match = section_pattern.match(line)
-        if not match:
-            continue
-        if section_start is not None:
-            section_end = index
-            break
-        if match.group(1).strip().lower() == section.lower():
-            section_start = index
-
-    replacement = f"{key} = {value}"
-    if section_start is None:
-        if lines and lines[-1].strip():
-            lines.append("")
-        lines.extend((f"[{section}]", replacement))
-    else:
-        for index in range(section_start + 1, section_end):
-            if key_pattern.match(lines[index]):
-                lines[index] = replacement
-                break
-        else:
-            lines.insert(section_end, replacement)
-
-    path.write_text("\n".join(lines) + "\n", "utf-8")
+    path.write_text(with_ini_value(text, section, key, value), "utf-8")
 
 # Extract list of supported years from GUP_SRCS
 MAX_YEARS = sorted(GUP_SRCS.keys(), reverse=True)

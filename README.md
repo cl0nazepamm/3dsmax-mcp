@@ -29,11 +29,17 @@ Automate everything!
 ## Quick start
 
 1. Close 3ds Max and fully exit your AI clients.
-2. Run `3dsmax-mcp-1.7.8-Setup.exe` and select your clients.
+2. Run `3dsmax-mcp-1.7.8-Setup.exe`, select your clients and a tool profile.
 3. Open 3ds Max and restart your AI client.
 
 The installer includes Python, dependencies, native bridges and agent skills.
 To update, close Max and your clients, then run the new installer.
+
+**Tool profile.** AI clients send the tool definitions with every request to the model.
+**Full** (default) lists all 181 tools directly, about 73k tokens. **Progressive** lists the
+common tools and finds the other ~170 on demand with `find_tools`, about 7k tokens; choose it
+for local models and small context windows. Counts are for Claude and vary by model. Run the
+installer again to switch, or pass `/TOOLPROFILE=progressive` for an unattended install.
 
 <details>
 <summary>Install from source</summary>
@@ -48,7 +54,7 @@ uv sync
 uv run python install.py
 ```
 
-Use the default **Full** tool profile. To update, run `git pull`, `uv sync`, then
+`install.py` asks for the tool profile; see above. To update, run `git pull`, `uv sync`, then
 `uv run python install.py` again.
 
 </details>

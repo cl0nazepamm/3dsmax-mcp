@@ -1,23 +1,41 @@
 """Progressive MCP tool discovery and lazy dispatch.
 
-The progressive profile keeps the public MCP surface to three meta-tools.  Tool
-modules are indexed from source without importing them, then imported into a
-private FastMCP registry only when a toolset is described or a tool is called.
+The progressive profile advertises a few frequently used tools directly and
+reaches every other tool through find_tools/describe_toolset and call_tool.
+Tool modules are indexed from source without importing them, then imported
+into a private FastMCP registry only when a tool is described or called.
 """
 
 from __future__ import annotations
 
 import ast
+import re
 from contextvars import ContextVar
 from dataclasses import dataclass
+from difflib import get_close_matches
 from importlib import import_module
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from pydantic import ValidationError
+
 from .tool_response import ToolEnvelope, make_structured_tool
 
 
-META_TOOL_NAMES = frozenset({"list_toolsets", "describe_toolset", "call_tool"})
+META_TOOL_NAMES = frozenset({"list_toolsets", "find_tools", "describe_toolset", "call_tool"})
+# Advertised directly by the progressive profile because most tasks use them; every
+# other tool is found with find_tools and run through call_tool. Keep this list small:
+# each entry costs its schema on every model request.
+PROGRESSIVE_DIRECT_TOOLS = frozenset({
+    "query_scene", "inspect_object", "create_object", "transform_object", "set_object_property",
+    "delete_objects", "clone_objects", "add_modifier", "set_modifier_property", "assign_material",
+    "set_material_property", "execute_maxscript", "capture_viewport", "undo_last",
+})
+_RESULT_CONTRACT = "ToolEnvelope: {ok,result} or {ok:false,error}; optional hint/transport."
+_WORD = re.compile(r"[a-z0-9]+")
+_STOP_WORDS = frozenset(
+    "a an and as at by for from in into is it of on or the to with 3ds max tool tools".split()
+)
 _active_calls: ContextVar[frozenset[str]] = ContextVar(
     "3dsmax_mcp_progressive_active_calls",
     default=frozenset(),
@@ -156,6 +174,64 @@ TOOLSET_SPECS = (
 )
 
 
+_SCHEMA_MAPS = ("properties", "$defs", "definitions", "patternProperties", "dependentSchemas")
+_SCHEMA_SINGLES = (
+    "items", "additionalProperties", "unevaluatedProperties", "not", "contains", "propertyNames",
+    "if", "then", "else",
+)
+_SCHEMA_LISTS = ("anyOf", "oneOf", "allOf", "prefixItems")
+_NULL_SCHEMA = {"type": "null"}
+
+
+def compact_input_schema(schema: Any) -> Any:
+    """Drop the parts of a generated input schema that cost context but carry no meaning.
+
+    Pydantic titles restate property names, and an optional ``X | None = None``
+    field is spelled ``anyOf: [X, null]`` with ``default: null`` although leaving
+    it out already means None. Arguments are validated against the Python
+    signature, not this schema, so an explicit null is still accepted. A nullable
+    field without a None default keeps its null branch.
+    """
+    if not isinstance(schema, dict):
+        return schema
+    node = {k: v for k, v in schema.items() if not (k == "title" and isinstance(v, str))}
+    for key in _SCHEMA_MAPS:
+        if isinstance(node.get(key), dict):
+            node[key] = {name: compact_input_schema(sub) for name, sub in node[key].items()}
+    for key in _SCHEMA_SINGLES:
+        if isinstance(node.get(key), dict):
+            node[key] = compact_input_schema(node[key])
+    for key in _SCHEMA_LISTS:
+        if isinstance(node.get(key), list):
+            node[key] = [compact_input_schema(sub) for sub in node[key]]
+
+    variants = node.get("anyOf")
+    if "default" in node and node["default"] is None and isinstance(variants, list) and _NULL_SCHEMA in variants:
+        rest = [variant for variant in variants if variant != _NULL_SCHEMA]
+        if rest:
+            del node["default"], node["anyOf"]
+            if len(rest) == 1 and isinstance(rest[0], dict):
+                node = {**rest[0], **node}
+            else:
+                node["anyOf"] = rest
+    return node
+
+
+def _tool_manager(server: Any) -> Any:
+    manager = getattr(server, "_tool_manager", None) or getattr(server, "tool_manager", None)
+    if manager is None:
+        raise RuntimeError("FastMCP tool manager is unavailable")
+    return manager
+
+
+def compact_tool_schemas(server: Any, names: Iterable[str] | None = None) -> None:
+    """Compact the advertised input schemas of registered tools in place (idempotent)."""
+    manager = _tool_manager(server)
+    tools = manager.list_tools() if names is None else filter(None, map(manager.get_tool, names))
+    for tool in tools:
+        tool.parameters = compact_input_schema(tool.parameters)
+
+
 def _decorated_tool_name(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str | None:
     """Return the registered MCP name without importing a tool module."""
     for decorator in node.decorator_list:
@@ -177,18 +253,29 @@ def _decorated_tool_name(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str | 
     return None
 
 
-def _module_tool_names(path: Path) -> tuple[str, ...]:
-    """Read the ordered @mcp.tool() names from one Python source file."""
+def _module_tools(path: Path) -> tuple[tuple[str, str], ...]:
+    """Read the ordered @mcp.tool() names and docstring summaries from one source file."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    found: list[tuple[int, str]] = []
+    found: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         name = _decorated_tool_name(node)
         if name:
-            found.append((node.lineno, name))
+            found.append((node.lineno, name, " ".join((ast.get_docstring(node) or "").split())))
     found.sort()
-    return tuple(name for _, name in found)
+    return tuple((name, doc) for _, name, doc in found)
+
+
+def _module_tool_names(path: Path) -> tuple[str, ...]:
+    """Read the ordered @mcp.tool() names from one Python source file."""
+    return tuple(name for name, _ in _module_tools(path))
+
+
+def _search_words(text: str) -> set[str]:
+    """Lowercase search terms with stop words dropped and a plural 's' trimmed."""
+    words = (word[:-1] if len(word) > 3 and word.endswith("s") else word for word in _WORD.findall(text.lower()))
+    return {word for word in words if word not in _STOP_WORDS}
 
 
 def _model_dump(value: Any) -> Any:
@@ -241,6 +328,8 @@ class ProgressiveToolCatalog:
         self._allowed_modules = tuple(allowed_modules)
         self._module_tools_cache: dict[str, tuple[str, ...]] | None = None
         self._tool_modules_cache: dict[str, str] | None = None
+        self._tool_docs: dict[str, str] = {}
+        self._search_index: dict[str, tuple[set[str], set[str], set[str]]] | None = None
         self._validate_toolset_modules()
 
     def _validate_toolset_modules(self) -> None:
@@ -256,12 +345,7 @@ class ProgressiveToolCatalog:
 
     @property
     def _manager(self) -> Any:
-        manager = getattr(self.hidden_mcp, "_tool_manager", None) or getattr(
-            self.hidden_mcp, "tool_manager", None
-        )
-        if manager is None:
-            raise RuntimeError("FastMCP tool manager is unavailable")
-        return manager
+        return _tool_manager(self.hidden_mcp)
 
     @property
     def module_tools(self) -> dict[str, tuple[str, ...]]:
@@ -271,7 +355,9 @@ class ProgressiveToolCatalog:
                 path = self.tools_dir / f"{module}.py"
                 if not path.is_file():
                     raise RuntimeError(f"Tool module source not found: {path}")
-                indexed[module] = _module_tool_names(path)
+                tools = _module_tools(path)
+                indexed[module] = tuple(name for name, _ in tools)
+                self._tool_docs.update(tools)
             self._module_tools_cache = indexed
         return self._module_tools_cache
 
@@ -311,6 +397,7 @@ class ProgressiveToolCatalog:
                 {
                     "name": spec.name,
                     "description": spec.description,
+                    "tools": [name for module in spec.modules for name in self.module_tools[module]],
                     "tool_count": total,
                     "loaded_tool_count": loaded,
                     "loaded": loaded == total,
@@ -318,52 +405,117 @@ class ProgressiveToolCatalog:
             )
         return {
             "profile": "progressive",
-            "workflow": "list_toolsets -> describe_toolset -> call_tool",
+            "workflow": "find_tools(query) or describe_toolset(toolset, tools=[...]) -> call_tool",
             "tool_count": len(self.tool_modules),
             "toolsets": toolsets,
         }
 
+    def _toolset_of(self, tool_name: str) -> ToolsetSpec:
+        module = self.tool_modules[tool_name]
+        return next(spec for spec in self.toolsets if module in spec.modules)
+
+    def load_tools(self, names: Iterable[str], *, verify: bool = True) -> None:
+        """Import the modules that declare these tools (unknown names raise KeyError).
+
+        verify=False is for server startup: a module that is itself importing the server
+        is only partly initialized and registers its tools when its import finishes.
+        """
+        for module in dict.fromkeys(self.tool_modules[name] for name in names):
+            if verify:
+                self._load_module(module)
+            else:
+                import_module(f".tools.{module}", package=self.package)
+
+    def _describe(self, tool_name: str) -> dict[str, Any]:
+        tool = self._manager.get_tool(tool_name)
+        return {
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.parameters,
+            "annotations": _model_dump(tool.annotations),
+        }
+
+    def find_tools(self, query: str, limit: int = 3) -> dict[str, Any]:
+        """Rank tools by name, docstring and toolset text; describe the best matches."""
+        terms = _search_words(query)
+        if not terms:
+            raise ValueError("query needs at least one search word, e.g. 'boolean subtract' or 'spline knot'")
+        if self._search_index is None:
+            self._search_index = {}
+            for name in self.tool_modules:
+                spec = self._toolset_of(name)
+                self._search_index[name] = (
+                    _search_words(name.replace("_", " ")),
+                    _search_words(self._tool_docs.get(name, "")),
+                    _search_words(f"{spec.name} {spec.description}"),
+                )
+        scored: list[tuple[int, str]] = []
+        for name, (name_words, doc_words, toolset_words) in self._search_index.items():
+            score = 0
+            for term in terms:
+                if term in name_words:
+                    score += 4
+                elif len(term) >= 4 and any(word.startswith(term) or term.startswith(word) for word in name_words if len(word) >= 4):
+                    score += 2
+                if term in doc_words:
+                    score += 1
+                if term in toolset_words:
+                    score += 1
+            if score:
+                scored.append((-score, name))
+        ranked = [name for _, name in sorted(scored)]
+        limit = max(1, min(int(limit), 10))
+        best = ranked[:limit]
+        self.load_tools(best)
+        return {
+            "query": query,
+            "tools": [{**self._describe(name), "toolset": self._toolset_of(name).name} for name in best],
+            "also_matching": ranked[limit:limit + 10],
+            "next": (
+                "call_tool(name=<tool>, arguments={...}) with arguments matching input_schema."
+                if best else
+                "No tool matched. Try other words, browse list_toolsets, or use execute_maxscript."
+            ),
+            "result_contract": _RESULT_CONTRACT,
+        }
+
     def _load_module(self, module: str) -> None:
         expected = self.module_tools[module]
-        if all(self._manager.get_tool(name) is not None for name in expected):
-            return
-        import_module(f".tools.{module}", package=self.package)
-        missing = [name for name in expected if self._manager.get_tool(name) is None]
-        if missing:
-            raise RuntimeError(
-                f"Lazy-loaded module {module!r} did not register expected tools: {missing}"
-            )
+        if not all(self._manager.get_tool(name) is not None for name in expected):
+            import_module(f".tools.{module}", package=self.package)
+            missing = [name for name in expected if self._manager.get_tool(name) is None]
+            if missing:
+                raise RuntimeError(
+                    f"Lazy-loaded module {module!r} did not register expected tools: {missing}"
+                )
+        # Also covers modules imported at startup, which may register after the server
+        # finished importing; compaction is idempotent.
+        compact_tool_schemas(self.hidden_mcp, expected)
 
-    def describe_toolset(self, name: str) -> dict[str, Any]:
+    def describe_toolset(self, name: str, tools: Iterable[str] | None = None) -> dict[str, Any]:
         spec = self._spec(name)
         if spec is None:
             available = [item.name for item in self.toolsets]
             raise ValueError(f"Unknown toolset {name!r}. Available toolsets: {available}")
 
-        for module in spec.modules:
-            self._load_module(module)
+        members = [tool for module in spec.modules for tool in self.module_tools[module]]
+        if tools is None:
+            selected = members
+        else:
+            requested = {tool.strip() for tool in tools}
+            unknown = sorted(requested - set(members))
+            if unknown:
+                raise ValueError(f"Toolset {spec.name!r} has no tools {unknown}. Its tools: {members}")
+            selected = [tool for tool in members if tool in requested]
 
-        tools: list[dict[str, Any]] = []
-        for module in spec.modules:
-            for tool_name in self.module_tools[module]:
-                tool = self._manager.get_tool(tool_name)
-                if tool is None:  # pragma: no cover - guarded by _load_module
-                    continue
-                tools.append(
-                    {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "input_schema": tool.parameters,
-                        "annotations": _model_dump(tool.annotations),
-                    }
-                )
-
+        self.load_tools(selected)
+        described = [self._describe(tool_name) for tool_name in selected]
         return {
             "name": spec.name,
             "description": spec.description,
-            "tool_count": len(tools),
-            "result_contract": "ToolEnvelope: {ok,result} or {ok:false,error}; optional hint/transport.",
-            "tools": tools,
+            "tool_count": len(described),
+            "result_contract": _RESULT_CONTRACT,
+            "tools": described,
         }
 
     def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -378,13 +530,14 @@ class ProgressiveToolCatalog:
 
         module = self.tool_modules.get(normalized)
         if module is None:
+            close = get_close_matches(normalized, list(self.tool_modules), n=3, cutoff=0.6)
+            message = "Find the tool with find_tools(query) and call it by its exact name."
+            if close:
+                message = f"Did you mean {', '.join(close)}? " + message
             return _error_envelope(
                 f"Unknown or unavailable tool: {normalized!r}",
                 code="NOT_FOUND",
-                hint={
-                    "message": "Choose an allowlisted tool from describe_toolset.",
-                    "suggested_tools": ["list_toolsets", "describe_toolset"],
-                },
+                hint={"message": message, "suggested_tools": [*close, "find_tools"]},
             )
 
         active = _active_calls.get()
@@ -417,8 +570,29 @@ class ProgressiveToolCatalog:
 
             raw_arguments = arguments or {}
             metadata = tool.fn_metadata
-            prepared = metadata.pre_parse_json(raw_arguments)
-            parsed = metadata.arg_model.model_validate(prepared)
+            # The model writes `arguments` freehand, without schema-guided generation, so a
+            # misspelled name would otherwise be dropped silently and the tool run on defaults.
+            fields = metadata.arg_model.model_fields
+            known = set(fields) | {field.alias for field in fields.values() if field.alias}
+            unknown = sorted(set(raw_arguments) - known)
+            try:
+                if unknown:
+                    raise ValueError(f"unknown argument(s) {unknown}")
+                parsed = metadata.arg_model.model_validate(metadata.pre_parse_json(raw_arguments))
+            except (ValidationError, ValueError) as exc:
+                problems = (
+                    "; ".join(f"{'.'.join(map(str, err['loc'])) or 'arguments'}: {err['msg']}" for err in exc.errors())
+                    if isinstance(exc, ValidationError) else str(exc)
+                )
+                return _error_envelope(
+                    f"Invalid arguments for {normalized!r}: {problems}",
+                    code="BAD_PARAM",
+                    error_type="InvalidArguments",
+                    hint={
+                        "message": "Retry call_tool with arguments matching input_schema.",
+                        "input_schema": tool.parameters,
+                    },
+                )
             kwargs = parsed.model_dump_one_level()
 
             # tool.fn is the same make_structured_tool wrapper used by eager
@@ -446,7 +620,7 @@ def register_progressive_tools(
     before_call: Callable[[], None] | None = None,
     transport_provider: Callable[[], dict[str, Any] | None] | None = None,
 ) -> ProgressiveToolCatalog:
-    """Register the three compact public meta-tools and return their catalog."""
+    """Register the public discovery meta-tools and return their catalog."""
     catalog = ProgressiveToolCatalog(
         package=package,
         tools_dir=tools_dir,
@@ -454,23 +628,35 @@ def register_progressive_tools(
         allowed_modules=allowed_modules,
     )
 
+    def find_tools(query: str, limit: int = 3) -> dict[str, Any]:
+        """Search the 3ds Max tools not listed directly, by what you need to do.
+
+        Returns the best matches with their exact input schemas, e.g. query="boolean subtract",
+        "spline knots", "tyflow birth" or "light intensity". Run one with call_tool.
+        """
+        return catalog.find_tools(query, limit)
+
     def list_toolsets() -> dict[str, Any]:
-        """List compact capability groups. Describe one before calling an operational tool."""
+        """Browse every capability group and its tool names."""
         return catalog.list_toolsets()
 
-    def describe_toolset(toolset: str) -> dict[str, Any]:
-        """Load one toolset and return its tool names, descriptions, and exact input schemas."""
-        return catalog.describe_toolset(toolset)
+    def describe_toolset(toolset: str, tools: list[str] | None = None) -> dict[str, Any]:
+        """Return descriptions and exact input schemas for a toolset's tools.
+
+        Pass tools=[...] with names from list_toolsets to describe only those; a whole
+        group can be large.
+        """
+        return catalog.describe_toolset(toolset, tools)
 
     def call_tool(name: str, arguments: dict[str, Any] | None = None) -> ToolEnvelope:
-        """Call one allowlisted operational tool by name with its exact argument object.
+        """Run a 3ds Max tool that is not listed directly, by its exact name.
 
-        This proxy can mutate the scene when the selected tool is mutating. Unknown
-        names, meta-tool recursion, and recursive dispatch are rejected.
+        arguments must match the input_schema from find_tools or describe_toolset; invalid
+        arguments return that schema. Mutating tools change the scene.
         """
         return catalog.call_tool(name, arguments)  # type: ignore[return-value]
 
-    for function in (list_toolsets, describe_toolset):
+    for function in (find_tools, list_toolsets, describe_toolset):
         public_mcp.add_tool(
             make_structured_tool(
                 function,
@@ -494,5 +680,8 @@ __all__ = [
     "ProgressiveToolCatalog",
     "TOOLSET_SPECS",
     "ToolsetSpec",
+    "PROGRESSIVE_DIRECT_TOOLS",
+    "compact_input_schema",
+    "compact_tool_schemas",
     "register_progressive_tools",
 ]

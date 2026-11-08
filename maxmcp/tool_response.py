@@ -567,9 +567,9 @@ def _add_quiet_override_warning(envelope: dict[str, Any], transport: dict[str, A
 
 
 EXPECTED_PID_PARAM = "expected_pid"
-_EXPECTED_PID_TYPE = Annotated[int | None, Field(description=(
-    "Optional. Refuse (nothing sent) unless this call reaches the 3ds Max with this PID. The Max selection "
-    "belongs to the MCP server process and other sessions may share it."))]
+# Every tool carries this parameter, so its description is paid for once per tool in
+# each client request. The routing tools explain the shared Max selection.
+_EXPECTED_PID_TYPE = Annotated[int | None, Field(description="Send nothing unless the call reaches the 3ds Max with this PID.")]
 
 
 def _add_target_warning(envelope: dict[str, Any], transport: dict[str, Any] | None) -> dict[str, Any]:

@@ -7,12 +7,45 @@ from functools import lru_cache
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from .max_client import MaxClient
-from .tool_discovery import register_progressive_tools
+from .tool_discovery import PROGRESSIVE_DIRECT_TOOLS, compact_tool_schemas, register_progressive_tools
 from .tool_response import make_structured_tool
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-mcp = FastMCP("3dsmax-mcp")
+TOOL_PROFILES = {"core", "full", "progressive"}
+DEFAULT_TOOL_PROFILE = "full"
+
+
+def _tool_profile() -> str:
+    value = os.environ.get("MCP_TOOL_PROFILE") or os.environ.get("THREEDSMAX_MCP_TOOL_PROFILE")
+    if value is not None:
+        normalized = value.strip().lower()
+        return normalized if normalized in TOOL_PROFILES else DEFAULT_TOOL_PROFILE
+
+    local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
+    if local_appdata:
+        config_path = Path(local_appdata) / "3dsmax-mcp" / "mcp_config.ini"
+        parser = configparser.ConfigParser()
+        try:
+            parser.read(config_path, encoding="utf-8")
+            normalized = parser.get("mcp", "tool_profile", fallback="").strip().lower()
+            if normalized in TOOL_PROFILES:
+                return normalized
+        except (OSError, configparser.Error):
+            pass
+    return DEFAULT_TOOL_PROFILE
+
+
+_PROGRESSIVE_INSTRUCTIONS = (
+    "Common 3ds Max tools are listed directly. For anything else, call find_tools with what you need "
+    "(e.g. 'boolean subtract', 'spline knots', 'light intensity'), then run the match with "
+    "call_tool(name, arguments). Never call a tool name that is not listed as a top-level tool."
+)
+
+mcp = FastMCP(
+    "3dsmax-mcp",
+    instructions=_PROGRESSIVE_INSTRUCTIONS if _tool_profile() == "progressive" else None,
+)
 # Operational tools loaded by the progressive profile live here.  This server
 # is never run, so its tools remain callable without being advertised by the
 # public MCP list_tools surface.
@@ -178,10 +211,13 @@ def _install_structured_tool_results() -> None:
     raw_tool = mcp.tool
     progressive_raw_tool = _progressive_mcp.tool
 
-    def registration_tool(fn):
-        if fn.__module__.endswith(".routing"):
-            return raw_tool
-        return progressive_raw_tool if _tool_profile() == "progressive" else raw_tool
+    def registration_tools(fn):
+        if fn.__module__.endswith(".routing") or _tool_profile() != "progressive":
+            return (raw_tool,)
+        if getattr(fn, "__name__", "") in PROGRESSIVE_DIRECT_TOOLS:
+            # Advertised directly, and still reachable through call_tool.
+            return (raw_tool, progressive_raw_tool)
+        return (progressive_raw_tool,)
 
     def structured_tool(*decorator_args, **decorator_kwargs):
         if decorator_args and callable(decorator_args[0]) and len(decorator_args) == 1 and not decorator_kwargs:
@@ -193,24 +229,20 @@ def _install_structured_tool_results() -> None:
                 transport_provider=client.get_last_transport,
                 pid_guard=_pid_guarded(fn),
             )
-            _register_raw_tool(registration_tool(fn), wrapped, annotations)
+            for target in registration_tools(fn):
+                _register_raw_tool(target, wrapped, annotations)
             return fn
 
         def decorate(fn):
             annotations = _tool_annotations(getattr(fn, "__name__", "") or "")
-            raw_decorator = _raw_tool_decorator(
-                registration_tool(fn),
-                decorator_args,
-                decorator_kwargs,
-                annotations,
-            )
             wrapped = make_structured_tool(
                 fn,
                 before_call=client.clear_last_response,
                 transport_provider=client.get_last_transport,
                 pid_guard=_pid_guarded(fn),
             )
-            raw_decorator(wrapped)
+            for target in registration_tools(fn):
+                _raw_tool_decorator(target, decorator_args, decorator_kwargs, annotations)(wrapped)
             return fn
 
         return decorate
@@ -293,30 +325,10 @@ SPECIALTY_TOOL_MODULES = (
 )
 
 
-def _tool_profile() -> str:
-    value = os.environ.get("MCP_TOOL_PROFILE") or os.environ.get("THREEDSMAX_MCP_TOOL_PROFILE")
-    if value is not None:
-        normalized = value.strip().lower()
-        return normalized if normalized in {"core", "full", "progressive"} else "full"
-
-    local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
-    if local_appdata:
-        config_path = Path(local_appdata) / "3dsmax-mcp" / "mcp_config.ini"
-        parser = configparser.ConfigParser()
-        try:
-            parser.read(config_path, encoding="utf-8")
-            normalized = parser.get("mcp", "tool_profile", fallback="").strip().lower()
-            if normalized in {"core", "full", "progressive"}:
-                return normalized
-        except (OSError, configparser.Error):
-            pass
-    return "full"
-
-
 def _register_tool_modules() -> None:
     import_module(".tools.routing", package=__package__)
     if _tool_profile() == "progressive":
-        register_progressive_tools(
+        catalog = register_progressive_tools(
             public_mcp=mcp,
             hidden_mcp=_progressive_mcp,
             package=__package__,
@@ -325,6 +337,9 @@ def _register_tool_modules() -> None:
             before_call=client.clear_last_response,
             transport_provider=client.get_last_transport,
         )
+        # Importing these modules advertises PROGRESSIVE_DIRECT_TOOLS (see
+        # _install_structured_tool_results); their other tools stay hidden.
+        catalog.load_tools(sorted(PROGRESSIVE_DIRECT_TOOLS), verify=False)
         return
 
     modules = list(CORE_TOOL_MODULES)
@@ -334,10 +349,12 @@ def _register_tool_modules() -> None:
         import_module(f".tools.{name}", package=__package__)
 
 
-# Import tool modules to trigger @mcp.tool() registration. Default is full;
-# set MCP_TOOL_PROFILE=core for everyday tools or progressive for the three
-# lazy discovery/dispatch meta-tools.
+# Import tool modules to trigger @mcp.tool() registration. Default is full; set
+# MCP_TOOL_PROFILE=core for the everyday subset or progressive for routing tools,
+# PROGRESSIVE_DIRECT_TOOLS and the discovery meta-tools.
 _register_tool_modules()
+# Clients send these schemas to the model with every request (issue #38).
+compact_tool_schemas(mcp)
 
 
 SKILL_RESOURCE_URI = "resource://3dsmax-mcp/skill"
@@ -384,11 +401,9 @@ def max_assistant() -> str:
     )
     if _tool_profile() == "progressive":
         scene_call_rule = (
-            "This server uses the progressive tool profile. Instance routing tools plus list_toolsets, "
-            "describe_toolset, and call_tool are advertised.\n"
-            "Use list_toolsets to choose a capability group, describe_toolset to load its exact "
-            "schemas, then invoke the selected operational tool through call_tool. Never call a "
-            "hidden operational name as a top-level MCP tool.\n"
+            "This server uses the progressive tool profile: instance routing tools, the most common "
+            "operational tools, and find_tools, list_toolsets, describe_toolset and call_tool are advertised.\n"
+            f"{_PROGRESSIVE_INSTRUCTIONS}\n"
         )
     base_rules = (
         "You are a 3ds Max assistant connected via MCP.\n"
@@ -426,6 +441,8 @@ def main():
     from .parent_watchdog import start_parent_watchdog
 
     start_parent_watchdog()
+    # Tool modules that imported the server first register after it finished importing.
+    compact_tool_schemas(mcp)
     mcp.run(transport="stdio")
     # Client closed stdin: exit even if non-daemon threads linger, but never
     # while a diagnostics capture holds a Max thread suspended.

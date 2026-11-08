@@ -35,8 +35,8 @@ Skip skill deployment:
 uv run python install.py --skip-skill
 ```
 
-The installer prompts for the external MCP tool profile and defaults to `full` for maximum
-client compatibility. Context-limited local or smaller models can use the progressive surface:
+The installer prompts for the external MCP tool profile and defaults to `full`. Local or
+smaller models with a small context window can use the progressive surface:
 
 ```powershell
 uv run python install.py --tool-profile progressive
@@ -107,7 +107,7 @@ Config file locations:
 
 ## Tool profiles
 
-The installer defaults to **full**, which advertises every operational tool directly for maximum MCP client compatibility. For context-limited local or smaller models, **progressive** advertises only `list_toolsets`, `describe_toolset`, and `call_tool`, then lazy-loads exact operational schemas on demand. **Core** remains the smaller eager profile. A server launched without an installed setting or environment override also falls back to **full**.
+MCP clients send every advertised tool definition with each model request, so the profile decides how much of the context window the server takes before any work starts. The default, **full**, advertises every tool directly; clients such as Claude Code and Codex search large tool lists on their own and load only what a task needs. **Progressive** advertises the instance routing tools, the most common operational tools (`PROGRESSIVE_DIRECT_TOOLS` in `maxmcp/tool_discovery.py`) and four meta-tools; every other tool is found with `find_tools` and run through `call_tool`. Use it for local or smaller models and clients that send every tool definition with each request. **Core** is the smaller eager profile. A server launched without an installed setting or environment override uses **full**. The Windows setup asks for the profile and accepts `/TOOLPROFILE=full|progressive|core` for unattended installs.
 
 ```powershell
 $env:MCP_TOOL_PROFILE = "progressive"
@@ -118,19 +118,26 @@ The installer persists the choice as `[mcp] tool_profile` in
 `%LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini`. `MCP_TOOL_PROFILE` (or
 `THREEDSMAX_MCP_TOOL_PROFILE`) overrides that setting for a specific launch.
 
-| Profile | Advertised surface |
-|---------|--------------------|
-| **progressive** (context-efficient) | Three discovery/dispatch meta-tools; operational modules and schemas load only when described or called; useful for local or smaller models |
-| **core** | Eager scene, object, material, modifier, controller, viewport, file, plugin, organization, and learning tools |
-| **full** (installer default) | Eager core plus tyFlow, MCG, Forest Pack, RailClone, Data Channel, effects, state sets, wire params, render, render automations, and the development-only native core reload |
+| Profile | Advertised surface | Tool definitions per request (Claude tokens, approx.) |
+|---------|--------------------|-------------------------------------------------------|
+| **progressive** | 4 instance routing tools, 14 common tools, and `find_tools`, `list_toolsets`, `describe_toolset`, `call_tool`; other modules load when found or called | ~7k |
+| **core** | Eager scene, object, material, modifier, controller, viewport, file, plugin, organization, and learning tools | ~50k |
+| **full** (default) | Eager core plus tyFlow, MCG, Forest Pack, RailClone, Data Channel, effects, state sets, wire params, render, render automations, and the development-only native core reload | ~73k |
+
+The full figure was measured from a Claude session's first request; the others are
+estimated from schema size. Other models' tokenizers count differently.
+
+Advertised input schemas omit Pydantic titles and spell optional `X | None = None`
+parameters as plain `X`; arguments are still validated against the Python signature,
+so an explicit `null` is accepted.
 
 Progressive workflow:
 
-1. Call `list_toolsets` to choose a capability group.
-2. Call `describe_toolset` for that group’s exact tool names and input schemas.
-3. Call `call_tool` with the selected name and argument object.
+1. Use a directly listed tool when one fits.
+2. Otherwise call `find_tools(query)` with what you need, for example `"boolean subtract"` or `"spline knots"`. It returns the best matches with their exact input schemas. `list_toolsets` and `describe_toolset(toolset, tools=[...])` browse the groups instead.
+3. Call `call_tool(name, arguments)`. Invalid or unknown argument names return the tool's `input_schema` in the hint, and an unknown tool name suggests close matches.
 
-Operational tools stay in a private registry, so `tools/list` remains at three entries after discovery. `call_tool` accepts only tools declared by the core/full module allowlist, rejects meta-tool and recursive dispatch, validates arguments with the original FastMCP schema, and returns the same `ToolEnvelope` as eager profiles. It does not make mutating tools safer: bridge `safe_mode`, tool-specific dry-run controls, and normal mutation precautions still apply.
+Operational tools stay in a private registry, so `tools/list` does not change after discovery. `call_tool` accepts only tools declared by the core/full module allowlist, rejects meta-tool and recursive dispatch, validates arguments with the original FastMCP schema, and returns the same `ToolEnvelope` as eager profiles. It also rejects argument names the tool does not take, because the model writes `arguments` without schema-guided generation. It does not make mutating tools safer: bridge `safe_mode`, tool-specific dry-run controls, and normal mutation precautions still apply.
 
 To use the smaller eager surface instead:
 

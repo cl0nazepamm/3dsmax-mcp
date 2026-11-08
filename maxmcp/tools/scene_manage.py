@@ -4,7 +4,10 @@ from ..server import mcp, client
 
 @mcp.tool()
 def manage_scene(action: str) -> str:
-    """Manage the 3ds Max scene state."""
+    """Manage the 3ds Max scene file. action: hold | fetch | reset | save | info.
+
+    save writes the current file path (never Save As); fetch and reset show their prompts.
+    """
     action = action.lower().strip()
 
     if client.native_available:

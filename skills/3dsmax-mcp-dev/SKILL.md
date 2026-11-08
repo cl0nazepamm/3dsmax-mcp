@@ -11,7 +11,7 @@ single tool can: routing, tool choice, cross-tool workflows, safety rules and MA
 ## Tool Profile Routing
 
 - **Full/core:** operational tools such as `query_scene` and `create_object` are advertised directly; call them by name.
-- **Progressive:** if only `list_toolsets`, `describe_toolset` and `call_tool` are advertised, never call an operational name as a top-level tool. Pick a capability with `list_toolsets`, load only that group with `describe_toolset`, then invoke it through `call_tool(name=..., arguments=...)`. If the exact tool and arguments are already known, `call_tool` can dispatch directly.
+- **Progressive:** the common tools are advertised directly; every other tool is reached through `call_tool`. Never call an unlisted name as a top-level tool. Find one with `find_tools(query=...)`, which returns the best matches with their exact schemas, then run it with `call_tool(name=..., arguments=...)`. `list_toolsets` and `describe_toolset(toolset=..., tools=[...])` browse the groups. Tool names in this guide that are not listed are reached the same way.
 
 ## Principles
 
