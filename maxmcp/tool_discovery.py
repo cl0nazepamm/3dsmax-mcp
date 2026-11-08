@@ -30,7 +30,7 @@ META_TOOL_NAMES = frozenset({"list_toolsets", "find_tools", "describe_toolset", 
 PROGRESSIVE_DIRECT_TOOLS = frozenset({
     "query_scene", "inspect_object", "create_object", "transform_object", "set_object_property",
     "delete_objects", "clone_objects", "add_modifier", "set_modifier_property", "assign_material",
-    "set_material_property", "execute_maxscript", "capture_viewport", "undo_last",
+    "set_material_property", "execute_maxscript", "capture_viewport", "undo_last", "run_python",
 })
 _RESULT_CONTRACT = "ToolEnvelope: {ok,result} or {ok:false,error}; optional hint/transport."
 _WORD = re.compile(r"[a-z0-9]+")
@@ -129,8 +129,8 @@ TOOLSET_SPECS = (
     ),
     ToolsetSpec(
         "automation",
-        "MAXScript and Python fallbacks plus direct invocation and smoke-test drivers.",
-        ("execute", "tool_test"),
+        "run_python scripts over the mx API, MAXScript and Python fallbacks, direct invocation and smoke-test drivers.",
+        ("execute", "tool_test", "python_api"),
     ),
     ToolsetSpec(
         "data_channel",
@@ -490,6 +490,44 @@ def _error_envelope(
     return ToolEnvelope.model_validate(payload).model_dump(mode="json", exclude_none=True)
 
 
+def invoke_tool(tool: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Validate arguments strictly and run one registered tool, returning its ToolEnvelope dict.
+
+    Used wherever arguments are written freehand rather than generated against the tool's
+    schema (call_tool, the mx Python API), so a misspelled name is refused instead of
+    silently dropped and the tool run on defaults.
+    """
+    name = tool.name
+    if getattr(tool, "is_async", False) or getattr(tool, "context_kwarg", None):
+        return _error_envelope(f"Tool {name!r} cannot be dispatched synchronously", code="BAD_PARAM")
+    metadata = tool.fn_metadata
+    fields = metadata.arg_model.model_fields
+    known = set(fields) | {field.alias for field in fields.values() if field.alias}
+    unknown = sorted(set(arguments) - known)
+    try:
+        if unknown:
+            raise ValueError(f"unknown argument(s) {unknown}")
+        parsed = metadata.arg_model.model_validate(metadata.pre_parse_json(arguments))
+    except (ValidationError, ValueError) as exc:
+        problems = (
+            "; ".join(f"{'.'.join(map(str, err['loc'])) or 'arguments'}: {err['msg']}" for err in exc.errors())
+            if isinstance(exc, ValidationError) else str(exc)
+        )
+        return _error_envelope(
+            f"Invalid arguments for {name!r}: {problems}",
+            code="BAD_PARAM",
+            error_type="InvalidArguments",
+            hint={
+                "message": "Retry with arguments matching input_schema.",
+                "input_schema": getattr(tool, "_full_schema", tool.parameters),
+            },
+        )
+    # tool.fn is the make_structured_tool wrapper every profile uses, preserving
+    # safe-mode behavior, transport metadata, hints and the ToolEnvelope contract.
+    result = tool.fn(**parsed.model_dump_one_level())
+    return ToolEnvelope.model_validate(result).model_dump(mode="json", exclude_none=True)
+
+
 class ProgressiveToolCatalog:
     """Source-indexed catalog backed by a non-advertised FastMCP registry."""
 
@@ -739,49 +777,7 @@ class ProgressiveToolCatalog:
                     f"Tool {normalized!r} was not registered after loading {module!r}",
                     code="NOT_FOUND",
                 )
-            if getattr(tool, "is_async", False):
-                return _error_envelope(
-                    f"Async tool {normalized!r} is not supported by synchronous progressive dispatch",
-                    code="BAD_PARAM",
-                )
-            if getattr(tool, "context_kwarg", None):
-                return _error_envelope(
-                    f"Context-injected tool {normalized!r} is not supported by progressive dispatch",
-                    code="BAD_PARAM",
-                )
-
-            raw_arguments = arguments or {}
-            metadata = tool.fn_metadata
-            # The model writes `arguments` freehand, without schema-guided generation, so a
-            # misspelled name would otherwise be dropped silently and the tool run on defaults.
-            fields = metadata.arg_model.model_fields
-            known = set(fields) | {field.alias for field in fields.values() if field.alias}
-            unknown = sorted(set(raw_arguments) - known)
-            try:
-                if unknown:
-                    raise ValueError(f"unknown argument(s) {unknown}")
-                parsed = metadata.arg_model.model_validate(metadata.pre_parse_json(raw_arguments))
-            except (ValidationError, ValueError) as exc:
-                problems = (
-                    "; ".join(f"{'.'.join(map(str, err['loc'])) or 'arguments'}: {err['msg']}" for err in exc.errors())
-                    if isinstance(exc, ValidationError) else str(exc)
-                )
-                return _error_envelope(
-                    f"Invalid arguments for {normalized!r}: {problems}",
-                    code="BAD_PARAM",
-                    error_type="InvalidArguments",
-                    hint={
-                        "message": "Retry call_tool with arguments matching input_schema.",
-                        "input_schema": tool.parameters,
-                    },
-                )
-            kwargs = parsed.model_dump_one_level()
-
-            # tool.fn is the same make_structured_tool wrapper used by eager
-            # profiles, preserving safe-mode behavior, transport metadata,
-            # hints, and the stable ToolEnvelope contract.
-            result = tool.fn(**kwargs)
-            return ToolEnvelope.model_validate(result).model_dump(mode="json", exclude_none=True)
+            return invoke_tool(tool, arguments or {})
         except Exception as exc:
             return _error_envelope(
                 f"Could not invoke {normalized!r}: {exc}",

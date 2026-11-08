@@ -8,6 +8,7 @@ from mcp.server.fastmcp import FastMCP
 from .max_client import MaxClient
 from .tool_discovery import (
     PROGRESSIVE_DIRECT_TOOLS,
+    ProgressiveToolCatalog,
     compact_tool_docs,
     compact_tool_schemas,
     install_signature_error_hints,
@@ -20,12 +21,19 @@ from .user_config import TOOL_PROFILES, setting
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 DEFAULT_TOOL_PROFILE = "full"
+# Profiles whose operational tools live in the hidden registry, advertising only a few.
+_HIDDEN_PROFILES = ("progressive", "script")
 
 
 def _tool_profile() -> str:
     """MCP_TOOL_PROFILE, else `[mcp] tool_profile` in the user config, else full."""
     return setting(("MCP_TOOL_PROFILE", "THREEDSMAX_MCP_TOOL_PROFILE"), "tool_profile", TOOL_PROFILES,
                    DEFAULT_TOOL_PROFILE)
+
+
+def _direct_tools() -> frozenset[str]:
+    """Operational tools a hidden-registry profile still advertises directly."""
+    return frozenset({"run_python"}) if _tool_profile() == "script" else PROGRESSIVE_DIRECT_TOOLS
 
 
 _PROGRESSIVE_INSTRUCTIONS = (
@@ -46,11 +54,29 @@ _EXPECTED_PID_INSTRUCTIONS = (
 )
 
 
-def _server_instructions() -> str | None:
-    if not compact_tool_docs():
-        return _PROGRESSIVE_INSTRUCTIONS if _tool_profile() == "progressive" else None
-    lead = _PROGRESSIVE_INSTRUCTIONS if _tool_profile() == "progressive" else _SIGNATURE_INSTRUCTIONS
-    return f"{lead} {_EXPECTED_PID_INSTRUCTIONS}"
+_SCRIPT_INSTRUCTIONS = (
+    "For work with more than one step (build, edit, measure, verify), write one run_python script "
+    "with the mx API instead of calling tools one by one; use single tools for one-off reads or edits."
+)
+
+
+_SCRIPT_PROFILE_INSTRUCTIONS = (
+    "Work in 3ds Max by writing run_python scripts against the mx API; it is the only operational tool. "
+    "mx.tools.<name>(**arguments) runs any of the ~180 3dsmax-mcp tools and mx.help(name) prints its manual."
+)
+
+
+def _server_instructions() -> str:
+    if _tool_profile() == "script":
+        return _SCRIPT_PROFILE_INSTRUCTIONS
+    parts = [_SCRIPT_INSTRUCTIONS]
+    if _tool_profile() == "progressive":
+        parts.append(_PROGRESSIVE_INSTRUCTIONS)
+    elif compact_tool_docs():
+        parts.append(_SIGNATURE_INSTRUCTIONS)
+    if compact_tool_docs():
+        parts.append(_EXPECTED_PID_INSTRUCTIONS)
+    return " ".join(parts)
 
 
 mcp = FastMCP("3dsmax-mcp", instructions=_server_instructions())
@@ -220,10 +246,10 @@ def _install_structured_tool_results() -> None:
     progressive_raw_tool = _progressive_mcp.tool
 
     def registration_tools(fn):
-        if fn.__module__.endswith(".routing") or _tool_profile() != "progressive":
+        if fn.__module__.endswith(".routing") or _tool_profile() not in _HIDDEN_PROFILES:
             return (raw_tool,)
-        if getattr(fn, "__name__", "") in PROGRESSIVE_DIRECT_TOOLS:
-            # Advertised directly, and still reachable through call_tool.
+        if getattr(fn, "__name__", "") in _direct_tools():
+            # Advertised directly, and still reachable from call_tool and mx.
             return (raw_tool, progressive_raw_tool)
         return (progressive_raw_tool,)
 
@@ -310,6 +336,7 @@ CORE_TOOL_MODULES = (
     "keyframes",
     "tool_test",
     "mainthread",
+    "python_api",
 )
 
 SPECIALTY_TOOL_MODULES = (
@@ -333,10 +360,26 @@ SPECIALTY_TOOL_MODULES = (
 )
 
 
+# The progressive profile's catalog of hidden tools, for in-process callers such as mx.
+progressive_catalog = None
+
+
 def _register_tool_modules() -> None:
+    global progressive_catalog
     import_module(".tools.routing", package=__package__)
+    if _tool_profile() == "script":
+        # Code first: run_python is the only operational tool advertised; every other tool
+        # lives in the hidden registry and is reached from scripts through mx.
+        catalog = progressive_catalog = ProgressiveToolCatalog(
+            package=__package__,
+            tools_dir=Path(__file__).resolve().parent / "tools",
+            hidden_mcp=_progressive_mcp,
+            allowed_modules=CORE_TOOL_MODULES + SPECIALTY_TOOL_MODULES,
+        )
+        catalog.load_tools(["run_python"], verify=False)
+        return
     if _tool_profile() == "progressive":
-        catalog = register_progressive_tools(
+        catalog = progressive_catalog = register_progressive_tools(
             public_mcp=mcp,
             hidden_mcp=_progressive_mcp,
             package=__package__,

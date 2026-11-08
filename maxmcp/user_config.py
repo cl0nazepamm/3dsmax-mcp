@@ -6,7 +6,7 @@ import os
 import re
 from pathlib import Path
 
-TOOL_PROFILES = ("full", "progressive", "core")
+TOOL_PROFILES = ("full", "progressive", "core", "script")
 TOOL_DOCS = ("hybrid", "signature", "complete")
 
 

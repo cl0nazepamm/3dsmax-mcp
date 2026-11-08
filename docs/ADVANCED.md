@@ -160,6 +160,24 @@ In every mode, advertised input schemas omit Pydantic titles and spell optional
 `X | None = None` parameters as plain `X`; arguments are still validated against the Python
 signature, so an explicit `null` is accepted.
 
+### Python scripts (`run_python` and `mx`)
+
+`run_python(code)` runs a script in the MCP server process with `mx` (`maxmcp.mx`) pre-imported. Every `mx` call
+goes through the same validated, guarded tool as an MCP call, so undo ownership, stale-token guards and readback
+are unchanged; each call is its own undo step.
+
+```python
+blk = mx.box("Block", width=100, length=60, height=40, pos=(900, 0, 0))
+mx.boolean(blk, operation="subtract", cutters=[{"name": "Hole", "shape": "cylinder", "size": [30, 30, 60], "pos": [900, 0, 20]}])
+key = mx.area_light("Key", width=50, height=50, at=(900, -80, 150), aim_at=blk.center, intensity=1000, unit="cd")
+result = {"bbox": blk.bbox, "faces": mx.qa(blk)["counts"]["triangles"]}
+```
+
+Helpers live in `maxmcp/mx/objects.py`, `modeling.py`, `shading.py` and `view.py`; `mx.tools.<name>(**arguments)` calls
+any tool and `mx.help(name)` returns its manual. Scripts may import `mx` and the standard math/json/re/itertools
+family only, have no `open` or process access, and stop at `timeout_s`. The same API works from any Python
+process that can import `maxmcp`. `MCP_TOOL_PROFILE=script` advertises only `run_python` and the routing tools.
+
 Progressive workflow:
 
 1. Use a directly listed tool when one fits.
