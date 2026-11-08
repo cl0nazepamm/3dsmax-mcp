@@ -162,9 +162,22 @@ signature, so an explicit `null` is accepted.
 
 ### Python scripts (`run_python` and `mx`)
 
-`run_python(code)` runs a script in the MCP server process with `mx` (`maxmcp.mx`) pre-imported. Every `mx` call
-goes through the same validated, guarded tool as an MCP call, so undo ownership, stale-token guards and readback
-are unchanged; each call is its own undo step.
+`run_python(code)` runs a script with `mx` (`maxmcp.mx`) pre-imported. Every `mx` call goes through the same
+validated, guarded tool as an MCP call, so stale-token guards and readback are unchanged. The reply's `ran_in` says
+where it ran:
+
+- **`max`**: inside 3ds Max's own Python, when the bridge allows Python (`safe_mode` off), exports the in-process
+  entry point `mcp_bridge_call`, and Max's Python matches the server's (3ds Max 2027 and the server both run 3.13).
+  `mx` reaches the native handlers in-process instead of over the named pipe, `rt` (`pymxs.runtime`) and `pymxs`
+  are in scope, and the script's tool calls form one undo step (`theHold.SuperBegin`/`SuperAccept`) that is rolled
+  back entirely if the script raises. Each handler still opens its own hold inside the group and still refuses to
+  join an operation the user has open. Raw `rt` edits are recorded by undo only inside `pymxs.undo(True)`, where tool
+  calls refuse with `USER_BUSY`.
+- **`server`**: otherwise, in the MCP server process, sandboxed, each tool call its own undo step; `note` says why
+  it could not run in Max. `where="max"` or `"server"` forces one.
+
+Inside Max the same API is available to any script: `import maxmcp.inmax as inmax; inmax.activate()` routes `mx`
+through the bridge in-process, and `inmax.run_script(code)` runs a script as one undo step.
 
 ```python
 blk = mx.box("Block", width=100, length=60, height=40, pos=(900, 0, 0))
@@ -175,7 +188,7 @@ result = {"bbox": blk.bbox, "faces": mx.qa(blk)["counts"]["triangles"]}
 
 Helpers live in `maxmcp/mx/objects.py`, `modeling.py`, `shading.py` and `view.py`; `mx.tools.<name>(**arguments)` calls
 any tool and `mx.help(name)` returns its manual. Scripts may import `mx` and the standard math/json/re/itertools
-family only, have no `open` or process access, and stop at `timeout_s`. The same API works from any Python
+family only when they run in the server, and stop at `timeout_s`. The same API works from any Python
 process that can import `maxmcp`. `MCP_TOOL_PROFILE=script` advertises only `run_python` and the routing tools.
 
 Progressive workflow:

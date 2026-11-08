@@ -16,7 +16,7 @@ single tool can: routing, tool choice, cross-tool workflows, safety rules and MA
 
 ## Principles
 
-- Multi-step work (build, edit, measure, verify): write one `run_python` script against the `mx` API instead of calling tools one by one. `mx.box(...)`, `mx.boolean(...)`, `mx.area_light(...)` and `mx.tools.<any_tool>(...)` run the same guarded tools and return their readback; a failing call raises `mx.MaxToolError` with the line number. Use single tools for one-off reads or edits.
+- Multi-step work (build, edit, measure, verify): write one `run_python` script against the `mx` API instead of calling tools one by one. `mx.box(...)`, `mx.boolean(...)`, `mx.area_light(...)` and `mx.tools.<any_tool>(...)` run the same guarded tools and return their readback; a failing call raises `mx.MaxToolError` with the line number. When the reply says `ran_in: "max"` the script ran inside 3ds Max: `rt`/`pymxs` were available and its tool calls were one undo step, rolled back if it raised. Use single tools for one-off reads or edits.
 - Match the user's request. Do not run setup, discovery or scene analysis by habit, and do not call `get_bridge_status` or `get_session_context` as a preamble.
 - Prefer a dedicated tool over raw MAXScript whenever one clearly matches.
 - Do not render unless the user asks. Viewport capture is fine when visual proof helps.

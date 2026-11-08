@@ -92,6 +92,7 @@ set(MCP_SHELL_SOURCES
     src/undo_records.cpp
     src/core_host.cpp
     src/core_control.cpp
+    src/python_binding.cpp
 )
 
 # SHARED: stateless code both sides call (agent viewport and handlers). Linked

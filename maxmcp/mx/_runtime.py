@@ -38,7 +38,11 @@ class MaxToolError(RuntimeError):
 
 
 def set_backend(backend: Backend | None) -> None:
-    """Route calls to `backend(tool, arguments) -> ToolEnvelope dict`; None restores the server."""
+    """Route calls to `backend(tool, arguments) -> ToolEnvelope dict`; None restores the server.
+
+    A backend may also provide describe(name) -> (signature text, manual, inspect.Signature
+    or None) | None and names() -> iterable of tool names, for mx.help and mx.tools.
+    """
     global _backend
     _backend = backend
 
@@ -108,16 +112,41 @@ def _registered_tool(name: str) -> Any:
     return tool
 
 
-def help(name: str) -> str:  # noqa: A001 - mirrors Python's help() for tools
-    """The full manual of one tool, with its Python signature."""
+def _describe(name: str) -> tuple[str, str, inspect.Signature | None] | None:
+    """(signature text, manual, Python signature) of one tool from the active backend."""
+    if _backend is not None and hasattr(_backend, "describe"):
+        return _backend.describe(name)
     from ..tool_discovery import python_signature
 
     tool = _registered_tool(name)
     if tool is None:
-        raise MaxToolError(name, {"code": "NOT_FOUND", "message": f"unknown tool {name!r}"})
-    description = getattr(tool, "_full_description", tool.description) or ""
+        return None
+    try:
+        signature = inspect.signature(tool.fn)
+    except (TypeError, ValueError):
+        signature = None
     schema = getattr(tool, "_full_schema", tool.parameters)
-    return f"{name}{python_signature(schema)}\n\n{description}"
+    return python_signature(schema), getattr(tool, "_full_description", tool.description) or "", signature
+
+
+def _names() -> set[str]:
+    if _backend is not None and hasattr(_backend, "names"):
+        return set(_backend.names())
+    from .. import server
+
+    names = {tool.name for tool in server.mcp._tool_manager.list_tools()}
+    if server.progressive_catalog is not None:
+        names |= set(server.progressive_catalog.tool_modules)
+    return names
+
+
+def help(name: str) -> str:  # noqa: A001 - mirrors Python's help() for tools
+    """The full manual of one tool, with its Python signature."""
+    described = _describe(name)
+    if described is None:
+        raise MaxToolError(name, {"code": "NOT_FOUND", "message": f"unknown tool {name!r}"})
+    signature, manual, _ = described
+    return f"{name}{signature}\n\n{manual}"
 
 
 class _Tools:
@@ -132,24 +161,17 @@ class _Tools:
 
         tool_function.__name__ = name
         try:
-            tool = _registered_tool(name)
+            described = _describe(name)
         except Exception:
-            tool = None
-        if tool is not None:
-            tool_function.__doc__ = getattr(tool, "_full_description", tool.description)
-            try:
-                tool_function.__signature__ = inspect.signature(tool.fn)  # type: ignore[attr-defined]
-            except (TypeError, ValueError):
-                pass
+            described = None
+        if described is not None:
+            tool_function.__doc__ = described[1]
+            if described[2] is not None:
+                tool_function.__signature__ = described[2]  # type: ignore[attr-defined]
         return tool_function
 
     def __dir__(self) -> list[str]:
-        from .. import server
-
-        names = {tool.name for tool in server.mcp._tool_manager.list_tools()}
-        if server.progressive_catalog is not None:
-            names |= set(server.progressive_catalog.tool_modules)
-        return sorted(names - _BLOCKED)
+        return sorted(_names() - _BLOCKED)
 
 
 tools = _Tools()

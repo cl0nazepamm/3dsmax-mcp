@@ -5,3 +5,4 @@ EXPORTS
     LibVersion          @4
     LibInitialize       @5
     LibShutdown         @6
+    mcp_bridge_call     @7

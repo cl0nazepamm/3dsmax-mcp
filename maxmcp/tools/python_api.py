@@ -1,20 +1,26 @@
-"""run_python: one script against the mx Python API instead of many tool calls."""
+"""run_python: one script against the mx API instead of many tool calls.
+
+The script runs inside 3ds Max when it can: mx calls reach the native bridge in-process,
+pymxs is in scope and the whole script is one undo step. Otherwise (bridge safe mode on,
+an older bridge, or a Max whose Python differs from the server's) it runs here, in the
+MCP server, sandboxed, with each tool call its own undo step.
+"""
 
 from __future__ import annotations
 
 import builtins
-import ctypes
-import threading
-import time
-import traceback
+import json
+import sys
+import sysconfig
+from pathlib import Path
 from typing import Any
 
-from ..server import mcp
+from ..server import client, mcp
 from .. import mx
-from ..mx import _runtime
+from ..helpers.maxscript import safe_string
+from ..max_client import MaxBridgeError
+from ..mx import _script
 
-_OUTPUT_LIMIT = 20_000
-_TRACE_LIMIT = 100
 _MODULES = frozenset({
     "math", "cmath", "json", "re", "itertools", "functools", "collections", "statistics", "random",
     "dataclasses", "typing", "enum", "copy", "string", "decimal", "fractions", "operator", "textwrap", "numbers",
@@ -36,54 +42,90 @@ def _import(name: str, globals: Any = None, locals: Any = None, fromlist: Any = 
         return mx
     if level == 0 and name.split(".")[0] in _MODULES:
         return builtins.__import__(name, globals, locals, fromlist, level)
-    raise ImportError(f"{name!r} is not available in run_python; use mx, or one of: {', '.join(sorted(_MODULES))}")
+    raise ImportError(f"{name!r} is not available here; use mx, or one of: {', '.join(sorted(_MODULES))}")
 
 
-def _plain(value: Any, depth: int = 0) -> Any:
-    """A JSON-safe copy of a script's result; Nodes become {name, handle}."""
-    if depth > 20:
-        return repr(value)
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return value
-    if isinstance(value, mx.Node):
-        return {"name": value.name, "handle": value.handle}
-    if isinstance(value, dict):
-        return {str(k): _plain(v, depth + 1) for k, v in value.items()}
-    if isinstance(value, (list, tuple, set, frozenset)):
-        return [_plain(v, depth + 1) for v in value]
-    return repr(value)
+def _run_in_server(code: str, timeout_s: float) -> dict[str, Any]:
+    """Sandboxed: only mx and the standard math/json/re family, no files or processes."""
+    safe_builtins: dict[str, Any] = {name: getattr(builtins, name) for name in _BUILTINS}
+    safe_builtins["__import__"] = _import
+    namespace: dict[str, Any] = {"__builtins__": safe_builtins, "__name__": "__mx_script__", "mx": mx}
+    reply = _script.execute(code, namespace, timeout_s)
+    reply["ran_in"] = "server"
+    return reply
 
 
-class _Interrupter:
-    """Raise TimeoutError in the script thread after the deadline, never inside a tool call."""
+def _launcher(code: str, timeout_s: float) -> str:
+    """MAXScript that runs the script through maxmcp.inmax inside Max and returns its JSON reply.
 
-    def __init__(self, thread_id: int, run: Any, deadline: float):
-        self.thread_id, self.run, self.deadline = thread_id, run, deadline
-        self.done = threading.Event()
-        self.thread = threading.Thread(target=self._watch, daemon=True)
+    No `undo on` here: the runner groups the script's tool calls with theHold.SuperBegin,
+    and a hold opened around it would make every tool call refuse with USER_BUSY.
+    """
+    root = str(Path(__file__).resolve().parents[2])
+    site = sysconfig.get_paths()["purelib"]
+    source = (
+        "import sys\n"
+        f"for _path in ({root!r}, {site!r}):\n"
+        "    if _path not in sys.path: sys.path.append(_path)\n"
+        "import maxmcp.inmax.runner as _runner\n"
+        f"_runner.launch({code!r}, {float(timeout_s)!r}, {tuple(sys.version_info[:2])!r})\n"
+    )
+    bootstrap = safe_string(f"exec({ascii(source)}, {{}})")
+    return f'''(
+    if theHold.Holding() then
+        "{{\\"status\\":\\"error\\",\\"code\\":\\"USER_BUSY\\",\\"error\\":\\"3ds Max has an open undo operation; finish it, then run the script again.\\"}}"
+    else (
+        global MCP_RunPython_Result
+        local previous = MCP_RunPython_Result
+        local reply
+        MCP_RunPython_Result = undefined
+        try (
+            python.Execute "{bootstrap}" clearUndoBuffer:false
+            reply = MCP_RunPython_Result
+        ) catch (
+            MCP_RunPython_Result = previous
+            throw()
+        )
+        MCP_RunPython_Result = previous
+        if classof reply != String do throw "run_python returned no result."
+        reply
+    )
+)'''
 
-    def _watch(self) -> None:
-        while not self.done.wait(min(0.25, max(0.0, self.deadline - time.monotonic()))):
-            if time.monotonic() >= self.deadline and not self.run.in_call:
-                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(self.thread_id), ctypes.py_object(TimeoutError))
-                return
 
-    def __enter__(self) -> "_Interrupter":
-        self.thread.start()
-        return self
-
-    def __exit__(self, *exc: Any) -> None:
-        self.done.set()
+def _run_in_max(code: str, timeout_s: float) -> tuple[dict[str, Any] | None, str]:
+    """(reply, "") when the script ran inside Max, else (None, why it could not)."""
+    try:
+        response = client.send_command(_launcher(code, timeout_s), cmd_type="maxscript", timeout=timeout_s + 30)
+    except MaxBridgeError as exc:
+        return None, f"3ds Max refused to run Python ({exc})"
+    text = response.get("result")
+    try:
+        reply = json.loads(text) if isinstance(text, str) else None
+    except ValueError:
+        reply = None
+    if not isinstance(reply, dict):
+        return None, f"unexpected reply from 3ds Max: {str(text)[:200]}"
+    if "unavailable" in reply:
+        return None, str(reply["unavailable"])
+    return reply, ""
 
 
 @mcp.tool()
-def run_python(code: str, timeout_s: float = 300) -> dict:
+def run_python(code: str, timeout_s: float = 300, where: str = "auto") -> dict:
     """Run a Python script against 3ds Max through the `mx` API: one script instead of many tool calls.
 
     Prefer it for multi-step work (build, measure, loop, verify). `mx` is pre-imported; every
     call goes through the same validated, guarded tools as the MCP tools and raises
     mx.MaxToolError (.code, .message, .hint) on failure. Units are scene units; positions are
-    (x, y, z). Each tool call is its own undo step.
+    (x, y, z).
+
+    Where it runs (`ran_in` in the reply): inside 3ds Max when the bridge allows Python
+    (safe_mode off) and Max's Python matches the server's. There `rt` (pymxs.runtime) and
+    pymxs are in scope too, and the script's tool calls are ONE undo step, rolled back
+    entirely if the script raises. Otherwise in the MCP server: imports limited to mx and the
+    standard math/json/re family, each tool call its own undo step. where="max" or "server"
+    forces one.
 
     Objects (return mx.Node): mx.box(name, width, length, height, pos=(x,y,z), pos_mode="ground"|"center"),
       mx.sphere(name, radius, pos, pos_mode), mx.cylinder(name, radius, height, pos, pos_mode),
@@ -98,75 +140,31 @@ def run_python(code: str, timeout_s: float = 300) -> dict:
       property_value, modifier_index=1), mx.remove_modifier(target, modifier), mx.mesh(name, vertices, faces),
       mx.inspect_mesh(target), mx.mesh_edit(target, operations, expected_mesh), mx.spline(name, points,
       closed=False), mx.curve(definition, name, action="create"|"preview"), mx.loft(sections, name),
-      mx.qa(target), mx.contacts(names, against).
+      mx.qa(target) -> {"counts": {...}, ...}, mx.contacts(names, against).
     Shading: mx.material(targets, material_class="PhysicalMaterial", material_name, params),
       mx.share_material(targets, source), mx.set_material(target, property, value),
       mx.area_light(name, width, height, at, aim_at, intensity, unit), mx.point_light(name, at, intensity, unit),
-      mx.sun(name, direction, intensity, unit), mx.lights([LightSpec dicts]), mx.light_capabilities().
-      Lights need intensity; check mx.light_capabilities() for the renderer's units (photometric: "cd").
+      mx.sun(name, direction, intensity, unit), mx.lights([LightSpec dicts]), mx.light_capabilities(),
+      mx.inspect_lights(targets). Lights need intensity; mx.light_capabilities() gives the units
+      (photometric: "cd").
     View: mx.capture(views=["front", "three_quarter"], shading="clay", edges=True) returns the image file,
       mx.open_viewport(), mx.frame(*targets), mx.orbit(yaw, pitch), mx.look(eye, target), mx.viewport_capture().
     Any tool: mx.tools.<tool_name>(**arguments) returns that tool's result; mx.help("tool_name") returns its
       manual. Raw MAXScript: mx.maxscript(code). Property values may be numbers, bools or (x, y, z).
 
     print() output and a variable named `result` are returned, with the list of tool calls made.
-    Imports are limited to mx and the standard math/json/re/itertools/functools/collections family.
     Do not render unless the user asks.
     """
-    if not code.strip():
-        return {"status": "error", "error": "code is empty"}
-    printed: list[str] = []
-    size = 0
-
-    def capture_print(*values: Any, sep: str = " ", end: str = "\n", **_: Any) -> None:
-        nonlocal size
-        text = sep.join(str(v) for v in values) + end
-        if size < _OUTPUT_LIMIT:
-            printed.append(text[: _OUTPUT_LIMIT - size])
-        size += len(text)
-
-    safe_builtins = {name: getattr(builtins, name) for name in _BUILTINS}
-    safe_builtins.update({"__import__": _import, "print": capture_print})
-    namespace: dict[str, Any] = {"__builtins__": safe_builtins, "__name__": "__mx_script__", "mx": mx}
-
-    deadline = time.monotonic() + max(1.0, min(float(timeout_s), 3600.0))
-    run = _runtime.begin_run(deadline)
-
-    def report() -> dict[str, Any]:
-        output = "".join(printed)
-        if size > _OUTPUT_LIMIT:
-            output += f"\n... output truncated ({size} characters printed)"
-        calls = run.trace[:_TRACE_LIMIT]
-        summary: dict[str, Any] = {"output": output, "calls": calls}
-        if len(run.trace) > _TRACE_LIMIT:
-            summary["calls_total"] = len(run.trace)
-        return summary
-
-    try:
-        compiled = compile(code, "<script>", "exec")
-    except SyntaxError as exc:
-        _runtime.end_run()
-        return {"status": "error", "error": f"SyntaxError: {exc.msg} (line {exc.lineno})",
-                "details": {"line": exc.lineno, "source": (exc.text or "").rstrip()}}
-    try:
-        with _Interrupter(threading.get_ident(), run, deadline):
-            exec(compiled, namespace)
-    except BaseException as exc:  # noqa: BLE001 - report every script failure, including the timeout
-        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
-            raise
-        frames = [f for f in traceback.extract_tb(exc.__traceback__) if f.filename == "<script>"]
-        line = frames[-1].lineno if frames else None
-        source = code.splitlines()[line - 1].strip() if line and line <= len(code.splitlines()) else ""
-        details = {"line": line, "source": source, **report()}
-        if isinstance(exc, mx.MaxToolError):
-            details.update({"tool": exc.tool, "code": exc.code, "hint": exc.hint})
-        text = str(exc) or (f"time limit of {timeout_s:g} s reached" if isinstance(exc, TimeoutError) else "")
-        message = f"{type(exc).__name__}: {text}" + (f" (script line {line})" if line else "")
-        return {"status": "error", "error": message, "details": _plain(details)}
-    finally:
-        _runtime.end_run()
-
-    summary = report()
-    if "result" in namespace:
-        summary["result"] = _plain(namespace["result"])
-    return summary
+    if where not in {"auto", "max", "server"}:
+        return {"status": "error", "error": "where must be 'auto', 'max' or 'server'"}
+    reason = ""
+    if where != "server":
+        reply, reason = _run_in_max(code, timeout_s)
+        if reply is not None:
+            return reply
+        if where == "max":
+            return {"status": "error", "error": f"Cannot run inside 3ds Max: {reason}"}
+    reply = _run_in_server(code, timeout_s)
+    if reason:
+        reply["note"] = f"Ran in the MCP server, not inside 3ds Max: {reason}"
+    return reply
