@@ -20,6 +20,7 @@ from typing import Any, Callable, Iterable
 from pydantic import ValidationError
 
 from .tool_response import ToolEnvelope, make_structured_tool
+from .user_config import TOOL_DOCS, setting
 
 
 META_TOOL_NAMES = frozenset({"list_toolsets", "find_tools", "describe_toolset", "call_tool"})
@@ -224,12 +225,192 @@ def _tool_manager(server: Any) -> Any:
     return manager
 
 
-def compact_tool_schemas(server: Any, names: Iterable[str] | None = None) -> None:
-    """Compact the advertised input schemas of registered tools in place (idempotent)."""
+DEFAULT_TOOL_DOCS = "hybrid"
+
+
+def tool_docs_mode() -> str:
+    """How advertised tools are documented: MCP_TOOL_DOCS, else `[mcp] tool_docs`, else hybrid.
+
+    - hybrid: PROGRESSIVE_DIRECT_TOOLS keep their full description and JSON Schema; every
+      other tool is a one-line summary plus a Python-style signature.
+    - signature: every tool is a summary plus signature (smallest).
+    - complete: every tool keeps its full description and JSON Schema.
+
+    In hybrid and signature, tool_help(name) returns any tool's full manual and schema.
+    """
+    return setting(("MCP_TOOL_DOCS", "THREEDSMAX_MCP_TOOL_DOCS"), "tool_docs", TOOL_DOCS, DEFAULT_TOOL_DOCS)
+
+
+def compact_tool_docs() -> bool:
+    """hybrid and signature leave expected_pid out of the advertised tools (named once instead)."""
+    return tool_docs_mode() != "complete"
+
+
+def summary_line(text: str | None) -> str:
+    """The docstring's first non-empty line, like a binding reference entry."""
+    for line in (text or "").splitlines():
+        if line.strip():
+            return line.strip()[:200]
+    return ""
+
+
+_PY_TYPES = {"string": "str", "integer": "int", "number": "float", "boolean": "bool", "null": "None"}
+
+
+def _py_type(schema: Any, refs: set[str]) -> str:
+    if not isinstance(schema, dict) or not schema:
+        return "Any"
+    if "$ref" in schema:
+        name = schema["$ref"].rsplit("/", 1)[-1]
+        refs.add(name)
+        return name
+    if "enum" in schema:
+        return "|".join(repr(value) for value in schema["enum"])
+    if "const" in schema:
+        return repr(schema["const"])
+    for key in ("anyOf", "oneOf"):
+        if isinstance(schema.get(key), list):
+            return "|".join(_py_type(sub, refs) for sub in schema[key])
+    kind = schema.get("type")
+    if isinstance(kind, list):
+        return "|".join(_PY_TYPES.get(item, item) for item in kind)
+    if kind == "array":
+        return f"list[{_py_type(schema.get('items', {}), refs)}]"
+    if kind == "object":
+        extra = schema.get("additionalProperties")
+        return f"dict[str,{_py_type(extra, refs)}]" if isinstance(extra, dict) and extra else "dict"
+    return _PY_TYPES.get(kind, "Any")
+
+
+def _py_params(schema: dict[str, Any], refs: set[str], skip: tuple[str, ...] = ()) -> str:
+    required = set(schema.get("required", []))
+    rendered = []
+    for name, prop in (schema.get("properties") or {}).items():
+        if name in skip:
+            continue
+        text = f"{name}:{_py_type(prop, refs)}"
+        if name not in required:
+            text += f"={prop.get('default')!r}"
+        rendered.append(text)
+    return ", ".join(rendered)
+
+
+def python_signature(schema: dict[str, Any]) -> str:
+    """Render an input schema as a compact Python-style signature plus its nested models."""
+    refs: set[str] = set()
+    lines = [f"({_py_params(schema, refs, skip=('expected_pid',))})"]
+    defs = schema.get("$defs") or {}
+    done: set[str] = set()
+    while refs - done:
+        name = sorted(refs - done)[0]
+        done.add(name)
+        lines.append(f"{name}={{{_py_params(defs.get(name) or {}, refs)}}}")
+    return "\n".join(lines)
+
+
+def _forbid_unknown_arguments(tool: Any) -> None:
+    """A free-form schema no longer constrains argument names, so refuse unknown ones."""
+    model = tool.fn_metadata.arg_model
+    if model.model_config.get("extra") != "forbid":
+        model.model_config["extra"] = "forbid"
+        model.model_rebuild(force=True)
+
+
+def _drop_expected_pid(schema: dict[str, Any]) -> dict[str, Any]:
+    """Leave expected_pid out of the advertised schema; calls still accept it."""
+    properties = schema.get("properties")
+    if not isinstance(properties, dict) or "expected_pid" not in properties:
+        return schema
+    schema = {**schema, "properties": {k: v for k, v in properties.items() if k != "expected_pid"}}
+    if "required" in schema:
+        schema["required"] = [name for name in schema["required"] if name != "expected_pid"]
+    return schema
+
+
+def _encode_signature(tool: Any) -> None:
+    """Advertise a one-line summary plus Python signature; keep the full docs for tool_help.
+
+    The signature carries the argument contract and the advertised schema only says "an
+    object". Validation still runs against the Python signature, strictly.
+    """
+    signature = python_signature(tool.parameters)
+    object.__setattr__(tool, "_full_description", tool.description)
+    object.__setattr__(tool, "_full_schema", tool.parameters)
+    object.__setattr__(tool, "_signature", signature)
+    tool.description = f"{summary_line(tool.description)}\n{signature}"
+    tool.parameters = {"type": "object"}
+    _forbid_unknown_arguments(tool)
+
+
+def compact_tool_schemas(server: Any, names: Iterable[str] | None = None, *, docs: bool = True) -> None:
+    """Compact the advertised schemas of registered tools in place and apply tool_docs_mode().
+
+    Idempotent. docs=False keeps full documentation, for registries that only describe
+    tools on demand.
+    """
     manager = _tool_manager(server)
     tools = manager.list_tools() if names is None else filter(None, map(manager.get_tool, names))
+    mode = tool_docs_mode() if docs else "complete"
     for tool in tools:
+        if getattr(tool, "_docs_encoded", False):
+            continue
         tool.parameters = compact_input_schema(tool.parameters)
+        if mode == "signature" or (mode == "hybrid" and tool.name not in PROGRESSIVE_DIRECT_TOOLS):
+            _encode_signature(tool)
+        elif mode == "hybrid":
+            tool.parameters = _drop_expected_pid(tool.parameters)
+        if mode != "complete":
+            object.__setattr__(tool, "_docs_encoded", True)
+
+
+def install_signature_error_hints(server: Any) -> None:
+    """Answer invalid arguments to a signature-encoded tool with its signature and tool_help."""
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    manager = _tool_manager(server)
+    original = manager.call_tool
+
+    async def call_tool(name: str, arguments: dict[str, Any], context: Any = None, convert_result: bool = False) -> Any:
+        try:
+            return await original(name, arguments, context=context, convert_result=convert_result)
+        except ToolError as exc:
+            tool = manager.get_tool(name)
+            signature = getattr(tool, "_signature", None)
+            if not signature:
+                raise
+            raise ToolError(
+                f"{exc}\nSignature: {name}{signature}\nPass numbers, booleans, arrays and objects as JSON "
+                f"values, not strings. Full manual and JSON schema: tool_help(name={name!r})."
+            ) from exc
+
+    manager.call_tool = call_tool
+
+
+def register_tool_help(
+    public_mcp: Any,
+    before_call: Callable[[], None] | None = None,
+    transport_provider: Callable[[], dict[str, Any] | None] | None = None,
+) -> None:
+    """Add tool_help(name), which returns a signature-encoded tool's full manual and schema."""
+    manager = _tool_manager(public_mcp)
+
+    def tool_help(name: str) -> dict[str, Any]:
+        """Full manual and JSON input schema of one tool; listings show a summary and signature."""
+        tool = manager.get_tool(name.strip())
+        if tool is None:
+            close = get_close_matches(name.strip(), [t.name for t in manager.list_tools()], n=3, cutoff=0.6)
+            raise ValueError(f"Unknown tool {name!r}." + (f" Did you mean {', '.join(close)}?" if close else ""))
+        return {
+            "name": tool.name,
+            "description": getattr(tool, "_full_description", tool.description),
+            "input_schema": getattr(tool, "_full_schema", tool.parameters),
+            "signature": getattr(tool, "_signature", None),
+        }
+
+    public_mcp.add_tool(
+        make_structured_tool(tool_help, before_call=before_call, transport_provider=transport_provider),
+        annotations={"readOnlyHint": True, "idempotentHint": True},
+    )
 
 
 def _decorated_tool_name(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str | None:
@@ -490,7 +671,8 @@ class ProgressiveToolCatalog:
                 )
         # Also covers modules imported at startup, which may register after the server
         # finished importing; compaction is idempotent.
-        compact_tool_schemas(self.hidden_mcp, expected)
+        # Hidden tools are described on demand, so they keep their full documentation.
+        compact_tool_schemas(self.hidden_mcp, expected, docs=False)
 
     def describe_toolset(self, name: str, tools: Iterable[str] | None = None) -> dict[str, Any]:
         spec = self._spec(name)
@@ -681,7 +863,14 @@ __all__ = [
     "TOOLSET_SPECS",
     "ToolsetSpec",
     "PROGRESSIVE_DIRECT_TOOLS",
+    "DEFAULT_TOOL_DOCS",
     "compact_input_schema",
+    "compact_tool_docs",
     "compact_tool_schemas",
+    "install_signature_error_hints",
+    "python_signature",
     "register_progressive_tools",
+    "register_tool_help",
+    "summary_line",
+    "tool_docs_mode",
 ]

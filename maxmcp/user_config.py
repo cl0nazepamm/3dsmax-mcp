@@ -1,9 +1,37 @@
-"""Edits to the user's mcp_config.ini shared by install.py and the Windows setup."""
+"""The user's mcp_config.ini: reads for the server, edits for install.py and the Windows setup."""
 from __future__ import annotations
 
+import configparser
+import os
 import re
+from pathlib import Path
 
 TOOL_PROFILES = ("full", "progressive", "core")
+TOOL_DOCS = ("hybrid", "signature", "complete")
+
+
+def configured_value(key: str, choices: tuple[str, ...]) -> str | None:
+    """`[mcp] <key>` from %LOCALAPPDATA%\\3dsmax-mcp\\mcp_config.ini, if it is one of `choices`."""
+    local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
+    if not local_appdata:
+        return None
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(Path(local_appdata) / "3dsmax-mcp" / "mcp_config.ini", encoding="utf-8")
+        value = parser.get("mcp", key, fallback="").strip().lower()
+    except (OSError, configparser.Error):
+        return None
+    return value if value in choices else None
+
+
+def setting(env_names: tuple[str, ...], key: str, choices: tuple[str, ...], default: str) -> str:
+    """An environment override, else the installed config value, else `default`."""
+    for name in env_names:
+        value = os.environ.get(name)
+        if value is not None:
+            value = value.strip().lower()
+            return value if value in choices else default
+    return configured_value(key, choices) or default
 
 
 def with_ini_value(text: str, section: str, key: str, value: str) -> str:

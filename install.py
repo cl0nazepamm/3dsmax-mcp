@@ -99,10 +99,10 @@ def choose_tool_profile(requested: str | None = None) -> str:
         return normalized
 
     print("\nMCP tool profile (tool definitions are sent with every request to the model):")
-    print("  1) Full (default) - all 181 tools listed directly; about 73k tokens")
+    print("  1) Full (default) - all 181 tools listed directly; about 28k tokens")
     print("  2) Progressive - common tools listed, the rest found on demand; about 7k tokens,")
     print("     for local models and small context windows")
-    print("  3) Core - the everyday tools listed directly; about 50k tokens")
+    print("  3) Core - the everyday tools listed directly; about 19k tokens")
     try:
         choice = input("  Choice [1]: ").strip()
     except EOFError:

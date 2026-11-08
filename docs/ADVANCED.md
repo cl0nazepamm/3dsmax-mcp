@@ -118,18 +118,47 @@ The installer persists the choice as `[mcp] tool_profile` in
 `%LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini`. `MCP_TOOL_PROFILE` (or
 `THREEDSMAX_MCP_TOOL_PROFILE`) overrides that setting for a specific launch.
 
-| Profile | Advertised surface | Tool definitions per request (Claude tokens, approx.) |
-|---------|--------------------|-------------------------------------------------------|
-| **progressive** | 4 instance routing tools, 14 common tools, and `find_tools`, `list_toolsets`, `describe_toolset`, `call_tool`; other modules load when found or called | ~7k |
-| **core** | Eager scene, object, material, modifier, controller, viewport, file, plugin, organization, and learning tools | ~50k |
-| **full** (default) | Eager core plus tyFlow, MCG, Forest Pack, RailClone, Data Channel, effects, state sets, wire params, render, render automations, and the development-only native core reload | ~73k |
+| Profile | Advertised surface | Tool definitions per request (Claude tokens) |
+|---------|--------------------|----------------------------------------------|
+| **progressive** | 4 instance routing tools, 14 common tools, and `find_tools`, `list_toolsets`, `describe_toolset`, `call_tool`; other modules load when found or called | ~6.5k |
+| **core** | Eager scene, object, material, modifier, controller, viewport, file, plugin, organization, and learning tools | ~19k |
+| **full** (default) | Eager core plus tyFlow, MCG, Forest Pack, RailClone, Data Channel, effects, state sets, wire params, render, render automations, and the development-only native core reload | ~28k |
 
-The full figure was measured from a Claude session's first request; the others are
-estimated from schema size. Other models' tokenizers count differently.
+Figures are with the default `hybrid` tool docs, measured as the growth of a Claude
+session's first request. Other models' tokenizers count differently.
 
-Advertised input schemas omit Pydantic titles and spell optional `X | None = None`
-parameters as plain `X`; arguments are still validated against the Python signature,
-so an explicit `null` is accepted.
+### Tool docs
+
+`[mcp] tool_docs` in `mcp_config.ini`, or `MCP_TOOL_DOCS` (`THREEDSMAX_MCP_TOOL_DOCS`) for one
+launch, decides how the advertised tools are documented:
+
+| Mode | Advertised tools | Full profile |
+|------|------------------|--------------|
+| **hybrid** (default) | The 14 common tools (`PROGRESSIVE_DIRECT_TOOLS`) keep their full description and JSON Schema; every other tool is its docstring's first line plus a Python-style signature | ~28k |
+| **signature** | Every tool is a summary line plus signature | ~24k |
+| **complete** | Every tool keeps its full description and JSON Schema | ~75k |
+
+A signature lists each argument with its type and default, enums inline, and nested models
+on the following lines:
+
+```
+Move, rotate, and/or scale an object by world/local offsets.
+(name:str='', handle:int=0, move:list[float]=None, rotate:list[float]=None, scale:list[float]=None, coordinate_system:str='world')
+```
+
+A signature tool advertises `{"type": "object"}` as its input schema, so its arguments are
+validated against the Python signature, strictly: an argument name the tool does not take is
+refused instead of dropped, and the error repeats the signature. `tool_help(name)` returns any
+tool's full manual and JSON Schema. Models often pass numbers and arrays to signature tools as
+strings; numeric strings and JSON-encoded lists, objects and models are converted, but a `str`
+parameter keeps what it was given. In hybrid and signature mode `expected_pid` is accepted by
+every tool but advertised once, in the server instructions, instead of in each schema. The
+progressive profile's hidden tools always keep their full docs, because `find_tools` and
+`describe_toolset` only return them on demand.
+
+In every mode, advertised input schemas omit Pydantic titles and spell optional
+`X | None = None` parameters as plain `X`; arguments are still validated against the Python
+signature, so an explicit `null` is accepted.
 
 Progressive workflow:
 

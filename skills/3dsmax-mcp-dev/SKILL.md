@@ -11,6 +11,7 @@ single tool can: routing, tool choice, cross-tool workflows, safety rules and MA
 ## Tool Profile Routing
 
 - **Full/core:** operational tools such as `query_scene` and `create_object` are advertised directly; call them by name.
+- **Signature listings:** by default the common tools are listed in full and the others as a summary line plus a Python-style signature such as `(name:str='', move:list[float]=None)`. Pass those argument names with JSON values (numbers and arrays, not strings). Call `tool_help(name)` for a tool's full manual before relying on options its signature does not explain.
 - **Progressive:** the common tools are advertised directly; every other tool is reached through `call_tool`. Never call an unlisted name as a top-level tool. Find one with `find_tools(query=...)`, which returns the best matches with their exact schemas, then run it with `call_tool(name=..., arguments=...)`. `list_toolsets` and `describe_toolset(toolset=..., tools=[...])` browse the groups. Tool names in this guide that are not listed are reached the same way.
 
 ## Principles

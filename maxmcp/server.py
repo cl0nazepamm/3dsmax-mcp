@@ -1,4 +1,3 @@
-import configparser
 import logging
 import os
 import sys
@@ -7,33 +6,26 @@ from functools import lru_cache
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from .max_client import MaxClient
-from .tool_discovery import PROGRESSIVE_DIRECT_TOOLS, compact_tool_schemas, register_progressive_tools
+from .tool_discovery import (
+    PROGRESSIVE_DIRECT_TOOLS,
+    compact_tool_docs,
+    compact_tool_schemas,
+    install_signature_error_hints,
+    register_progressive_tools,
+    register_tool_help,
+)
 from .tool_response import make_structured_tool
+from .user_config import TOOL_PROFILES, setting
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-TOOL_PROFILES = {"core", "full", "progressive"}
 DEFAULT_TOOL_PROFILE = "full"
 
 
 def _tool_profile() -> str:
-    value = os.environ.get("MCP_TOOL_PROFILE") or os.environ.get("THREEDSMAX_MCP_TOOL_PROFILE")
-    if value is not None:
-        normalized = value.strip().lower()
-        return normalized if normalized in TOOL_PROFILES else DEFAULT_TOOL_PROFILE
-
-    local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
-    if local_appdata:
-        config_path = Path(local_appdata) / "3dsmax-mcp" / "mcp_config.ini"
-        parser = configparser.ConfigParser()
-        try:
-            parser.read(config_path, encoding="utf-8")
-            normalized = parser.get("mcp", "tool_profile", fallback="").strip().lower()
-            if normalized in TOOL_PROFILES:
-                return normalized
-        except (OSError, configparser.Error):
-            pass
-    return DEFAULT_TOOL_PROFILE
+    """MCP_TOOL_PROFILE, else `[mcp] tool_profile` in the user config, else full."""
+    return setting(("MCP_TOOL_PROFILE", "THREEDSMAX_MCP_TOOL_PROFILE"), "tool_profile", TOOL_PROFILES,
+                   DEFAULT_TOOL_PROFILE)
 
 
 _PROGRESSIVE_INSTRUCTIONS = (
@@ -42,10 +34,26 @@ _PROGRESSIVE_INSTRUCTIONS = (
     "call_tool(name, arguments). Never call a tool name that is not listed as a top-level tool."
 )
 
-mcp = FastMCP(
-    "3dsmax-mcp",
-    instructions=_PROGRESSIVE_INSTRUCTIONS if _tool_profile() == "progressive" else None,
+_SIGNATURE_INSTRUCTIONS = (
+    "Tools listed with a one-line summary and a Python-style signature take arguments by those names; "
+    "pass numbers, booleans, arrays and objects as JSON values, not strings. Call tool_help(name) for a "
+    "tool's full manual and JSON schema when the signature is not enough."
 )
+
+_EXPECTED_PID_INSTRUCTIONS = (
+    "Every tool except the instance routing tools also accepts expected_pid (int): the call is "
+    "refused, with nothing sent, unless it reaches the 3ds Max with that PID."
+)
+
+
+def _server_instructions() -> str | None:
+    if not compact_tool_docs():
+        return _PROGRESSIVE_INSTRUCTIONS if _tool_profile() == "progressive" else None
+    lead = _PROGRESSIVE_INSTRUCTIONS if _tool_profile() == "progressive" else _SIGNATURE_INSTRUCTIONS
+    return f"{lead} {_EXPECTED_PID_INSTRUCTIONS}"
+
+
+mcp = FastMCP("3dsmax-mcp", instructions=_server_instructions())
 # Operational tools loaded by the progressive profile live here.  This server
 # is never run, so its tools remain callable without being advertised by the
 # public MCP list_tools surface.
@@ -347,6 +355,8 @@ def _register_tool_modules() -> None:
         modules.extend(SPECIALTY_TOOL_MODULES)
     for name in modules:
         import_module(f".tools.{name}", package=__package__)
+    if compact_tool_docs():
+        register_tool_help(mcp, client.clear_last_response, client.get_last_transport)
 
 
 # Import tool modules to trigger @mcp.tool() registration. Default is full; set
@@ -355,6 +365,8 @@ def _register_tool_modules() -> None:
 _register_tool_modules()
 # Clients send these schemas to the model with every request (issue #38).
 compact_tool_schemas(mcp)
+if compact_tool_docs():
+    install_signature_error_hints(mcp)
 
 
 SKILL_RESOURCE_URI = "resource://3dsmax-mcp/skill"

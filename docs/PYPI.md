@@ -5,7 +5,7 @@ Connect AI agents to **Autodesk 3ds Max** through the [Model Context Protocol](h
 Ask in natural language; the agent creates objects, builds materials, drives modifiers and
 controllers, captures viewports, and inspects plugins through a broad dedicated MCP catalog.
 The optional progressive profile advertises the common tools and finds the rest on demand,
-so the tool list takes about 7k tokens of context instead of about 73k.
+so the tool list takes about 7k tokens of context; the default full profile takes about 28k.
 
 - **Native bridge** — a C++ plugin for 3ds Max 2023–2027, no MAXScript polling
 - **Agent viewport** — an independent floating view for navigation, visual targeting and captures
@@ -43,7 +43,7 @@ Manual MCP client setup, tool profiles, safe mode and architecture notes are doc
 **Autodesk 3ds Max**。
 
 用中文描述你要做的事，智能体通过专用 MCP 工具直接操作场景——创建物体、构建材质、驱动修改器与控制器、
-截取视口、检查插件。可选的 progressive 配置只直接公开常用工具，其余工具按需查找，工具定义约占 7k token（full 约 73k）。
+截取视口、检查插件。可选的 progressive 配置只直接公开常用工具，其余工具按需查找，工具定义约占 7k token（默认 full 约 28k）。
 
 - **原生桥接**：3ds Max 2023–2027 的 C++ 插件，无需 MAXScript 轮询
 - **智能体视口**：独立浮动视口，用于导航、视觉定位和截图

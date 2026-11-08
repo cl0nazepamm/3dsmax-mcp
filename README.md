@@ -36,10 +36,12 @@ The installer includes Python, dependencies, native bridges and agent skills.
 To update, close Max and your clients, then run the new installer.
 
 **Tool profile.** AI clients send the tool definitions with every request to the model.
-**Full** (default) lists all 181 tools directly, about 73k tokens. **Progressive** lists the
-common tools and finds the other ~170 on demand with `find_tools`, about 7k tokens; choose it
-for local models and small context windows. Counts are for Claude and vary by model. Run the
-installer again to switch, or pass `/TOOLPROFILE=progressive` for an unattended install.
+**Full** (default) lists all 181 tools in about 28k tokens: the common ones in full, the others
+as one-line Python-style signatures whose manuals `tool_help` returns on demand.
+**Progressive** lists the common tools and finds the other ~170 with `find_tools`, about 7k
+tokens; choose it for local models and small context windows. Counts are for Claude and vary
+by model. Run the installer again to switch, or pass `/TOOLPROFILE=progressive` for an
+unattended install.
 
 <details>
 <summary>Install from source</summary>

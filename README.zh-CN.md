@@ -42,7 +42,7 @@ python -m pip install 3dsmax-mcp -i https://pypi.tuna.tsinghua.edu.cn/simple
 python -m maxmcp.installer
 ```
 
-安装程序会让你选择 MCP 工具配置，默认 `full`：直接公开全部工具，工具定义约占 73k token；`progressive` 直接公开常用工具，其余按需查找，约 7k token，适合本地或较小模型。无人值守安装可使用 `3dsmax-mcp-install --tool-profile progressive`。
+安装程序会让你选择 MCP 工具配置，默认 `full`：直接公开全部工具，工具定义约占 28k token（常用工具完整说明，其余为 Python 风格签名，可用 `tool_help` 查看完整说明）；`progressive` 直接公开常用工具，其余按需查找，约 7k token，适合本地或较小模型。无人值守安装可使用 `3dsmax-mcp-install --tool-profile progressive`。
 **必须重启 3ds Max** 插件才会加载。
 
 > 其他可用镜像：阿里云 `https://mirrors.aliyun.com/pypi/simple/`、腾讯云 `https://mirrors.cloud.tencent.com/pypi/simple/`。
@@ -259,14 +259,18 @@ $env:MCP_TOOL_PROFILE = "progressive"
 
 | 配置 | 包含范围 | 每次请求的工具定义（Claude token，约） |
 |------|----------|----------------------------------------|
-| **progressive（节省上下文）** | 4 个实例路由工具、14 个常用工具，以及 `find_tools`、`list_toolsets`、`describe_toolset`、`call_tool` | 约 7k |
-| **core** | 场景、物体、材质、修改器、控制器、视口、文件、插件、组织管理、学习 | 约 50k |
-| **full（默认）** | core 全部，外加 tyFlow、MCG、Forest Pack、RailClone、Data Channel、特效、状态集、参数关联、**渲染** | 约 73k |
+| **progressive（节省上下文）** | 4 个实例路由工具、14 个常用工具，以及 `find_tools`、`list_toolsets`、`describe_toolset`、`call_tool` | 约 6.5k |
+| **core** | 场景、物体、材质、修改器、控制器、视口、文件、插件、组织管理、学习 | 约 19k |
+| **full（默认）** | core 全部，外加 tyFlow、MCG、Forest Pack、RailClone、Data Channel、特效、状态集、参数关联、**渲染** | 约 28k |
 
 progressive 模式下先用直接公开的工具；其他需求用 `find_tools(query)` 查找，它会返回最匹配的工具及其参数，
 再用 `call_tool(name, arguments)` 调用。参数错误时，错误提示会附带该工具的 `input_schema`。
 `tools/list` 在查找后保持不变。Windows 安装向导会询问工具配置，无人值守安装可传入 `/TOOLPROFILE=progressive`。
 不同模型的分词方式不同，token 数会有差异。
+
+工具说明方式由 `mcp_config.ini` 中的 `[mcp] tool_docs`（或 `MCP_TOOL_DOCS`）决定：默认 `hybrid`，14 个常用工具保留完整说明和
+JSON Schema，其余工具只显示一行摘要和 Python 风格签名，`tool_help(name)` 可返回任意工具的完整说明；`signature` 全部使用签名，
+最省上下文；`complete` 为全部完整 JSON Schema（约 75k token）。签名工具严格校验参数名，未知参数会被拒绝。
 
 ---
 
