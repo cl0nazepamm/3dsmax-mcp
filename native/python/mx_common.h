@@ -243,6 +243,7 @@ void AddProperty(const char* name, G&& getter, S&& setter, const char* doc) {
 
 void BindParams(nb::module_& m);
 void BindNodes(nb::module_& m);
+void BindTracks(nb::module_& m);
 void BindAnimation(nb::module_& m);
 void BindModifiers(nb::module_& m);
 void BindMaterials(nb::module_& m);

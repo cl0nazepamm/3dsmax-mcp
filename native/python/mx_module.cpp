@@ -57,7 +57,7 @@ static void Bind(nb::module_& m) {
 
     BindParams(m);
     BindNodes(m);
-    BindAnimation(m);
+    BindTracks(m);
     BindModifiers(m);
     BindMaterials(m);
     BindNative(m);
@@ -69,6 +69,7 @@ static void Bind(nb::module_& m) {
     BindLighting(m);
     BindSolids(m);
     BindCurves(m);
+    BindAnimation(m);
 
     m.def("redraw", [] { RequireMain(); GetCOREInterface()->RedrawViews(GetCOREInterface()->GetTime()); },
           "Redraw the viewports.");
