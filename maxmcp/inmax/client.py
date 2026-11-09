@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import Any, Callable, Optional
 from uuid import uuid4
 
 from .. import undo_scope
-from ..max_client import MaxBridgeError, MaxClient
+from ..max_client import MaxBridgeError, MaxClient, MaxTargetMismatchError, _call_guard
 from . import binding
 
 
@@ -37,6 +38,11 @@ class InProcessClient(MaxClient):
         probe: bool = False,
         job_wait: float | None = None,
     ) -> dict[str, Any]:
+        expected = getattr(_call_guard, "pid", None)
+        if expected is not None and expected != os.getpid():
+            raise MaxTargetMismatchError(
+                f"expected_pid is {expected}, but this script runs inside 3ds Max (PID {os.getpid()}). "
+                "Nothing was sent.", {"expected_pid": expected, "target_pid": os.getpid()})
         if cmd_type == "native:max_dialogs":
             # Dialogs are read and answered from outside Max's main thread, which
             # a script running on that thread cannot provide.

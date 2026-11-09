@@ -5,18 +5,17 @@ description: Tool choices, workflows, and MAXScript pitfalls for controlling 3ds
 
 # 3ds Max MCP — Agent Guide
 
-Each tool's description documents its parameters, modes and limits. This guide covers what no
-single tool can: routing, tool choice, cross-tool workflows, safety rules and MAXScript pitfalls.
+Each tool's manual (`mx.help`) documents its parameters, modes and limits. This guide covers what no
+single tool can: tool choice, cross-tool workflows, safety rules and MAXScript pitfalls.
 
-## Tool Profile Routing
+## Calling Tools
 
-- **Full/core:** operational tools such as `query_scene` and `create_object` are advertised directly; call them by name.
-- **Signature listings:** by default the common tools are listed in full and the others as a summary line plus a Python-style signature such as `(name:str='', move:list[float]=None)`. Pass those argument names with JSON values (numbers and arrays, not strings). Call `tool_help(name)` for a tool's full manual before relying on options its signature does not explain.
-- **Progressive:** the common tools are advertised directly; every other tool is reached through `call_tool`. Never call an unlisted name as a top-level tool. Find one with `find_tools(query=...)`, which returns the best matches with their exact schemas, then run it with `call_tool(name=..., arguments=...)`. `list_toolsets` and `describe_toolset(toolset=..., tools=[...])` browse the groups. Tool names in this guide that are not listed are reached the same way.
+- The server lists five tools: `run_python`, and four that choose the 3ds Max it talks to. Every other tool this guide names is a Python function: call it inside a `run_python` script as `mx.tools.<name>(**arguments)`, never as a top-level tool.
+- `mx.help("<name>")` prints a tool's signature and manual, and `dir(mx.tools)` lists the names. Pass Python values (numbers, lists, dicts), not strings of them. A wrong argument name or type raises `mx.MaxToolError` with `BAD_PARAM` and the signature, and nothing is sent to Max.
 
 ## Principles
 
-- Multi-step work (build, edit, measure, verify): write one `run_python` script against the `mx` API instead of calling tools one by one. `mx.box(...)`, `mx.boolean(...)`, `mx.area_light(...)` and `mx.tools.<any_tool>(...)` run the same guarded tools and return their readback; a failing call raises `mx.MaxToolError` with the line number. When the reply says `ran_in: "max"` the script ran inside 3ds Max: `sdk`, `rt`/`pymxs` were available, and everything it changed (tool calls, `sdk` and `rt` edits) was one undo step, rolled back if it raised. An undo inside a script (`mx.tools.undo_last()`, `sdk.undo()`) first commits what the script changed so far as its own step; a later failure rolls back only what came after. Use single tools for one-off reads or edits.
+- Put a whole step (build, edit, measure, verify) in one `run_python` script instead of several short ones. `mx.box(...)`, `mx.boolean(...)`, `mx.area_light(...)` and `mx.tools.<any_tool>(...)` run guarded tools and return their readback; a failing call raises `mx.MaxToolError` with the line number. When the reply says `ran_in: "max"` the script ran inside 3ds Max: `sdk`, `rt`/`pymxs` were available, and everything it changed (tool calls, `sdk` and `rt` edits) was one undo step, rolled back if it raised. An undo inside a script (`mx.tools.undo_last()`, `sdk.undo()`) first commits what the script changed so far as its own step; a later failure rolls back only what came after.
 - `sdk` (inside Max; also `mx.sdk`) is the scene object model bound from the 3ds Max SDK, for fast reads and direct edits in loops: `sdk.node("Ball")`, `sdk.nodes("Wall*")`, `sdk.create("Sphere", "Ball", radius=10)`, `node.pos`/`.rot`/`.scale`, `node.params.radius = 12`, `node.add_modifier("Bend", angle=30)`, `with sdk.at(10):`, `with sdk.animate():`. `mx.help("sdk")` lists it and `mx.help("sdk.Node")` documents one class (the same text as `docs/mx-sdk-reference.md`). sdk nodes and `mx.Node` are separate types, and each side accepts the other's nodes.
 - Match the user's request. Do not run setup, discovery or scene analysis by habit, and do not call `get_bridge_status` or `get_session_context` as a preamble.
 - Prefer a dedicated tool over raw MAXScript whenever one clearly matches.
@@ -24,7 +23,7 @@ single tool can: routing, tool choice, cross-tool workflows, safety rules and MA
 - Verify meaningful edits with `query_scene(action="delta")`, re-inspection or a capture.
 - Keep mutating calls sequential. Concurrent writes interleave undo transactions: a crash, then persistent corruption such as phantom successes and wrong handles.
 - Multiple Max instances: the first native connection stays bound to that Max and never silently switches while it runs. Use `list_max_instances`, `select_max_instance(pid)`, `get_selected_max_instance` and `release_max_instance`. `MCP_MAX_PIPE` or `MCP_MAX_PID` pins the startup target (the pipe takes precedence); release also clears it.
-  - **Shared selection:** the selection belongs to the MCP server process, so sessions that share one server share it, and one session's select moves the others. Pass `expected_pid` (every tool takes it) to any call that must reach one particular Max. A mismatch returns `TARGET_MISMATCH` with nothing sent. `selection_generation` in each reply's transport changes on every select, release or re-resolve.
+  - **Shared selection:** the selection belongs to the MCP server process, so sessions that share one server share it, and one session's select moves the others. Pass `expected_pid` (`run_python` and every `mx.tools` call take it) to any call that must reach one particular Max. A mismatch returns `TARGET_MISMATCH` with nothing sent. `selection_generation` in each reply's transport changes on every select, release or re-resolve.
   - **Default target after a restart:** a target the server picked by itself (`target_source` "default" or "claim") follows its Max's restart (the Max that started after it stopped answering), and the reply warns. A Max that was already open belongs to another session and is never taken over: until the restart is up, calls fail with retryable `TARGET_UNAVAILABLE` and nothing is sent; `select_max_instance` it to work there. Several new instances: `AMBIGUOUS`, select one. A claimed instance wins. Explicit and environment targets never move; they fail until you select or release.
 
 ## Tool Choice
@@ -95,7 +94,7 @@ single tool can: routing, tool choice, cross-tool workflows, safety rules and MA
 
 ## Results and Errors
 
-- Replies are a `ToolEnvelope` dict (`ok`/`result`/`error`/`hint`), not a JSON string. Tool-authored hints win over automatic ones; `hint.suggested_tools` may list alternatives.
+- A `run_python` reply is a `ToolEnvelope` dict (`ok`/`result`/`error`), not a JSON string. Inside a script, `mx.tools.<name>(...)` returns the tool's result and raises `mx.MaxToolError` (`.code`, `.message`, `.hint`) on failure. Tool-authored hints win over automatic ones; `hint.suggested_tools` may list alternatives.
 - Classify raw structured errors by `error`, `code` or `status=error|failed`, never by `message` alone.
 - `status: "partial"` means only part of the request applied. Read `warnings` and the skipped items (`notFound`, `ambiguous`, `ignored`) before continuing.
 - `AMBIGUOUS`: several objects share the name. Retry with a candidate's `handle` where the tool takes one; otherwise rename them first (`set_object_property(handle=..., property="name")`). Never guess which object was meant.
@@ -108,7 +107,7 @@ single tool can: routing, tool choice, cross-tool workflows, safety rules and MA
 
 ## Native Core Development
 
-Only when changing the bridge's native C++ handlers; ordinary sessions never need it. `reload_native_core` (full and progressive profiles) swaps a rebuilt core into the running Max.
+Only when changing the bridge's native C++ handlers; ordinary sessions never need it. `reload_native_core` swaps a rebuilt core into the running Max. Run the reload itself with `run_python(where="server")`, because Max refuses a reload while a script runs inside it.
 
 - `reload_native_core(action="status")` tells you whether reload applies: `layout="hot"` reloads. `static`, the shipped layout, cannot; a native change there applies only after the rebuilt plugin is installed and Max restarts.
 - After rebuilding the core, call `reload_native_core(action="reload")`, check that `build` changed (a warning flags an unchanged one), then verify the changed behavior through its real tool, not just the status.

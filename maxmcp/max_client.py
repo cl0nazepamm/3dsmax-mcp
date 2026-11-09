@@ -383,11 +383,16 @@ _call_guard = threading.local()
 
 @contextmanager
 def expect_pid(pid: int | None) -> Iterator[None]:
-    """Refuse every bridge call made on this thread unless it reaches Max `pid` (None: no check)."""
+    """Refuse every bridge call made on this thread unless it reaches Max `pid`.
+
+    None adds no check of its own and keeps the caller's: the tool calls a run_python
+    script makes stay under the expected_pid run_python was given.
+    """
     if pid is not None and (isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0):
         raise ValueError("expected_pid must be a positive process ID")
     previous = getattr(_call_guard, "pid", None)
-    _call_guard.pid = pid
+    if pid is not None:
+        _call_guard.pid = pid
     try:
         yield
     finally:

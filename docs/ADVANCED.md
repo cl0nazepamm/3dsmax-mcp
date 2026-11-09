@@ -1,6 +1,6 @@
 # Advanced configuration
 
-Technical reference for 3dsmax-mcp: architecture, build, profiles, and security.
+Technical reference for 3dsmax-mcp: architecture, build, tool calling, and security.
 
 ## Architecture
 
@@ -35,18 +35,11 @@ Skip skill deployment:
 uv run python install.py --skip-skill
 ```
 
-The installer prompts for the external MCP tool profile and defaults to `full`. Local or
-smaller models with a small context window can use the progressive surface:
-
-```powershell
-uv run python install.py --tool-profile progressive
-```
-
 After install, restart 3ds Max. The installer:
 
 1. Removes any **legacy** files copied into the Max install directory (`plugins\mcp_bridge.gup`, `scripts\mcp\`, `scripts\startup\mcp_autostart.ms`) from older installs.
 2. Deploys an **ApplicationPlugins bundle** to `%ProgramData%\Autodesk\ApplicationPlugins\3dsmax-mcp\` (native GUPs in `Contents\bin\`, MAXScript in `Contents\scripts\`).
-3. Writes user config under `%LOCALAPPDATA%\3dsmax-mcp\`, including the selected `[mcp] tool_profile`, builds the agent skill, and registers MCP entries where it can (Claude Desktop, Cursor, Gemini, CLI agents).
+3. Writes user config under `%LOCALAPPDATA%\3dsmax-mcp\` (an existing `mcp_config.ini` is kept), builds the agent skill, and registers MCP entries where it can (Claude Desktop, Cursor, Gemini, CLI agents).
 
 ### Application package layout
 
@@ -105,76 +98,29 @@ Config file locations:
 
 `install.py` registers both Claude Desktop locations when the Store package folder is present.
 
-## Tool profiles
+## How agents call tools
 
-MCP clients send every advertised tool definition with each model request, so the profile decides how much of the context window the server takes before any work starts. The default, **full**, advertises every tool directly; clients such as Claude Code and Codex search large tool lists on their own and load only what a task needs. **Progressive** advertises the instance routing tools, the most common operational tools (`PROGRESSIVE_DIRECT_TOOLS` in `maxmcp/tool_discovery.py`) and four meta-tools; every other tool is found with `find_tools` and run through `call_tool`. Use it for local or smaller models and clients that send every tool definition with each request. **Core** is the smaller eager profile. A server launched without an installed setting or environment override uses **full**. The Windows setup asks for the profile and accepts `/TOOLPROFILE=full|progressive|core` for unattended installs.
+MCP clients send every advertised tool definition with each model request. The server advertises five tools, about 2k Claude tokens: `run_python`, and `list_max_instances`, `select_max_instance`, `get_selected_max_instance` and `release_max_instance`, which choose the 3ds Max it talks to. The agent works by writing Python scripts against the `mx` API. Every other tool is a Python function in `maxmcp/tools`, called from a script as `mx.tools.<name>(**arguments)`; `mx.help("<name>")` prints its signature and manual, and `dir(mx.tools)` lists the names.
 
-```powershell
-$env:MCP_TOOL_PROFILE = "progressive"
-uv run 3dsmax-mcp
-```
-
-The installer persists the choice as `[mcp] tool_profile` in
-`%LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini`. `MCP_TOOL_PROFILE` (or
-`THREEDSMAX_MCP_TOOL_PROFILE`) overrides that setting for a specific launch.
-
-| Profile | Advertised surface | Tool definitions per request (Claude tokens) |
-|---------|--------------------|----------------------------------------------|
-| **progressive** | 4 instance routing tools, 14 common tools, and `find_tools`, `list_toolsets`, `describe_toolset`, `call_tool`; other modules load when found or called | ~6.5k |
-| **core** | Eager scene, object, material, modifier, controller, viewport, file, plugin, organization, and learning tools | ~19k |
-| **full** (default) | Eager core plus tyFlow, MCG, Forest Pack, RailClone, Data Channel, effects, state sets, wire params, render, render automations, and the development-only native core reload | ~28k |
-
-Figures are with the default `hybrid` tool docs, measured as the growth of a Claude
-session's first request. Other models' tokenizers count differently.
-
-### Tool docs
-
-`[mcp] tool_docs` in `mcp_config.ini`, or `MCP_TOOL_DOCS` (`THREEDSMAX_MCP_TOOL_DOCS`) for one
-launch, decides how the advertised tools are documented:
-
-| Mode | Advertised tools | Full profile |
-|------|------------------|--------------|
-| **hybrid** (default) | The 14 common tools (`PROGRESSIVE_DIRECT_TOOLS`) keep their full description and JSON Schema; every other tool is its docstring's first line plus a Python-style signature | ~28k |
-| **signature** | Every tool is a summary line plus signature | ~24k |
-| **complete** | Every tool keeps its full description and JSON Schema | ~75k |
-
-A signature lists each argument with its type and default, enums inline, and nested models
-on the following lines:
-
-```
-Move, rotate, and/or scale an object by world/local offsets.
-(name:str='', handle:int=0, move:list[float]=None, rotate:list[float]=None, scale:list[float]=None, coordinate_system:str='world')
-```
-
-A signature tool advertises `{"type": "object"}` as its input schema, so its arguments are
-validated against the Python signature, strictly: an argument name the tool does not take is
-refused instead of dropped, and the error repeats the signature. `tool_help(name)` returns any
-tool's full manual and JSON Schema. Models often pass numbers and arrays to signature tools as
-strings; numeric strings and JSON-encoded lists, objects and models are converted, but a `str`
-parameter keeps what it was given. In hybrid and signature mode `expected_pid` is accepted by
-every tool but advertised once, in the server instructions, instead of in each schema. The
-progressive profile's hidden tools always keep their full docs, because `find_tools` and
-`describe_toolset` only return them on demand.
-
-In every mode, advertised input schemas omit Pydantic titles and spell optional
-`X | None = None` parameters as plain `X`; arguments are still validated against the Python
-signature, so an explicit `null` is accepted.
+The `full`, `core` and `progressive` tool profiles of 1.x are gone, together with `MCP_TOOL_PROFILE`, `[mcp] tool_profile` and the `call_tool`, `list_toolsets` and `describe_toolset` tools. A setting left in `mcp_config.ini` or in a client's environment is ignored. To expose tools of your own, write your own MCP server around `maxmcp.mx`, which works from any Python process that can import `maxmcp`.
 
 ### Python scripts (`run_python` and `mx`)
 
-`run_python(code)` runs a script with `mx` (`maxmcp.mx`) pre-imported. Every `mx` call goes through the same
-validated, guarded tool as an MCP call, so stale-token guards and readback are unchanged. The reply's `ran_in` says
-where it ran:
+`run_python(code)` runs a script with `mx` (`maxmcp.mx`) pre-imported. The reply's `ran_in` says where it ran:
 
 - **`max`**: inside 3ds Max's own Python, when the bridge allows Python (`safe_mode` off), exports the in-process
   entry point `mcp_bridge_call`, and Max's Python matches the server's (3ds Max 2027 and the server both run 3.13).
-  `mx` reaches the native handlers in-process instead of over the named pipe, `rt` (`pymxs.runtime`) and `pymxs`
-  are in scope, and the script's tool calls form one undo step (`theHold.SuperBegin`/`SuperAccept`) that is rolled
-  back entirely if the script raises. Each handler still opens its own hold inside the group and still refuses to
-  join an operation the user has open. Raw `rt` edits are recorded by undo only inside `pymxs.undo(True)`, where tool
-  calls refuse with `USER_BUSY`.
+  `mx` reaches the native handlers in-process instead of over the named pipe, and `sdk`, `rt` (`pymxs.runtime`) and
+  `pymxs` are in scope. Everything the script changes (tool calls, `sdk` and `rt` edits) is one undo step, rolled
+  back entirely if the script raises. A script never joins an operation the user has open: it is refused with
+  `USER_BUSY`.
 - **`server`**: otherwise, in the MCP server process, sandboxed, each tool call its own undo step; `note` says why
   it could not run in Max. `where="max"` or `"server"` forces one.
+
+A tool call checks its arguments against the function's signature before anything is sent to 3ds Max. An argument
+name the tool does not take, or a value of the wrong type, raises `mx.MaxToolError` with code `BAD_PARAM` and the
+signature. `expected_pid`, on `run_python` or on one `mx.tools` call, refuses the call unless it reaches the 3ds Max
+with that PID.
 
 Inside Max the same API is available to any script: `import maxmcp.inmax as inmax; inmax.activate()` routes `mx`
 through the bridge in-process, and `inmax.run_script(code)` runs a script as one undo step.
@@ -186,27 +132,8 @@ key = mx.area_light("Key", width=50, height=50, at=(900, -80, 150), aim_at=blk.c
 result = {"bbox": blk.bbox, "faces": mx.qa(blk)["counts"]["triangles"]}
 ```
 
-Helpers live in `maxmcp/mx/objects.py`, `modeling.py`, `shading.py` and `view.py`; `mx.tools.<name>(**arguments)` calls
-any tool and `mx.help(name)` returns its manual. Scripts may import `mx` and the standard math/json/re/itertools
-family only when they run in the server, and stop at `timeout_s`. The same API works from any Python
-process that can import `maxmcp`. `MCP_TOOL_PROFILE=script` advertises only `run_python` and the routing tools.
-
-Progressive workflow:
-
-1. Use a directly listed tool when one fits.
-2. Otherwise call `find_tools(query)` with what you need, for example `"boolean subtract"` or `"spline knots"`. It returns the best matches with their exact input schemas. `list_toolsets` and `describe_toolset(toolset, tools=[...])` browse the groups instead.
-3. Call `call_tool(name, arguments)`. Invalid or unknown argument names return the tool's `input_schema` in the hint, and an unknown tool name suggests close matches.
-
-Operational tools stay in a private registry, so `tools/list` does not change after discovery. `call_tool` accepts only tools declared by the core/full module allowlist, rejects meta-tool and recursive dispatch, validates arguments with the original FastMCP schema, and returns the same `ToolEnvelope` as eager profiles. It also rejects argument names the tool does not take, because the model writes `arguments` without schema-guided generation. It does not make mutating tools safer: bridge `safe_mode`, tool-specific dry-run controls, and normal mutation precautions still apply.
-
-To use the smaller eager surface instead:
-
-```powershell
-$env:MCP_TOOL_PROFILE = "core"
-uv run 3dsmax-mcp
-```
-
-Specialty modules in full profile (progressive reaches them through `call_tool`): `data_channel`, `effects`, `mcg`, `railclone`, `render`, `render_automations`, `scattering`, `state_sets`, `tyflow`, `tyflow_graph`, `tyflow_patch`, `tyflow_manifest`, `tyflow_census`, `wire_params`, `core_reload` (`reload_native_core`, development only; see [Hot-reloadable native core](#hot-reloadable-native-core-development)).
+Helpers live in `maxmcp/mx/objects.py`, `modeling.py`, `shading.py` and `view.py`. A script that runs in the server
+may import only `mx` and the standard math/json/re/itertools family; every script stops at `timeout_s`.
 
 ## Native identity, transactions, and scene QA
 

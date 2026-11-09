@@ -1,415 +1,78 @@
+"""The 3dsmax-mcp MCP server.
+
+MCP clients see five tools: run_python, which runs a script against the mx API, and the
+four that choose which 3ds Max the server talks to. Every other tool is a Python
+function in maxmcp/tools, declared with @mcp.tool() and called from scripts as
+mx.tools.<name>(**arguments).
+"""
+
 import logging
 import os
 import sys
-from importlib import import_module
 from functools import lru_cache
+from importlib import import_module
 from pathlib import Path
+from typing import Any
+
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
+
 from .max_client import MaxClient
-from .tool_discovery import (
-    PROGRESSIVE_DIRECT_TOOLS,
-    ProgressiveToolCatalog,
-    compact_tool_docs,
-    compact_tool_schemas,
-    install_signature_error_hints,
-    register_progressive_tools,
-    register_tool_help,
-)
+from .registry import ToolRegistry
 from .tool_response import make_structured_tool
-from .user_config import TOOL_PROFILES, setting
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-DEFAULT_TOOL_PROFILE = "full"
-# Profiles whose operational tools live in the hidden registry, advertising only a few.
-_HIDDEN_PROFILES = ("progressive", "script")
-
-
-def _tool_profile() -> str:
-    """MCP_TOOL_PROFILE, else `[mcp] tool_profile` in the user config, else full."""
-    return setting(("MCP_TOOL_PROFILE", "THREEDSMAX_MCP_TOOL_PROFILE"), "tool_profile", TOOL_PROFILES,
-                   DEFAULT_TOOL_PROFILE)
-
-
-def _direct_tools() -> frozenset[str]:
-    """Operational tools a hidden-registry profile still advertises directly."""
-    return frozenset({"run_python"}) if _tool_profile() == "script" else PROGRESSIVE_DIRECT_TOOLS
-
-
-_PROGRESSIVE_INSTRUCTIONS = (
-    "Common 3ds Max tools are listed directly. For anything else, call find_tools with what you need "
-    "(e.g. 'boolean subtract', 'spline knots', 'light intensity'), then run the match with "
-    "call_tool(name, arguments). Never call a tool name that is not listed as a top-level tool."
-)
-
-_SIGNATURE_INSTRUCTIONS = (
-    "Tools listed with a one-line summary and a Python-style signature take arguments by those names; "
-    "pass numbers, booleans, arrays and objects as JSON values, not strings. Call tool_help(name) for a "
-    "tool's full manual and JSON schema when the signature is not enough."
-)
-
-_EXPECTED_PID_INSTRUCTIONS = (
-    "Every tool except the instance routing tools also accepts expected_pid (int): the call is "
-    "refused, with nothing sent, unless it reaches the 3ds Max with that PID."
-)
-
-
-_SCRIPT_INSTRUCTIONS = (
-    "For work with more than one step (build, edit, measure, verify), write one run_python script "
-    "with the mx API instead of calling tools one by one; use single tools for one-off reads or edits."
-)
-
-
-_SCRIPT_PROFILE_INSTRUCTIONS = (
+_INSTRUCTIONS = (
     "Work in 3ds Max by writing run_python scripts against the mx API; it is the only operational tool. "
     "mx.tools.<name>(**arguments) runs any of the ~180 3dsmax-mcp tools and mx.help(name) prints its manual."
 )
 
-
-def _server_instructions() -> str:
-    if _tool_profile() == "script":
-        return _SCRIPT_PROFILE_INSTRUCTIONS
-    parts = [_SCRIPT_INSTRUCTIONS]
-    if _tool_profile() == "progressive":
-        parts.append(_PROGRESSIVE_INSTRUCTIONS)
-    elif compact_tool_docs():
-        parts.append(_SIGNATURE_INSTRUCTIONS)
-    if compact_tool_docs():
-        parts.append(_EXPECTED_PID_INSTRUCTIONS)
-    return " ".join(parts)
-
-
-mcp = FastMCP("3dsmax-mcp", instructions=_server_instructions())
-# Operational tools loaded by the progressive profile live here.  This server
-# is never run, so its tools remain callable without being advertised by the
-# public MCP list_tools surface.
-_progressive_mcp = FastMCP("3dsmax-mcp-progressive-hidden")
+mcp = FastMCP("3dsmax-mcp", instructions=_INSTRUCTIONS)
 client = MaxClient()
+# Every tool function by name, for mx. run_python itself is not callable from a script.
+registry = ToolRegistry(client, skip=("python_api",))
 
 if __name__ == "__main__" and __spec__ is not None:
     sys.modules.setdefault(__spec__.name, sys.modules[__name__])
 
-
-_READ_ONLY_TOOLS = {
-    "cosmos_search",
-    "pulze_inspect",
-    "pulze_preflight",
-    "material_roles",
-    "get_bridge_status",
-    "get_plugin_capabilities",
-    "lighting_capabilities",
-    "query_scene",
-    "resolve_node_refs",
-    "get_object_properties",
-    "analyze_node_orientation",
-    "inspect_mesh",
-    "geometry_qa",
-    "contact_check",
-    "pick_component",
-    "inspect_curve",
-    "get_hierarchy",
-    "get_instances",
-    "get_dependencies",
-    "get_materials",
-    "get_material_library",
-    "get_material_slots",
-    "inspect_material_network",
-    "inspect_object",
-    "inspect_properties",
-    "discover_plugin_surface",
-    "get_plugin_manifest",
-    "inspect_plugin_class",
-    "inspect_plugin_constructor",
-    "inspect_plugin_instance",
-    "get_session_context",
-    "capture_viewport",
-    "capture_multi_view",
-    "capture_screen",
-    "get_effects",
-    "get_state_sets",
-    "get_camera_sequence",
-    "inspect_track_view",
-    "inspect_controller",
-    "list_wireable_params",
-    "get_wired_params",
-    "inspect_max_file",
-    "search_max_files",
-    "batch_file_info",
-    "watch_scene",
-    "walk_references",
-    "map_class_relationships",
-    "learn_scene_patterns",
-    "mcg_get_context",
-    "mcg_list_graphs",
-    "mcg_inspect_graph",
-    "mcg_search_operators",
-}
-
-_DESTRUCTIVE_TOOLS = {
-    "mesh_edit",
-    "pulze_set",
-    "pulze_restore",
-    "scene_patch",
-    "scene_qa",
-    "delete_objects",
-    "collapse_modifier_stack",
-    "batch_replace_materials",
-    "replace_material",
-    "remove_modifier",
-    "batch_rename_objects",
-    "manage_layers",
-    "manage_groups",
-    "manage_selection_sets",
-    "merge_from_file",
-    "render_cancel",
-    "delete_effect",
-    "undo_last",
-    "mcg_cleanup_workspace",
-    "mcg_reload_operators",
-}
-
-_IDEMPOTENT_TOOLS = {
-    "cosmos_search",
-    "pulze_inspect",
-    "pulze_preflight",
-    "material_roles",
-    "cosmos_download",
-    "get_bridge_status",
-    "get_plugin_capabilities",
-    "query_scene",
-    "resolve_node_refs",
-    "get_object_properties",
-    "analyze_node_orientation",
-    "contact_check",
-    "get_hierarchy",
-    "get_instances",
-    "get_dependencies",
-    "get_materials",
-    "get_material_library",
-    "get_material_slots",
-    "inspect_material_network",
-    "inspect_object",
-    "inspect_properties",
-    "get_session_context",
-    "capture_viewport",
-    "capture_multi_view",
-    "capture_screen",
-    "select_objects",
-    "set_visibility",
-    "mcg_get_context",
-    "mcg_list_graphs",
-    "mcg_inspect_graph",
-    "mcg_search_operators",
-}
+# The modules whose tools MCP clients see.
+_ADVERTISED_MODULES = ("routing", "python_api")
+_READ_ONLY_TOOLS = frozenset({"list_max_instances", "get_selected_max_instance"})
 
 
-def _tool_annotations(name: str) -> dict[str, bool]:
-    annotations: dict[str, bool] = {}
-    if name in _READ_ONLY_TOOLS or name.startswith(("get_", "inspect_", "discover_", "list_")):
-        annotations["readOnlyHint"] = True
-    if name in _DESTRUCTIVE_TOOLS:
-        annotations["destructiveHint"] = True
-    if name in _IDEMPOTENT_TOOLS:
-        annotations["idempotentHint"] = True
-    return annotations
+def _install_tool_decorator() -> None:
+    """Make @mcp.tool() add a function to the registry, and advertise it only from _ADVERTISED_MODULES."""
+    advertise = mcp.tool
 
-
-def _register_raw_tool(raw_tool, wrapped, annotations: dict[str, bool]) -> None:
-    if annotations:
-        try:
-            raw_tool(wrapped, annotations=annotations)
-            return
-        except TypeError:
-            pass
-    raw_tool(wrapped)
-
-
-def _raw_tool_decorator(raw_tool, decorator_args, decorator_kwargs, annotations: dict[str, bool]):
-    if annotations and "annotations" not in decorator_kwargs:
-        annotated_kwargs = dict(decorator_kwargs)
-        annotated_kwargs["annotations"] = annotations
-        try:
-            return raw_tool(*decorator_args, **annotated_kwargs)
-        except TypeError:
-            pass
-    return raw_tool(*decorator_args, **decorator_kwargs)
-
-
-def _pid_guarded(fn) -> bool:
-    """Every tool takes expected_pid except the routing tools, which pick the target."""
-    return not fn.__module__.endswith(".routing")
-
-
-def _install_structured_tool_results() -> None:
-    """Register MCP tools with stable JSON envelopes while keeping raw callables."""
-    raw_tool = mcp.tool
-    progressive_raw_tool = _progressive_mcp.tool
-
-    def registration_tools(fn):
-        if fn.__module__.endswith(".routing") or _tool_profile() not in _HIDDEN_PROFILES:
-            return (raw_tool,)
-        if getattr(fn, "__name__", "") in _direct_tools():
-            # Advertised directly, and still reachable from call_tool and mx.
-            return (raw_tool, progressive_raw_tool)
-        return (progressive_raw_tool,)
-
-    def structured_tool(*decorator_args, **decorator_kwargs):
-        if decorator_args and callable(decorator_args[0]) and len(decorator_args) == 1 and not decorator_kwargs:
-            fn = decorator_args[0]
-            annotations = _tool_annotations(getattr(fn, "__name__", "") or "")
+    def register(fn: Any, name: str | None = None) -> Any:
+        registry.add(fn, name)
+        module = fn.__module__.rsplit(".", 1)[-1]
+        if module in _ADVERTISED_MODULES:
             wrapped = make_structured_tool(
                 fn,
                 before_call=client.clear_last_response,
                 transport_provider=client.get_last_transport,
-                pid_guard=_pid_guarded(fn),
+                # The routing tools pick the target, so they take no expected_pid.
+                pid_guard=module != "routing",
             )
-            for target in registration_tools(fn):
-                _register_raw_tool(target, wrapped, annotations)
-            return fn
+            read_only = (name or fn.__name__) in _READ_ONLY_TOOLS
+            advertise(name=name, annotations=ToolAnnotations(readOnlyHint=True) if read_only else None)(wrapped)
+        return fn
 
-        def decorate(fn):
-            annotations = _tool_annotations(getattr(fn, "__name__", "") or "")
-            wrapped = make_structured_tool(
-                fn,
-                before_call=client.clear_last_response,
-                transport_provider=client.get_last_transport,
-                pid_guard=_pid_guarded(fn),
-            )
-            for target in registration_tools(fn):
-                _raw_tool_decorator(target, decorator_args, decorator_kwargs, annotations)(wrapped)
-            return fn
+    def tool(*args: Any, **kwargs: Any) -> Any:
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            return register(args[0])
+        return lambda fn: register(fn, kwargs.get("name"))
 
-        return decorate
-
-    mcp.tool = structured_tool  # type: ignore[method-assign]
+    mcp.tool = tool  # type: ignore[method-assign]
 
 
-_install_structured_tool_results()
-
-CORE_TOOL_MODULES = (
-    "execute",
-    "bridge",
-    "diagnostics",
-    "capabilities",
-    "session_context",
-    "query_scene",
-    "scene_query",
-    "scene_manage",
-    "scene_patch",
-    "scene_qa",
-    "objects",
-    "transform",
-    "orientation",
-    "hierarchy",
-    "selection",
-    "visibility",
-    "clone",
-    "modifiers",
-    "booleans",
-    "splines",
-    "poly_edit",
-    "mesh_ops",
-    "geometry_qa",
-    "contact_check",
-    "component_pick",
-    "loft",
-    "curve_model",
-    "curve_edit",
-    "materials",
-    "material_ops",
-    "material_network",
-    "material_roles",
-    "palette_laydown",
-    "smart_import",
-    "cosmos",
-    "material_replace",
-    "inspect",
-    "plugins",
-    "plugin_edit",
-    "lighting",
-    "organize",
-    "viewport",
-    "identify",
-    "file_access",
-    "learning",
-    "controllers",
-    "keyframes",
-    "tool_test",
-    "mainthread",
-    "python_api",
-)
-
-SPECIALTY_TOOL_MODULES = (
-    "data_channel",
-    "pulze",
-    "effects",
-    "mcg",
-    "railclone",
-    "render",
-    "render_automations",
-    "scattering",
-    "state_sets",
-    "tyflow",
-    "tyflow_graph",
-    "tyflow_patch",
-    "tyflow_manifest",
-    "tyflow_census",
-    "tyflow_script",
-    "wire_params",
-    "core_reload",  # Development: native core hot reload; full/progressive only.
-)
-
-
-# The progressive profile's catalog of hidden tools, for in-process callers such as mx.
-progressive_catalog = None
-
-
-def _register_tool_modules() -> None:
-    global progressive_catalog
-    import_module(".tools.routing", package=__package__)
-    if _tool_profile() == "script":
-        # Code first: run_python is the only operational tool advertised; every other tool
-        # lives in the hidden registry and is reached from scripts through mx.
-        catalog = progressive_catalog = ProgressiveToolCatalog(
-            package=__package__,
-            tools_dir=Path(__file__).resolve().parent / "tools",
-            hidden_mcp=_progressive_mcp,
-            allowed_modules=CORE_TOOL_MODULES + SPECIALTY_TOOL_MODULES,
-        )
-        catalog.load_tools(["run_python"], verify=False)
-        return
-    if _tool_profile() == "progressive":
-        catalog = progressive_catalog = register_progressive_tools(
-            public_mcp=mcp,
-            hidden_mcp=_progressive_mcp,
-            package=__package__,
-            tools_dir=Path(__file__).resolve().parent / "tools",
-            allowed_modules=CORE_TOOL_MODULES + SPECIALTY_TOOL_MODULES,
-            before_call=client.clear_last_response,
-            transport_provider=client.get_last_transport,
-        )
-        # Importing these modules advertises PROGRESSIVE_DIRECT_TOOLS (see
-        # _install_structured_tool_results); their other tools stay hidden.
-        catalog.load_tools(sorted(PROGRESSIVE_DIRECT_TOOLS), verify=False)
-        return
-
-    modules = list(CORE_TOOL_MODULES)
-    if _tool_profile() == "full":
-        modules.extend(SPECIALTY_TOOL_MODULES)
-    for name in modules:
-        import_module(f".tools.{name}", package=__package__)
-    if compact_tool_docs():
-        register_tool_help(mcp, client.clear_last_response, client.get_last_transport)
-
-
-# Import tool modules to trigger @mcp.tool() registration. Default is full; set
-# MCP_TOOL_PROFILE=core for the everyday subset or progressive for routing tools,
-# PROGRESSIVE_DIRECT_TOOLS and the discovery meta-tools.
-_register_tool_modules()
-# Clients send these schemas to the model with every request (issue #38).
-compact_tool_schemas(mcp)
-if compact_tool_docs():
-    install_signature_error_hints(mcp)
+_install_tool_decorator()
+for _module in _ADVERTISED_MODULES:
+    import_module(f".tools.{_module}", package=__package__)
+# Its @mcp.resource() entries (plugin manifests and guides) exist once it is imported.
+import_module(".tools.plugins", package=__package__)
 
 
 SKILL_RESOURCE_URI = "resource://3dsmax-mcp/skill"
@@ -451,21 +114,14 @@ def get_skill() -> str:
 @mcp.prompt()
 def max_assistant() -> str:
     """Default assistant instructions for MCP clients like Claude Desktop."""
-    scene_call_rule = (
-        "For user requests about the live 3ds Max scene, call the MCP tool that matches the task directly.\n"
-    )
-    if _tool_profile() == "progressive":
-        scene_call_rule = (
-            "This server uses the progressive tool profile: instance routing tools, the most common "
-            "operational tools, and find_tools, list_toolsets, describe_toolset and call_tool are advertised.\n"
-            f"{_PROGRESSIVE_INSTRUCTIONS}\n"
-        )
-    base_rules = (
+    return (
         "You are a 3ds Max assistant connected via MCP.\n"
-        f"{scene_call_rule}"
-        "Do not inspect repository source files, run Python imports, or run repository tests for live scene requests unless the user explicitly asks for repo/debug/test work or direct MCP tools are unavailable.\n"
+        f"{_INSTRUCTIONS}\n"
+        "The tool names in the rules below are not top-level MCP tools: call each one inside a run_python "
+        "script as mx.tools.<name>(**arguments).\n"
+        "Do not inspect repository source files, run Python imports, or run repository tests for live scene requests unless the user explicitly asks for repo/debug/test work or run_python is unavailable.\n"
         "Do not call get_bridge_status or get_session_context as a session preamble or before every task.\n"
-        "Use get_bridge_status only when a tool fails with a connection/transport error and you need to diagnose the bridge.\n"
+        "Use get_bridge_status only when a call fails with a connection/transport error and you need to diagnose the bridge.\n"
         "Use query_scene(action=overview|filter|class|property|selection|delta) for scene reads.\n"
         "Use get_session_context only when the user explicitly wants bridge + capabilities + scene + selection in one call.\n"
         "Use inspect_track_view to browse an object's animation/controller hierarchy before targeting a specific param_path.\n"
@@ -481,23 +137,20 @@ def max_assistant() -> str:
         "Prefer dedicated tools over raw MAXScript when available.\n"
         "Inspect objects/properties before edits when you do not already have the needed data.\n"
         "After any meaningful mutation, verify with query_scene(action=delta) or re-inspect.\n"
-        "Work in natural language with the user, but keep tool usage structured and explicit.\n"
+        "Work in natural language with the user, but keep scripts explicit about what they read and change.\n"
         "DO NOT render unless the user asks.\n"
         "Use capture_viewport for fast viewport context.\n"
-        "MCP tool replies are structured objects: `{ok, result}` on success, `{ok, error}` on failure, optional top-level `hint` (`message`, `suggested_tools`, `next`). Transport only when present on errors. Set MCP_TRIPBACK_MODE=full for elapsed_ms and full transport metadata.\n"
-        "If ok is false, read error.message and any hint.suggested_tools before retrying or choosing a fallback.\n"
+        "run_python replies are structured objects: `{ok, result}` on success, `{ok, error}` on failure. A tool call that fails inside a script raises mx.MaxToolError (.code, .message, .hint) and ends the script unless the script catches it. Set MCP_TRIPBACK_MODE=full for elapsed_ms and full transport metadata.\n"
+        "If ok is false, read error.message and error.details (script line, tool, code, hint) before retrying or choosing a fallback.\n"
         f"Reference resource: {SKILL_RESOURCE_URI}\n"
         "Load the reference resource only when you need detailed project rules or MAXScript examples.\n"
     )
-    return base_rules
 
 
 def main():
     from .parent_watchdog import start_parent_watchdog
 
     start_parent_watchdog()
-    # Tool modules that imported the server first register after it finished importing.
-    compact_tool_schemas(mcp)
     mcp.run(transport="stdio")
     # Client closed stdin: exit even if non-daemon threads linger, but never
     # while a diagnostics capture holds a Max thread suspended.

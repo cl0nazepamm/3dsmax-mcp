@@ -7,13 +7,13 @@ MaxToolError with the tool's error code and hint.
 
 from __future__ import annotations
 
-import inspect
 import threading
 import time
+from importlib import import_module
 from typing import Any, Callable
 
-# Tools mx must not call: they would recurse or only make sense to an MCP client.
-_BLOCKED = frozenset({"run_python", "call_tool", "find_tools", "list_toolsets", "describe_toolset", "tool_help"})
+# A script calling run_python would start a script inside a script.
+_BLOCKED = frozenset({"run_python"})
 
 Backend = Callable[[str, dict[str, Any]], dict[str, Any]]
 _backend: Backend | None = None
@@ -38,7 +38,7 @@ class MaxToolError(RuntimeError):
 
 
 def set_backend(backend: Backend | None) -> None:
-    """Route calls to `backend(tool, arguments) -> ToolEnvelope dict`; None restores the server.
+    """Route calls to `backend(tool, arguments) -> ToolEnvelope dict`; None restores the registry.
 
     A backend may also provide describe(name) -> (signature text, manual, inspect.Signature
     or None) | None and names() -> iterable of tool names, for mx.help and mx.tools.
@@ -47,16 +47,14 @@ def set_backend(backend: Backend | None) -> None:
     _backend = backend
 
 
-def _server_backend(tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    from .. import server
-    from ..tool_discovery import invoke_tool
+def _registry() -> Any:
+    """This process's ToolRegistry: the MCP server's, or maxmcp.inmax's inside 3ds Max."""
+    return import_module("..server", __package__).registry
 
-    registered = server.mcp._tool_manager.get_tool(tool)
-    if registered is not None:
-        return invoke_tool(registered, arguments)
-    if server.progressive_catalog is not None:
-        return server.progressive_catalog.call_tool(tool, arguments)
-    return {"ok": False, "error": {"code": "NOT_FOUND", "message": f"tool {tool!r} is not available in this profile"}}
+
+def _source(method: str) -> Any:
+    """The backend when it provides `method`, else the registry."""
+    return _backend if _backend is not None and hasattr(_backend, method) else _registry()
 
 
 class Run:
@@ -93,7 +91,7 @@ def call(tool: str, /, **arguments: Any) -> Any:
     if run is not None:
         run.in_call = True
     try:
-        envelope = (_backend or _server_backend)(tool, arguments)
+        envelope = (_backend or _registry())(tool, arguments)
     finally:
         if run is not None:
             run.in_call = False
@@ -105,42 +103,13 @@ def call(tool: str, /, **arguments: Any) -> Any:
     return envelope.get("result")
 
 
-def _registered_tool(name: str) -> Any:
-    from .. import server
-
-    tool = server.mcp._tool_manager.get_tool(name)
-    if tool is None and server.progressive_catalog is not None and name in server.progressive_catalog.tool_modules:
-        server.progressive_catalog.load_tools([name])
-        tool = server.progressive_catalog.hidden_mcp._tool_manager.get_tool(name)
-    return tool
-
-
-def _describe(name: str) -> tuple[str, str, inspect.Signature | None] | None:
-    """(signature text, manual, Python signature) of one tool from the active backend."""
-    if _backend is not None and hasattr(_backend, "describe"):
-        return _backend.describe(name)
-    from ..tool_discovery import python_signature
-
-    tool = _registered_tool(name)
-    if tool is None:
-        return None
-    try:
-        signature = inspect.signature(tool.fn)
-    except (TypeError, ValueError):
-        signature = None
-    schema = getattr(tool, "_full_schema", tool.parameters)
-    return python_signature(schema), getattr(tool, "_full_description", tool.description) or "", signature
+def _describe(name: str) -> Any:
+    """(signature text, manual, Python signature) of one tool, or None for an unknown name."""
+    return _source("describe").describe(name)
 
 
 def _names() -> set[str]:
-    if _backend is not None and hasattr(_backend, "names"):
-        return set(_backend.names())
-    from .. import server
-
-    names = {tool.name for tool in server.mcp._tool_manager.list_tools()}
-    if server.progressive_catalog is not None:
-        names |= set(server.progressive_catalog.tool_modules)
-    return names
+    return set(_source("names").names())
 
 
 def help(name: str) -> str:  # noqa: A001 - mirrors Python's help() for tools

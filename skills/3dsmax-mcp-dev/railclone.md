@@ -8,8 +8,8 @@ They are working examples, not a complete XML schema or universal architectural 
 ## Tools and edit loop
 
 Use [SKILL.md](SKILL.md) for bridge routing, general scene operations,
-transactions, and Agent Viewport controls. In progressive mode, discover and call
-these operations through the advertised dispatcher.
+transactions, and Agent Viewport controls. Call the tools below inside a
+`run_python` script as `mx.tools.<name>(...)`.
 
 1. Inspect the target and relevant scene objects. Resolve names/handles again after
    scene changes; do not reuse identifiers from another scene.

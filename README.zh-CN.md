@@ -2,8 +2,8 @@
 
 通过 [Model Context Protocol](https://modelcontextprotocol.io) 把 AI 智能体接入 **Autodesk 3ds Max**。
 
-用中文描述你要做的事，智能体通过专用 MCP 工具直接操作场景——创建物体、构建材质、驱动修改器与控制器、
-截取视口、检查插件。可选的 progressive 配置只直接公开常用工具，其余工具按需查找，避免一次性占用大量上下文。
+用中文描述你要做的事，智能体直接操作场景——创建物体、构建材质、驱动修改器与控制器、
+截取视口、检查插件。服务器只公开 `run_python` 一个操作工具，智能体编写 Python 脚本调用背后约 180 个工具，避免工具定义占用大量上下文。
 
 **当前版本：1.6.6 — Astra Edition** — 见 [CHANGELOG.md](docs/CHANGELOG.md)。
 
@@ -42,7 +42,6 @@ python -m pip install 3dsmax-mcp -i https://pypi.tuna.tsinghua.edu.cn/simple
 python -m maxmcp.installer
 ```
 
-安装程序会让你选择 MCP 工具配置，默认 `full`：直接公开全部工具，工具定义约占 28k token（常用工具完整说明，其余为 Python 风格签名，可用 `tool_help` 查看完整说明）；`progressive` 直接公开常用工具，其余按需查找，约 7k token，适合本地或较小模型。无人值守安装可使用 `3dsmax-mcp-install --tool-profile progressive`。
 **必须重启 3ds Max** 插件才会加载。
 
 > 其他可用镜像：阿里云 `https://mirrors.aliyun.com/pypi/simple/`、腾讯云 `https://mirrors.cloud.tencent.com/pypi/simple/`。
@@ -248,29 +247,14 @@ Base URL、API Key 和模型名：
 
 ---
 
-## 工具配置（Tool Profile）
+## 智能体如何调用工具
 
-MCP 客户端每次请求都会把公开的工具定义发给模型。安装程序默认选择 **full**，直接公开全部工具。
-本地或较小模型可选择 **progressive**：直接公开常用工具，其余约 170 个工具用 `find_tools` 按需查找，再通过 `call_tool` 调用。
+MCP 客户端每次请求都会把公开的工具定义发给模型，所以服务器只公开 5 个工具（约 2k token）：`run_python`，以及用来选择
+目标 3ds Max 的 4 个实例路由工具。智能体用 `mx` API 编写 Python 脚本完成工作：`mx.tools.<工具名>(...)` 调用其余任意工具，
+`mx.help("<工具名>")` 输出该工具的签名和说明。在 3ds Max 内部运行的脚本是一个撤销步骤，脚本出错会整体回滚。
 
-```powershell
-$env:MCP_TOOL_PROFILE = "progressive"
-```
-
-| 配置 | 包含范围 | 每次请求的工具定义（Claude token，约） |
-|------|----------|----------------------------------------|
-| **progressive（节省上下文）** | 4 个实例路由工具、14 个常用工具，以及 `find_tools`、`list_toolsets`、`describe_toolset`、`call_tool` | 约 6.5k |
-| **core** | 场景、物体、材质、修改器、控制器、视口、文件、插件、组织管理、学习 | 约 19k |
-| **full（默认）** | core 全部，外加 tyFlow、MCG、Forest Pack、RailClone、Data Channel、特效、状态集、参数关联、**渲染** | 约 28k |
-
-progressive 模式下先用直接公开的工具；其他需求用 `find_tools(query)` 查找，它会返回最匹配的工具及其参数，
-再用 `call_tool(name, arguments)` 调用。参数错误时，错误提示会附带该工具的 `input_schema`。
-`tools/list` 在查找后保持不变。Windows 安装向导会询问工具配置，无人值守安装可传入 `/TOOLPROFILE=progressive`。
-不同模型的分词方式不同，token 数会有差异。
-
-工具说明方式由 `mcp_config.ini` 中的 `[mcp] tool_docs`（或 `MCP_TOOL_DOCS`）决定：默认 `hybrid`，14 个常用工具保留完整说明和
-JSON Schema，其余工具只显示一行摘要和 Python 风格签名，`tool_help(name)` 可返回任意工具的完整说明；`signature` 全部使用签名，
-最省上下文；`complete` 为全部完整 JSON Schema（约 75k token）。签名工具严格校验参数名，未知参数会被拒绝。
+1.x 的 `full`、`core`、`progressive` 工具配置已移除，`MCP_TOOL_PROFILE` 和 `mcp_config.ini` 中的 `tool_profile`
+不再起作用，留在配置里的旧值会被忽略。不同模型的分词方式不同，token 数会有差异。
 
 ---
 

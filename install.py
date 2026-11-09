@@ -22,7 +22,6 @@ import tempfile
 from pathlib import Path
 
 from maxmcp.opencode_config import resolve_opencode_config, update_opencode
-from maxmcp.user_config import TOOL_PROFILES, with_ini_value
 
 ROOT = Path(__file__).resolve().parent
 # Installed from a wheel this file is `maxmcp/installer.py`, so ROOT is the package
@@ -89,31 +88,6 @@ def installer_banner() -> str:
         return banner
     return ANSI_CSI_RE.sub("", banner).translate(REDIRECTED_BANNER_TRANSLATION)
 
-
-def choose_tool_profile(requested: str | None = None) -> str:
-    """Select the external MCP tool exposure profile."""
-    if requested:
-        normalized = requested.strip().lower()
-        if normalized not in TOOL_PROFILES:
-            raise ValueError(f"Unsupported tool profile: {requested}")
-        return normalized
-
-    print("\nMCP tool profile (tool definitions are sent with every request to the model):")
-    print("  1) Full (default) - all 181 tools listed directly; about 28k tokens")
-    print("  2) Progressive - common tools listed, the rest found on demand; about 7k tokens,")
-    print("     for local models and small context windows")
-    print("  3) Core - the everyday tools listed directly; about 19k tokens")
-    try:
-        choice = input("  Choice [1]: ").strip()
-    except EOFError:
-        choice = ""
-    return {"2": "progressive", "3": "core"}.get(choice, "full")
-
-
-def set_ini_value(path: Path, section: str, key: str, value: str) -> None:
-    """Update one INI value while preserving unrelated comments and formatting."""
-    text = path.read_text("utf-8") if path.exists() else ""
-    path.write_text(with_ini_value(text, section, key, value), "utf-8")
 
 # Extract list of supported years from GUP_SRCS
 MAX_YEARS = sorted(GUP_SRCS.keys(), reverse=True)
@@ -395,7 +369,7 @@ def deploy_application_package(allow_hot_shell: bool = False) -> bool:
     return True
 
 
-def deploy_config(tool_profile: str = "full") -> bool:
+def deploy_config() -> bool:
     print(f"\n[1/4] User config -> {CONFIG_DIR}")
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -407,9 +381,6 @@ def deploy_config(tool_profile: str = "full") -> bool:
     else:
         CONFIG_DST.write_text("[mcp]\nsafe_mode = true\n", "utf-8")
         print("  mcp_config.ini: created default (safe_mode=true)")
-
-    set_ini_value(CONFIG_DST, "mcp", "tool_profile", tool_profile)
-    print(f"  MCP tools:       {tool_profile}")
 
     return True
 
@@ -672,7 +643,7 @@ def register_agents() -> bool:
         error = run_agent_command(cmd)
         if error and agent == "claude" and "already exists" in error:
             # `claude mcp add` never overwrites, so an existing entry would keep its
-            # old launch command. Replace it, keeping env such as MCP_TOOL_PROFILE.
+            # old launch command. Replace it, keeping the entry's env.
             env = claude_user_env()
             error = run_agent_command([agent, "mcp", "remove", "3dsmax-mcp", "--scope", "user"])
             if not error:
@@ -702,11 +673,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip building and installing agent skills.",
     )
-    parser.add_argument(
-        "--tool-profile",
-        choices=TOOL_PROFILES,
-        help="MCP tool exposure profile; omit to choose interactively.",
-    )
     return parser.parse_args()
 
 
@@ -726,12 +692,10 @@ def main() -> int:
     else:
         print("\nNo 3ds Max installations detected (2023–2027).")
 
-    tool_profile = choose_tool_profile(args.tool_profile)
-
     if not remove_legacy_installations():
         return 1
 
-    deploy_config(tool_profile=tool_profile)
+    deploy_config()
     package_ok = deploy_application_package()
     build_skills(skip_skill=args.skip_skill)
     register_agents()
@@ -746,7 +710,6 @@ def main() -> int:
     if not package_ok:
         print("\n  application package install failed; see messages above.")
     print("  the MCP server starts automatically when your agent connects.")
-    print(f"  MCP tool profile: {tool_profile}")
     print("\n ")
     print("\n  and thank you for installing 3dsmax-mcp!")
     print("\n  clone.llc // Metaverse Makers. 2026")
