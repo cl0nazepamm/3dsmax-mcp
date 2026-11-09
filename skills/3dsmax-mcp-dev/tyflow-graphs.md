@@ -7,6 +7,7 @@ Read this reference completely before building, inspecting, editing, or verifyin
 - tyFlow has no MAXScript getter for wiring or operator types. `get_tyflow_graph` reads both from the flow itself: `edges` (from_event, from_op, to_event) and each operator's `type` are current, including wires drawn in the tyFlow editor and operators renamed by the user. Never reconstruct wiring from names or captures when `wiring_source` is `scene`.
 - Shape, Birth Burst, Actor and Spline Paths have no Operator interface in MAXScript (`op.Operator` fails), so `execute_maxscript` cannot rename, enable or remove them. The tyFlow tools handle them like any other operator; prefer the tools for these edits.
 - An event holds operators of one family, set by its first operator: particle, terrain, VDB or Inferno (Value and Global stand alone). An operator of another family is refused with an error, never silently dropped. Check `family` in `list_tyflow_operators` and give each family its own event.
+- tyFlow graph edits are outside Max's undo: `undo_last` does not undo them, and a `run_python` script that fails does not roll them back, so delete a flow you no longer need with `delete_objects`. Build events and operators with the tyFlow tools, never with `rt` inside a `run_python` script: with tyFlow 2.101, rolling such edits back crashes 3ds Max at its next save or hold.
 
 ## The agentic loop
 

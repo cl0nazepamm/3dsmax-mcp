@@ -50,7 +50,12 @@ def get_dependencies(
     name: str,
     direction: str = "dependents",
 ) -> str:
-    """Trace the reference graph for an object using refs.dependents / refs.dependentnodes."""
+    """Trace what references an object (refs.dependents / refs.dependentnodes).
+
+    direction: "dependents" lists every reference maker that depends on the object
+    (controllers, modifiers, internal reference managers); "dependentnodes" lists only
+    the nodes. For what the object itself references, use walk_references.
+    """
     if client.native_available:
         try:
             payload = _json.dumps({"name": name, "direction": direction})

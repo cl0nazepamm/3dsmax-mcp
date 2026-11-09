@@ -1005,7 +1005,7 @@ def manage_data_channel_stack(
             f"local requestedPositions = #({literal})",
             "if requestedPositions.count != activeCount do throw (\"Reorder requires exactly \" + activeCount as string + \" stack positions\")",
             "for position in requestedPositions do if position < 1 or position > activeCount do throw (\"Reorder position out of range: \" + position as string)",
-            "local oldOrder = copy dcMod.operator_order #nomap",
+            "local oldOrder = dcMod.operator_order as array",
             "local newOrder = for position in requestedPositions collect oldOrder[position]",
             "dcMod.operator_order = newOrder",
         ])

@@ -16,6 +16,9 @@ def transform_object(
 ) -> str:
     """Move, rotate, and/or scale an object by world/local offsets.
 
+    rotate: [x, y, z] degrees about X, then Y, then Z, counterclockwise looking down each
+    axis, as MAXScript's rotate node (eulerAngles x y z): [0, 0, 90] turns +X to +Y.
+
     Use when: posing unkeyed (or intentionally current-frame) objects.
     Not when: editing animation on keyed tracks — prefer keyframe_tracks value/move at
     explicit times; this tool can rewrite keys at the current slider frame.

@@ -12,14 +12,14 @@ bucketed per event. Instrumentation mutates the flow — it is removed afterward
 from __future__ import annotations
 
 import json
-import os
-import tempfile
+import shutil
 from pathlib import Path
 from typing import Any
 
 from ..helpers.maxscript import node_by_name, safe_string
 
 from ..coerce import IntList
+from ..max_client import CALL_STATE_ERRORS
 from ..server import client, mcp
 from ._tyflow_core import CORE_HELPERS, MAXSCRIPT_ERROR, graph_payload
 
@@ -286,23 +286,20 @@ def capture_tyflow_editor(
     reset_view: bool = True,
     max_width: int = 1920,
 ) -> str:
-    """Open the tyFlow editor and capture the screen for visual wire inspection.
+    """Open the flow's tyFlow editor and capture that window for visual wire inspection.
 
-    get_tyflow_graph reads wiring from the flow itself. With an older bridge
-    (wiring_source "ledger"), this capture plus the returned event rectangles
-    (position/width per event) lets an agent map wires visually and reconcile
-    them via set_tyflow_wiring_ledger.
-    Fullscreen capture is disabled by default — pass enabled=true. The editor is
-    left open afterwards.
+    Only the editor window is captured (never the desktop), even when other
+    windows cover it. get_tyflow_graph reads wiring from the flow itself. With
+    an older bridge (wiring_source "ledger"), this capture plus the returned
+    event rectangles (position/width per event) lets an agent map wires
+    visually and reconcile them via set_tyflow_wiring_ledger.
+    Pass enabled=true to allow the capture. The editor is left open afterwards.
+    An editor that has just opened can still show an empty canvas: look at the
+    image, and call again (reset_view=false) when the graph is missing.
     """
     if not enabled:
-        return json.dumps(
-            {
-                "error": "capture_tyflow_editor is disabled by default; "
-                "set enabled=true to allow fullscreen capture"
-            }
-        )
-    from .viewport import _capture_fullscreen_to_file
+        return json.dumps({"error": "capture_tyflow_editor is disabled by default; set enabled=true to capture "
+                                    "the tyFlow editor window"})
 
     reset_lines = ""
     if reset_view:
@@ -318,9 +315,10 @@ if flow == undefined then (
     local openError = ""
     try (flow.tyFlow.editor_open()) catch (openError = getCurrentException() as string)
     {reset_lines}
-    try (windows.processPostedMessages()) catch ()
-    sleep 0.4
-    try (windows.processPostedMessages()) catch ()
+    for i = 1 to 6 do (
+        try (windows.processPostedMessages()) catch ()
+        sleep 0.2
+    )
     if openError == "" then "OK" else ("OPENERR|" + openError)
 )
 )"""
@@ -339,17 +337,24 @@ if flow == undefined then (
             + raw.split("|", 1)[1]
         )
 
-    if output_path:
-        capture_path = output_path.replace("\\", "/")
-    else:
-        root = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
-        target_dir = Path(root) / "3dsmax-mcp"
-        target_dir.mkdir(parents=True, exist_ok=True)
-        capture_path = str(target_dir / "tyflow_editor_capture.jpg").replace("\\", "/")
+    # The editor window alone (Windows compositor capture: unobscured, no
+    # other windows); never the desktop, which can show unrelated apps.
+    request = json.dumps({"target": "tyflow_editor", "flow": name, "max_width": max(0, int(max_width))})
     try:
-        _capture_fullscreen_to_file(capture_path, max_width=int(max_width))
+        data = json.loads(client.send_command(request, cmd_type="native:capture_screen").get("result", "{}"))
+    except CALL_STATE_ERRORS:
+        raise
     except Exception as exc:
-        return json.dumps({"error": f"Screen capture failed: {exc}"})
+        return json.dumps({"error": f"tyFlow editor capture failed: {exc}"})
+    if data.get("capture_contract") != "window_capture_v1" or data.get("occlusion_free") is not True:
+        return json.dumps({"error": "Capturing the tyFlow editor window needs the updated 3dsmax-mcp bridge; "
+                                    "no desktop capture was taken"})
+    capture_path = str(data.get("file", "")).replace("\\", "/")
+    if output_path:
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(capture_path, target)
+        capture_path = str(target).replace("\\", "/")
 
     try:
         graph = graph_payload(name)

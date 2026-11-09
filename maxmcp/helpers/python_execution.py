@@ -14,7 +14,7 @@ def run(code):
     import pymxs
 
     stdout, stderr = io.StringIO(), io.StringIO()
-    namespace = {"__name__": "__main__"}
+    namespace = {"__name__": "__main__", "pymxs": pymxs, "rt": pymxs.runtime}
     payload = None
 
     def failure(exc):

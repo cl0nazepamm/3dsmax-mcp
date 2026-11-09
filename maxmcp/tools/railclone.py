@@ -151,7 +151,7 @@ def set_railclone_style(
     target = _target(name, handle)
     encoded = base64.b64encode(xml.encode("utf-8")).decode("ascii")
     result = _run(target + f'''
-if theHold.Holding() or theHold.IsSuspended() or theHold.SuperLevel() != 0 do throw "USER_BUSY: an undo operation is active"
+if theHold.Holding() or theHold.IsSuspended() do throw "USER_BUSY: an undo operation is active"
 local base = obj.baseObject
 local api = rcApi base #setXMLStyle
 rcApi base #getXMLStyle

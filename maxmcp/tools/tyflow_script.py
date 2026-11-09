@@ -421,8 +421,9 @@ def tyflow_script(
             raise ScriptToolError("name, event and operator are required for this action")
 
         if action_key == "get":
-            info = _read_operator(name, event, operator)
+            # The graph names the operator's type, so a non-Script operator is refused clearly.
             target = _script_operator(name, event, operator)
+            info = _read_operator(name, event, operator)
             info["object_names"] = {f"obj{i:03d}": n for i, n in enumerate(info.pop("objects"), start=1)}
             info["texmap_names"] = {f"tex{i:03d}": n for i, n in enumerate(info.pop("texmaps"), start=1)}
             info["compiled_by_tyflow"] = bool(_compiled_classes(target["uid"]))
@@ -430,6 +431,7 @@ def tyflow_script(
             return json.dumps(info)
 
         if action_key == "check":
+            _script_operator(name, event, operator)
             info = _read_operator(name, event, operator)
             source = code or info["script"]
             check = _checker_with_api("Check", source, _members(info), info.get("assemblies") or "")
@@ -446,6 +448,7 @@ def tyflow_script(
                     "The code would crash 3ds Max; the operator was not changed. Fix the diagnostics and retry.",
                     check={"ok": False, "errors": len(hazards), "warnings": 0, "diagnostics": hazards},
                 )
+            target = _script_operator(name, event, operator)
             info = _read_operator(name, event, operator)
             check = _checker_with_api("Check", code, _members(info), info.get("assemblies") or "")
             if _diagnostics_failed(check):
@@ -453,7 +456,6 @@ def tyflow_script(
                     "The code does not compile; the operator was not changed. Fix the diagnostics and retry.",
                     check=check,
                 )
-            target = _script_operator(name, event, operator)
             replaced = bool(_compiled_classes(target["uid"]))
             skipped: list[str] = []
             if replaced:

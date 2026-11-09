@@ -265,18 +265,23 @@ def set_tyflow_wiring_ledger(name: str, edges: DictList, mode: str = "replace") 
     stored = store_ledger(name, ledger, graph=graph)
     if "error" in stored:
         return json.dumps(stored)
-    if graph.get("scene") and stored["edges"] != ledger["edges"]:
+    key = lambda edge: (edge["from_event"], edge["from_op"], edge["to_event"])  # noqa: E731
+    recorded = {key(edge) for edge in stored["edges"]}
+    ignored = [edge for edge in normalized if key(edge) not in recorded]
+    for edge in ignored:
         warnings.append(
-            "The flow's own wiring was read from the scene and recorded instead of these edges; "
-            "use connect/disconnect to change wiring."
+            f"Not recorded: {edge['from_event']}/{edge['from_op']} -> {edge['to_event']}. This flow's wiring "
+            "is read from the scene and it is not wired that way; use connect_tyflow_operator to wire it."
         )
-    return json.dumps(
-        {
-            "name": name,
-            "mode": mode_key,
-            "edgeCount": len(stored["edges"]),
-            "edges": stored["edges"],
-            "ledger_hash": stored["hash"],
-            "warnings": warnings,
-        }
-    )
+    payload: dict[str, Any] = {
+        "name": name,
+        "mode": mode_key,
+        "edgeCount": len(stored["edges"]),
+        "edges": stored["edges"],
+        "ledger_hash": stored["hash"],
+        "warnings": warnings,
+    }
+    if ignored:
+        payload["ignored_edges"] = ignored
+        payload["status"] = "partial"
+    return json.dumps(payload)

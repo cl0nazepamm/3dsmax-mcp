@@ -38,7 +38,8 @@ def contact_check(
     below candidate_pairs and a warning. Unmeasured pairs are unchecked, not clear.
 
     Status per pair, most severe first:
-      penetrating  - a vertex lies inside the other closed mesh deeper than tolerance
+      penetrating  - a vertex (or, failing that, a face center) lies inside the other
+                     closed mesh deeper than tolerance
       intersecting - surfaces cross with no vertex inside (thin parts, open meshes)
       touching     - closest vertex within tolerance of the other surface
       near_gap     - clearance above tolerance but within near_gap (floating parts)

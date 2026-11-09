@@ -192,8 +192,9 @@ def assign_material(
 ) -> str | dict:
     """Create a material, or share an existing object's material with targets.
 
-    Existing material: pass source_name/source_handle instead of material_class,
-    material_name and params. Both source selectors cross-check when supplied.
+    Existing material: pass source_name/source_handle (the OBJECT that wears it, not
+    the material's name) instead of material_class, material_name and params. Both
+    source selectors cross-check when supplied.
     This instances the actual material, including maps and sub-materials, so
     later material edits remain shared. Targets are preflighted and assigned in
     one undo step; missing/ambiguous nodes fail without partial assignment.
@@ -775,7 +776,10 @@ def set_sub_material(
     source_index: int = 0,
     handle: int = 0,
 ) -> str:
-    """Create or assign a sub-material in a Multi/Sub-Object material slot."""
+    """Create or assign a sub-material in a Multi/Sub-Object material slot.
+
+    sub_material_index is the 1-based slot (1 = material ID 1); it is required.
+    """
     if client.native_available:
         payload = {
             "name": name,

@@ -34,6 +34,7 @@ SKIP_DEFAULT = {
     "max_dialogs",
     "reload_native_core",  # Development control of the bridge shell, never a smoke probe.
     "capture_hang_diagnostics",  # Briefly suspends Max's threads to read stacks; not a smoke probe.
+    "backup_material_library",  # Writes .mat backups to Documents; the read tier must not write files.
     "script_controller",
     "cosmos_search",
     "cosmos_download",

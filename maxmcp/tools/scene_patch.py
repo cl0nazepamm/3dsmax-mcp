@@ -53,7 +53,8 @@ def scene_patch(
 
     - ``rename``: ``name``.
     - ``transform``: relative ``move``/``rotate``/``scale`` arrays and optional
-      ``coordinate_system`` (``world`` or ``local``). Rotation is in degrees.
+      ``coordinate_system`` (``world`` or ``local``). Rotation is in degrees about X,
+      then Y, then Z, counterclockwise like MAXScript ``rotate`` (``[0, 0, 90]`` turns +X to +Y).
     - ``set_flags``: any of ``hidden``, ``frozen``, ``renderable``,
       ``cast_shadows``, or ``receive_shadows``.
     - ``set_parent``: required ``parent`` NodeRef or null (detach), plus optional

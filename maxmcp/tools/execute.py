@@ -149,7 +149,7 @@ def execute_python(code: str, allow_discard: bool = False) -> str:
     """Execute Python in 3ds Max; return stdout, stderr and a JSON-compatible value.
 
     Use when no dedicated tool covers the operation. Runs on Max's main thread
-    with access to pymxs; requires bridge safe_mode=false.
+    with pymxs and rt (pymxs.runtime) in scope; requires bridge safe_mode=false.
     Assign `result` to return it in `value` (JSON-compatible; otherwise null).
     Each call has fresh variables; imported modules remain loaded in Max.
     Undoable scene edits form one undo step and roll back on an uncaught error.

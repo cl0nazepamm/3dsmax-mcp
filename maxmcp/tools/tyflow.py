@@ -919,13 +919,29 @@ if flow == undefined then (
 @mcp.tool()
 def set_tyflow_physx(
     name: str,
-    enabled: bool = True,
-    gravity: float = -980.0,
-    substeps: int = 8,
-    pos_iterations: int = 4,
-    vel_iterations: int = 1,
+    enabled: bool | None = None,
+    gravity: float | None = None,
+    substeps: int | None = None,
+    pos_iterations: int | None = None,
+    vel_iterations: int | None = None,
 ) -> str:
-    """Set object-level PhysX settings from tyFlow object properties."""
+    """Set object-level PhysX settings on a tyFlow; only the settings passed change.
+
+    enabled: gravity on/off; gravity: gravity value (scene units/s^2, e.g. -980);
+    substeps; pos_iterations / vel_iterations: solver iterations.
+    """
+    requested = {
+        "physXGravityEnabled": None if enabled is None else str(bool(enabled)).lower(),
+        "physXGravityValue": None if gravity is None else repr(float(gravity)),
+        "physXSubsteps": None if substeps is None else str(int(substeps)),
+        "physXPosIterations": None if pos_iterations is None else str(int(pos_iterations)),
+        "physXVelIterations": None if vel_iterations is None else str(int(vel_iterations)),
+    }
+    # Parenthesized: `setIf "x" -500.0` would parse as a subtraction.
+    setters = "\n    ".join(f'setIf "{prop}" ({value})' for prop, value in requested.items() if value is not None)
+    if not setters:
+        return json.dumps({"error": "Pass at least one of enabled, gravity, substeps, pos_iterations or "
+                                    "vel_iterations; nothing was changed"})
     maxscript = f"""(
 {HELPERS}
 local flow = {node_by_name(name, missing_ok=True)}
@@ -942,11 +958,7 @@ if flow == undefined then (
             try (setProperty bo pSym propValue; append applied propName) catch (append errors ("Could not set " + propName))
         ) else append unsupported propName
     )
-    setIf "physXGravityEnabled" {str(bool(enabled)).lower()}
-    setIf "physXGravityValue" {float(gravity)}
-    setIf "physXSubsteps" {int(substeps)}
-    setIf "physXPosIterations" {int(pos_iterations)}
-    setIf "physXVelIterations" {int(vel_iterations)}
+    {setters}
     "{{\\"name\\":\\"" + (esc flow.name) + "\\",\\"applied\\":" + (jsonStringArray applied) + ",\\"errors\\":" + (jsonStringArray errors) + ",\\"unsupported\\":" + (jsonStringArray unsupported) + "}}"
 )
 )"""

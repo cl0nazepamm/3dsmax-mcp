@@ -8,6 +8,8 @@ Measurements per candidate pair, in world space and scene units:
 
 * ``depth``: the largest distance from a vertex that lies inside the other
   (closed) mesh to that mesh's surface. A lower bound on penetration depth.
+  When no vertex is inside, face centers are tested the same way: parts that
+  overlap with coplanar faces have every vertex on the other surface.
 * ``gap``: the smallest distance from a vertex outside the other mesh to its
   surface. Vertex to surface, so it is an upper bound on the true clearance.
 * ``crossings``: edges whose two endpoints are both clear of the other
@@ -326,6 +328,23 @@ _SCRIPT_TEMPLATE = r'''(
                     if d > maxDepth do (maxDepth = d; depthPt = p)
                 ) else (
                     if d < minGap do (minGap = d; gapPt = p)
+                )
+            )
+        )
+        -- No vertex inside: overlapping parts whose faces are coplanar (two boxes
+        -- sharing their side planes) put every vertex ON the other surface and every
+        -- edge IN it, so neither test above sees the overlap. Face centers do.
+        if nInside == 0 and closedB do (
+            for fi = 1 to (getNumFaces mA) while not late do (
+                if (mod fi 256) == 0 do late = (ccElapsed t0) > budget
+                local f = getFace mA fi
+                local p = ((getVert mA (f.x as integer)) + (getVert mA (f.y as integer)) + (getVert mA (f.z as integer))) / 3.0
+                if p.x > bbB[1].x and p.x < bbB[2].x and p.y > bbB[1].y and p.y < bbB[2].y and p.z > bbB[1].z and p.z < bbB[2].z do (
+                    local d = if (mpB.closestFace p doubleSided:true) then mpB.getHitDist() else 1e30
+                    if d > tol and (ccOddHits rmB p dirs[1] eps) and (ccOddHits rmB p dirs[2] eps) do (
+                        nInside += 1
+                        if d > maxDepth do (maxDepth = d; depthPt = p)
+                    )
                 )
             )
         )

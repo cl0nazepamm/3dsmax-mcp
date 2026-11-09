@@ -76,6 +76,8 @@ def _do_start(watch_timeout_sec: int) -> dict:
 
     if isinstance(result, dict) and result.get("status") == "error":
         return result
+    # status tells an armed job that is still rendering from an unknown job id.
+    _armed_marker(sig).write_text(json.dumps({"job_id": job_id}), encoding="utf-8")
 
     return {
         "status": "armed",
@@ -104,9 +106,17 @@ def _do_cancel() -> dict:
     return {"status": "unknown", "raw": raw}
 
 
+def _armed_marker(signal: Path) -> Path:
+    return signal.with_name(signal.name.replace(".done.json", "") + ".armed")
+
+
 def _read_signal(job_id: str, signal_path: str) -> dict:
     sig = Path(signal_path) if signal_path else (_signal_dir() / f"{job_id}.done.json")
     if not sig.exists():
+        if not _armed_marker(sig).exists():
+            return {"status": "error", "code": "NOT_FOUND", "done": False, "signal_path": str(sig),
+                    "error": f"No render job {job_id or sig.name!r} was armed by this machine's MCP server; "
+                             "arm one with action=start and use the job_id it returns."}
         return {"status": "rendering", "done": False, "signal_path": str(sig),
                 "hint": "signal not written yet — render still in progress"}
     try:

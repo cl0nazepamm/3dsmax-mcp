@@ -449,18 +449,26 @@ def _parse_showclass_lines(lines: list[str]) -> dict[str, Any]:
     warnings: list[str] = []
 
     for line in lines[1:]:
-        prop_match = re.match(r"^\s*\.([A-Za-z0-9_]+)\s*:\s*(.+?)\s*$", line)
+        # showClass "Bend.*" also lists other classes whose name or alias matches
+        # (SpaceBend(Bend)); their unindented header ends the first class.
+        if line[:1].strip():
+            break
+        # "  .BendAngle (Angle) : float": the parenthesized UI name is optional.
+        prop_match = re.match(r"^\s*\.([A-Za-z0-9_]+)(?:\s*\(([^)]*)\))?\s*:\s*(.+?)\s*$", line)
         if not prop_match:
             continue
         prop_name = prop_match.group(1)
-        declared_type = prop_match.group(2)
-        properties.append({
+        declared_type = prop_match.group(3)
+        entry = {
             "name": prop_name,
             "declaredType": declared_type,
             "category": _property_category(prop_name, declared_type),
             "source": "showClass",
             "inferred": True,
-        })
+        }
+        if prop_match.group(2):
+            entry["uiName"] = prop_match.group(2)
+        properties.append(entry)
 
     if not properties:
         warnings.append("Property reflection was empty; this class may expose little through showClass.")
