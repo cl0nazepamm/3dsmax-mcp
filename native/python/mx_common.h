@@ -252,6 +252,7 @@ void BindViewport(nb::module_& m);
 void BindScene(nb::module_& m);
 void BindFiles(nb::module_& m);
 void BindMesh(nb::module_& m);
+void BindLighting(nb::module_& m);
 
 } // namespace MX_ABI_TAG
 } // namespace mx

@@ -308,7 +308,8 @@ if(MCP_MX_PYTHON)
         python/mx_viewport.cpp
         python/mx_scene.cpp
         python/mx_files.cpp
-        python/mx_mesh.cpp)
+        python/mx_mesh.cpp
+        python/mx_lighting.cpp)
     mcp_bridge_apply_settings(_mx)
     target_link_libraries(_mx PRIVATE psapi.lib)
 
