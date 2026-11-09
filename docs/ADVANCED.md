@@ -252,7 +252,7 @@ For native handler work the bridge can run as a permanent shell plus a core DLL 
 | Static (default, shipped) | `OFF` | `mcp_bridge.gup` with the core linked in | `CORE_STATIC` |
 | Hot (development only) | `ON` | shell `mcp_bridge.gup` plus `core\mcp_core.dll` | `reload_native_core` |
 
-The **shell** holds everything 3ds Max keeps a pointer into: plugin registration, the named pipe, the main-thread executor, the dialog monitor and its Qt reader, the scene journal and `scene_delta` cursors, GDI+, the agent viewport, `render_start`'s armed job and render notifications, and undo records. It answers `ping`, `health`, `native:max_dialogs` and `native:core` itself, so health checks, dialog recovery and core control keep working while the core is missing or being replaced. The **core** is command dispatch, the handlers and the generated native tool registry. The two sides meet only through versioned C tables (`native/include/mcp_bridge/core_api.h`, `host_api.h`); `native/CMakeLists.txt` lists each side's sources. Stateless shared code (`spatial_snapshot.cpp`) is linked into both, so a reload updates only the core's copy.
+The **shell** holds everything 3ds Max keeps a pointer into: plugin registration, the named pipe, the main-thread executor, the dialog monitor and its Qt reader, the scene journal and `scene_delta` cursors, GDI+, the agent viewport, `render_start`'s armed job and render notifications, and undo records. It answers `ping`, `health`, `native:max_dialogs` and `native:core` itself, so health checks, dialog recovery and core control keep working while the core is missing or being replaced. The **core** is command dispatch, the handlers and the generated native tool registry. The two sides meet only through versioned C tables (`native/include/mcp_bridge/core_api.h`, `host_api.h`). Each side's sources have their own folder, `native/src/shell` and `native/src/core`, and `native/CMakeLists.txt` lists them. Stateless shared code (`native/src/shared`) is linked into both, so a reload updates only the core's copy.
 
 ### Building the hot layout
 
@@ -325,7 +325,11 @@ python scripts/live/run_live_tool_smoke.py --tier read
 | `maxmcp/tools/<group>/` | One folder per subject. Modules without a leading underscore declare tools; `_*.py` are their helpers |
 | `maxmcp/core/` | Named-pipe client, response envelopes, MAXScript escaping, hung-Max diagnostics |
 | `maxmcp/assets/` | What ships that is not Python: config template, bundle manifest, MAXScript, tyFlow script checker, MCG samples |
-| `native/` | C++ GUP bridge and the `_mx` Python module |
+| `native/src/shell/` | The part of the C++ bridge 3ds Max keeps loaded: plugin, named pipe, main-thread executor, dialogs |
+| `native/src/core/` | Command dispatch and the SDK handlers (`handlers/`); the part a hot reload swaps |
+| `native/src/shared/` | Stateless code both sides link |
+| `native/mx/` | `_mx`, the SDK-bound Python module scripts get as `sdk` |
+| `native/bin/` | Prebuilt bridges for 3ds Max 2023-2027 |
 | `skills/3dsmax-mcp-dev/` | Agent skill source |
 | `install.py`, `uninstall.py` | Source installer and uninstaller |
 | `scripts/dev/` | `mcpcall.py` runs one tool from current source in a fresh process; `hot_core.py` builds the hot-reloadable core |

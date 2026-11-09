@@ -71,6 +71,7 @@ add_custom_command(
 add_custom_target(gen_tool_smoke DEPENDS "${TOOL_SMOKE_INC}")
 
 # ── Shell / core partition ───────────────────────────────────────
+# The folders of src/ are the partition: src/shell, src/shared and src/core.
 # SHELL: what Max loads and keeps, and everything Max holds a pointer to:
 # plugin registration, named pipe, main-thread executor, dialog monitor and its
 # Qt reader, scene journal, GDI+ lifetime, the agent viewport, render_start's
@@ -78,70 +79,70 @@ add_custom_target(gen_tool_smoke DEPENDS "${TOOL_SMOKE_INC}")
 # native:max_dialogs and native:core itself and reaches the core only through
 # McpCoreApi, behind the drain gate (core_control.cpp, core_host.cpp).
 set(MCP_SHELL_SOURCES
-    src/dllmain.cpp
-    src/bridge_gup.cpp
-    src/pipe_server.cpp
-    src/main_thread_executor.cpp
-    src/dialog_watch.cpp
-    src/bridge_health.cpp
-    src/qt_dialogs.cpp
-    src/gdiplus_runtime.cpp
-    src/scene_journal.cpp
-    src/agent_viewport.cpp
-    src/render_host.cpp
-    src/undo_records.cpp
-    src/core_host.cpp
-    src/core_control.cpp
-    src/python_binding.cpp
+    src/shell/dllmain.cpp
+    src/shell/bridge_gup.cpp
+    src/shell/pipe_server.cpp
+    src/shell/main_thread_executor.cpp
+    src/shell/dialog_watch.cpp
+    src/shell/bridge_health.cpp
+    src/shell/qt_dialogs.cpp
+    src/shell/gdiplus_runtime.cpp
+    src/shell/scene_journal.cpp
+    src/shell/agent_viewport.cpp
+    src/shell/render_host.cpp
+    src/shell/undo_records.cpp
+    src/shell/core_host.cpp
+    src/shell/core_control.cpp
+    src/shell/python_binding.cpp
 )
 
 # SHARED: stateless code both sides call (agent viewport and handlers). Linked
 # once into the .gup; with MCP_HOT_CORE, into the shell and the core DLL alike.
 set(MCP_SHARED_SOURCES
-    src/spatial_snapshot.cpp
+    src/shared/spatial_snapshot.cpp
 )
 
 # CORE: command dispatch and the handlers, exported as mcp_core_api. It
 # reaches the shell only through McpHostApi (host_api.h, core_bridge.cpp).
 set(MCP_CORE_SOURCES
-    src/core_api.cpp
-    src/core_bridge.cpp
-    src/command_dispatcher.cpp
-    src/script_hold.cpp
-    src/handlers/scene_handlers.cpp
-    src/handlers/scene_patch_handlers.cpp
-    src/handlers/scene_qa_handlers.cpp
-    src/handlers/object_handlers.cpp
-    src/handlers/orientation_handlers.cpp
-    src/handlers/modifier_handlers.cpp
-    src/handlers/mesh_handlers.cpp
-    src/handlers/mcg_handlers.cpp
-    src/handlers/inspect_handlers.cpp
-    src/handlers/scene_manage_handlers.cpp
-    src/handlers/file_handlers.cpp
-    src/handlers/viewport_handlers.cpp
-    src/handlers/job_handlers.cpp
-    src/handlers/identify_handlers.cpp
-    src/handlers/material_handlers.cpp
-    src/handlers/material_network_handlers.cpp
-    src/handlers/material_library_handlers.cpp
-    src/handlers/controller_handlers.cpp
-    src/handlers/keyframe_handlers.cpp
-    src/handlers/tyflow_handlers.cpp
-    src/handlers/plugin_introspect_handlers.cpp
-    src/plugin_access.cpp
-    src/handlers/plugin_access_handlers.cpp
-    src/handlers/organize_handlers.cpp
-    src/handlers/learning_handlers.cpp
-    src/handlers/effects_handlers.cpp
-    src/handlers/render_handlers.cpp
-    src/handlers/state_sets_handlers.cpp
-    src/handlers/mainthread_handlers.cpp
-    src/handlers/discovery_handlers.cpp
-    src/handlers/capabilities_handlers.cpp
-    src/handlers/tool_test_handlers.cpp
-    src/native_tool_registry.cpp
-    src/window_capture.cpp
+    src/core/core_api.cpp
+    src/core/core_bridge.cpp
+    src/core/command_dispatcher.cpp
+    src/core/script_hold.cpp
+    src/core/handlers/scene_handlers.cpp
+    src/core/handlers/scene_patch_handlers.cpp
+    src/core/handlers/scene_qa_handlers.cpp
+    src/core/handlers/object_handlers.cpp
+    src/core/handlers/orientation_handlers.cpp
+    src/core/handlers/modifier_handlers.cpp
+    src/core/handlers/mesh_handlers.cpp
+    src/core/handlers/mcg_handlers.cpp
+    src/core/handlers/inspect_handlers.cpp
+    src/core/handlers/scene_manage_handlers.cpp
+    src/core/handlers/file_handlers.cpp
+    src/core/handlers/viewport_handlers.cpp
+    src/core/handlers/job_handlers.cpp
+    src/core/handlers/identify_handlers.cpp
+    src/core/handlers/material_handlers.cpp
+    src/core/handlers/material_network_handlers.cpp
+    src/core/handlers/material_library_handlers.cpp
+    src/core/handlers/controller_handlers.cpp
+    src/core/handlers/keyframe_handlers.cpp
+    src/core/handlers/tyflow_handlers.cpp
+    src/core/handlers/plugin_introspect_handlers.cpp
+    src/core/plugin_access.cpp
+    src/core/handlers/plugin_access_handlers.cpp
+    src/core/handlers/organize_handlers.cpp
+    src/core/handlers/learning_handlers.cpp
+    src/core/handlers/effects_handlers.cpp
+    src/core/handlers/render_handlers.cpp
+    src/core/handlers/state_sets_handlers.cpp
+    src/core/handlers/mainthread_handlers.cpp
+    src/core/handlers/discovery_handlers.cpp
+    src/core/handlers/capabilities_handlers.cpp
+    src/core/handlers/tool_test_handlers.cpp
+    src/core/native_tool_registry.cpp
+    src/core/window_capture.cpp
 )
 
 # OFF (default): the core objects are linked into mcp_bridge.gup and the shell
@@ -224,7 +225,7 @@ foreach(def ${MCP_QT_DEFS})
     list(APPEND MCP_QT_IMPORT_LIBS "${import_lib}")
 endforeach()
 add_custom_target(qt_import_libs DEPENDS ${MCP_QT_IMPORT_LIBS})
-set_source_files_properties(src/qt_dialogs.cpp PROPERTIES
+set_source_files_properties(src/shell/qt_dialogs.cpp PROPERTIES
     INCLUDE_DIRECTORIES "${MCP_QT_DIR}/include"
     # QT_NO_DEBUG compiles out Q_ASSERT in inline Qt code: NDEBUG does not,
     # and a failing assert would call qFatal and abort 3ds Max.
@@ -244,7 +245,7 @@ target_include_directories(mcp_core_objs PRIVATE
 add_dependencies(mcp_core_objs gen_tool_registry gen_tool_smoke)
 
 # ── Plugin ───────────────────────────────────────────────────────
-add_library(mcp_bridge SHARED ${MCP_SHELL_SOURCES} src/mcp_bridge.def)
+add_library(mcp_bridge SHARED ${MCP_SHELL_SOURCES} src/shell/mcp_bridge.def)
 mcp_bridge_apply_settings(mcp_bridge)
 target_sources(mcp_bridge PRIVATE $<TARGET_OBJECTS:mcp_shared_objs>)
 target_link_libraries(mcp_bridge PRIVATE ${MCP_QT_IMPORT_LIBS})
@@ -260,7 +261,7 @@ if(MCP_HOT_CORE)
     # Development layout: no install rule; the shell loads core/mcp_core.dll
     # beside it (or MCP_CORE_DLL, or the path in mcp_core.path).
     message(STATUS "MCP_HOT_CORE: building core/mcp_core.dll and a shell that reloads it (dev only)")
-    target_sources(mcp_bridge PRIVATE src/core_loader.cpp)
+    target_sources(mcp_bridge PRIVATE src/shell/core_loader.cpp)
     target_compile_definitions(mcp_core_objs PRIVATE MCP_CORE_DLL)
     add_library(mcp_core SHARED $<TARGET_OBJECTS:mcp_core_objs> $<TARGET_OBJECTS:mcp_shared_objs>)
     mcp_bridge_apply_settings(mcp_core)
@@ -304,28 +305,28 @@ if(MCP_MX_PYTHON)
 
     nanobind_add_module(_mx NB_STATIC NB_DOMAIN mcp_mx
         # core: shared rules, values, MAXScript and the bridge's handlers
-        python/mx_module.cpp
-        python/mx_core.cpp
-        python/mx_maxscript.cpp
-        python/mx_native.cpp
-        python/mx_construction.cpp
+        mx/mx_module.cpp
+        mx/mx_core.cpp
+        mx/mx_maxscript.cpp
+        mx/mx_native.cpp
+        mx/mx_construction.cpp
         # object model
-        python/mx_params.cpp
-        python/mx_nodes.cpp
-        python/mx_modifiers.cpp
-        python/mx_materials.cpp
-        python/mx_tracks.cpp
-        python/mx_controllers.cpp
+        mx/mx_params.cpp
+        mx/mx_nodes.cpp
+        mx/mx_modifiers.cpp
+        mx/mx_materials.cpp
+        mx/mx_tracks.cpp
+        mx/mx_controllers.cpp
         # domains
-        python/mx_scene.cpp
-        python/mx_organize.cpp
-        python/mx_viewport.cpp
-        python/mx_files.cpp
-        python/mx_mesh.cpp
-        python/mx_solids.cpp
-        python/mx_curves.cpp
-        python/mx_lighting.cpp
-        python/mx_plugins.cpp)
+        mx/mx_scene.cpp
+        mx/mx_organize.cpp
+        mx/mx_viewport.cpp
+        mx/mx_files.cpp
+        mx/mx_mesh.cpp
+        mx/mx_solids.cpp
+        mx/mx_curves.cpp
+        mx/mx_lighting.cpp
+        mx/mx_plugins.cpp)
     mcp_bridge_apply_settings(_mx)
     target_link_libraries(_mx PRIVATE psapi.lib)
 
@@ -361,19 +362,19 @@ if(MCP_BUILD_TRANSACTION_POLICY_TESTS)
     add_executable(color_value_tests tests/color_value_tests.cpp)
     target_include_directories(color_value_tests PRIVATE include)
     add_test(NAME color_value COMMAND color_value_tests)
-    add_executable(dialog_sweeper_tests tests/dialog_sweeper_tests.cpp src/dialog_watch.cpp)
+    add_executable(dialog_sweeper_tests tests/dialog_sweeper_tests.cpp src/shell/dialog_watch.cpp)
     target_include_directories(dialog_sweeper_tests PRIVATE include third_party)
     target_compile_definitions(dialog_sweeper_tests PRIVATE NOMINMAX _UNICODE UNICODE)
     add_test(NAME dialog_sweeper COMMAND dialog_sweeper_tests)
     # Max's exit: idle pipe clients and queued requests must not hold GUP::Stop.
-    add_executable(shutdown_tests tests/shutdown_tests.cpp src/pipe_server.cpp
-        src/main_thread_executor.cpp src/dialog_watch.cpp src/bridge_health.cpp)
+    add_executable(shutdown_tests tests/shutdown_tests.cpp src/shell/pipe_server.cpp
+        src/shell/main_thread_executor.cpp src/shell/dialog_watch.cpp src/shell/bridge_health.cpp)
     target_include_directories(shutdown_tests PRIVATE include third_party)
     target_compile_definitions(shutdown_tests PRIVATE NOMINMAX _UNICODE UNICODE)
     add_test(NAME shutdown COMMAND shutdown_tests)
     # MAXScript from a direct handler still reaches the executor's thread.
-    add_executable(core_bridge_tests tests/core_bridge_tests.cpp src/core_bridge.cpp
-        src/main_thread_executor.cpp src/dialog_watch.cpp)
+    add_executable(core_bridge_tests tests/core_bridge_tests.cpp src/core/core_bridge.cpp
+        src/shell/main_thread_executor.cpp src/shell/dialog_watch.cpp)
     target_include_directories(core_bridge_tests PRIVATE include third_party)
     target_compile_definitions(core_bridge_tests PRIVATE NOMINMAX _UNICODE UNICODE)
     add_test(NAME core_bridge COMMAND core_bridge_tests)
@@ -409,7 +410,7 @@ if(MCP_BUILD_TRANSACTION_POLICY_TESTS)
     target_compile_definitions(fake_core_badimport PRIVATE FAKE_CORE_MISSING_IMPORT)
     target_link_libraries(fake_core_badimport PRIVATE "${MCP_MISSING_LIB}")
     add_dependencies(fake_core_badimport mcp_missing_dependency_lib)
-    add_executable(core_loader_tests tests/core_loader_tests.cpp src/core_loader.cpp)
+    add_executable(core_loader_tests tests/core_loader_tests.cpp src/shell/core_loader.cpp)
     target_include_directories(core_loader_tests PRIVATE include)
     target_compile_definitions(core_loader_tests PRIVATE NOMINMAX _UNICODE UNICODE MAX_SDK_VERSION=${MAX_VERSION}
         "FAKE_CORE=\"$<TARGET_FILE:fake_core>\""
@@ -422,14 +423,14 @@ endif()
 
 option(MCP_BUILD_AGENT_VIEWPORT_PROBE "Build optional live agent viewport SDK test harness" OFF)
 if(MCP_BUILD_AGENT_VIEWPORT_PROBE)
-    add_library(agent_viewport_probe SHARED tests/agent_viewport_probe.cpp src/agent_viewport.cpp src/spatial_snapshot.cpp src/scene_journal.cpp src/handlers/viewport_handlers.cpp src/handlers/job_handlers.cpp src/gdiplus_runtime.cpp src/main_thread_executor.cpp src/dialog_watch.cpp
-        src/core_bridge.cpp src/core_host.cpp src/render_host.cpp src/undo_records.cpp)
+    add_library(agent_viewport_probe SHARED tests/agent_viewport_probe.cpp src/shell/agent_viewport.cpp src/shared/spatial_snapshot.cpp src/shell/scene_journal.cpp src/core/handlers/viewport_handlers.cpp src/core/handlers/job_handlers.cpp src/shell/gdiplus_runtime.cpp src/shell/main_thread_executor.cpp src/shell/dialog_watch.cpp
+        src/core/core_bridge.cpp src/shell/core_host.cpp src/shell/render_host.cpp src/shell/undo_records.cpp)
     target_include_directories(agent_viewport_probe PRIVATE include third_party "${MAXSDK_PATH}/include")
     target_compile_definitions(agent_viewport_probe PRIVATE NOMINMAX _UNICODE UNICODE MAX_SDK_VERSION=${MAX_VERSION} MAX_SILENCE_DEPRECATED_MATRIX_BOOL_CTOR)
     target_link_directories(agent_viewport_probe PRIVATE "${MAXSDK_PATH}/lib/x64/Release")
     target_link_libraries(agent_viewport_probe PRIVATE core.lib maxutil.lib Maxscrpt.lib Geom.lib mesh.lib Paramblk2.lib ViewSystem.lib)
     target_compile_options(agent_viewport_probe PRIVATE /EHa)
-    target_sources(agent_viewport_probe PRIVATE src/window_capture.cpp)
+    target_sources(agent_viewport_probe PRIVATE src/core/window_capture.cpp)
 endif()
 
 set(MAX_PLUGINS_DIR "C:/Program Files/Autodesk/3ds Max ${MAX_VERSION}/plugins"

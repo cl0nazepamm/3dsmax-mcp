@@ -77,7 +77,7 @@ def load() -> ModuleType | None:
     if path is None or not path.is_file():
         return current
     stamp = path.stat().st_mtime
-    # native/python/mxdev.py marks what it loaded with _loaded_mtime; the same build is
+    # native/mx/mxdev.py marks what it loaded with _loaded_mtime; the same build is
     # never loaded twice (its binding types would clash).
     loaded = max(getattr(current, "_mcp_loaded_mtime", 0), getattr(current, "_loaded_mtime", 0))
     if current is not None and (not dev or stamp <= loaded):
