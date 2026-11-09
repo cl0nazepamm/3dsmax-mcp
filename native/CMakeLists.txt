@@ -306,7 +306,8 @@ if(MCP_MX_PYTHON)
         python/mx_native.cpp
         python/mx_organize.cpp
         python/mx_viewport.cpp
-        python/mx_scene.cpp)
+        python/mx_scene.cpp
+        python/mx_files.cpp)
     mcp_bridge_apply_settings(_mx)
     target_link_libraries(_mx PRIVATE psapi.lib)
 
