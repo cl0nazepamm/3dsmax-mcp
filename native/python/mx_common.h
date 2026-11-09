@@ -256,6 +256,7 @@ void BindMesh(nb::module_& m);
 void BindLighting(nb::module_& m);
 void BindSolids(nb::module_& m);
 void BindCurves(nb::module_& m);
+void BindPlugins(nb::module_& m);
 
 } // namespace MX_ABI_TAG
 } // namespace mx

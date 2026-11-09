@@ -39,6 +39,11 @@ std::string Suggest(const std::string& wanted, const std::vector<std::string>& n
         for (const std::string& name : names)
             if (Lower(name).rfind(key, 0) == 0 && (!best || name.size() < best->size())) best = &name;
     }
+    // Else the shortest name that contains it: "angle" -> "BendAngle".
+    if (!best && key.size() >= 4) {
+        for (const std::string& name : names)
+            if (Lower(name).find(key) != std::string::npos && (!best || name.size() < best->size())) best = &name;
+    }
     return best ? " Did you mean '" + *best + "'?" : std::string();
 }
 
