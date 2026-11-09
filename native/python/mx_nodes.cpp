@@ -255,7 +255,7 @@ void BindNodes(nb::module_& m) {
         .def("__repr__", &Repr)
         .def("__eq__", [](const Node& a, nb::handle b) {
             return nb::isinstance<Node>(b) && a.handle == nb::cast<Node>(b).handle;
-        })
+        }, nb::arg("other").none())
         .def("__hash__", [](const Node& n) { return (Py_hash_t)n.handle; });
 
     m.def("node", &FindNode, "key"_a, "Node by name, handle or Node; NotFound or Ambiguous otherwise.");
@@ -270,15 +270,15 @@ void BindNodes(nb::module_& m) {
           "Create an object (geometry, shape, helper, light, camera) with parameters: "
           "create('Sphere', 'Ball', pos=(0, 0, 10), radius=10, segs=32).");
     m.def("delete", [](nb::handle nodes) {
-        for (INode* node : NodeList(nodes, "delete")) GetCOREInterface()->DeleteNode(node, FALSE);
-    }, "nodes"_a, "Delete a node or a list of nodes.");
+        for (INode* node : NodeList(nodes, "delete", true)) GetCOREInterface()->DeleteNode(node, FALSE);
+    }, "nodes"_a, "Delete a node or a list of nodes; an empty list deletes nothing.");
     m.def("select", [](nb::handle nodes, bool add) {
         Interface* ip = GetCOREInterface();
         INodeTab tab;
-        for (INode* node : NodeList(nodes, "select")) tab.AppendNode(node);
+        for (INode* node : NodeList(nodes, "select", true)) tab.AppendNode(node);
         if (!add) ip->ClearNodeSelection(FALSE);
         ip->SelectNodeTab(tab, TRUE, FALSE);
-    }, "nodes"_a, "add"_a = false, "Select nodes, replacing the selection unless add=True.");
+    }, "nodes"_a, "add"_a = false, "Select nodes, replacing the selection unless add=True; select([]) clears it.");
     m.def("selection", [] {
         RequireMain();
         Interface* ip = GetCOREInterface();

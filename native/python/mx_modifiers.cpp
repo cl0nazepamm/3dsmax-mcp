@@ -93,7 +93,7 @@ void BindModifiers(nb::module_& m) {
         })
         .def("__eq__", [](const ModifierRef& a, nb::handle b) {
             return nb::isinstance<ModifierRef>(b) && a.mod == nb::cast<ModifierRef>(b).mod;
-        })
+        }, nb::arg("other").none())
         .def("__hash__", [](const ModifierRef& r) { return (Py_hash_t)r.mod; });
 }
 

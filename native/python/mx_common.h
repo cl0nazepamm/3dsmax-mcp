@@ -106,7 +106,7 @@ Object* BaseObject(INode* node);
 std::string ClassOf(INode* node);
 inline std::string NodeName(INode* node) { return WideToUtf8(node->GetName()); }
 Node FindNode(nb::handle key);
-std::vector<INode*> NodeList(nb::handle nodes, const char* what);
+std::vector<INode*> NodeList(nb::handle nodes, const char* what, bool allow_empty = false);
 
 // ── Values ───────────────────────────────────────────────────────
 
@@ -239,6 +239,9 @@ void BindAnimation(nb::module_& m);
 void BindModifiers(nb::module_& m);
 void BindMaterials(nb::module_& m);
 void BindNative(nb::module_& m);
+void BindOrganize(nb::module_& m);
+void BindViewport(nb::module_& m);
+void BindScene(nb::module_& m);
 
 } // namespace MX_ABI_TAG
 } // namespace mx

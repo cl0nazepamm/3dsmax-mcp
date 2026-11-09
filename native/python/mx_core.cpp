@@ -131,14 +131,14 @@ Node FindNode(nb::handle key) {
 }
 
 // A Node, a name, a handle, or a list of them.
-std::vector<INode*> NodeList(nb::handle nodes, const char* what) {
+std::vector<INode*> NodeList(nb::handle nodes, const char* what, bool allow_empty) {
     std::vector<INode*> out;
     if (nb::isinstance<nb::list>(nodes) || nb::isinstance<nb::tuple>(nodes)) {
         for (nb::handle item : nodes) out.push_back(Resolve(FindNode(item)));
     } else {
         out.push_back(Resolve(FindNode(nodes)));
     }
-    if (out.empty()) throw BadParam(std::string(what) + " needs at least one node");
+    if (out.empty() && !allow_empty) throw BadParam(std::string(what) + " needs at least one node");
     return out;
 }
 

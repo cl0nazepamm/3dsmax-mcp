@@ -68,7 +68,7 @@ void BindMaterials(nb::module_& m) {
         })
         .def("__eq__", [](const MaterialRef& a, nb::handle b) {
             return nb::isinstance<MaterialRef>(b) && a.mtl == nb::cast<MaterialRef>(b).mtl;
-        })
+        }, nb::arg("other").none())
         .def("__hash__", [](const MaterialRef& r) { return (Py_hash_t)r.mtl; });
 
     m.def("material", &CreateMaterial, "cls"_a = "PhysicalMaterial", "name"_a = "", "params"_a,

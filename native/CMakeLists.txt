@@ -303,7 +303,10 @@ if(MCP_MX_PYTHON)
         python/mx_modifiers.cpp
         python/mx_materials.cpp
         python/mx_maxscript.cpp
-        python/mx_native.cpp)
+        python/mx_native.cpp
+        python/mx_organize.cpp
+        python/mx_viewport.cpp
+        python/mx_scene.cpp)
     mcp_bridge_apply_settings(_mx)
     target_link_libraries(_mx PRIVATE psapi.lib)
 
