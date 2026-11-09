@@ -31,7 +31,8 @@ static void TranslateErrors(const std::exception_ptr& error, void*) {
 }
 
 static void Bind(nb::module_& m) {
-    m.doc() = "3ds Max for agents: nodes, parameters, modifiers, materials and animation, bound from the SDK.";
+    m.doc() = "3ds Max for agents, bound from the SDK: the scene's nodes, parameters, modifiers, materials and "
+              "animation, and modeling, lighting, viewport, file and plugin work on them.";
 
     // Python exception types, each also a builtin error where one fits
     // (UnknownParam is an AttributeError, so hasattr() works on Params).
@@ -55,21 +56,22 @@ static void Bind(nb::module_& m) {
     m.attr("BUILD") = MX_BUILD_ID;
     m.attr("MAX_VERSION") = MAX_SDK_VERSION;
 
+    // The object model first: domains add methods to its classes.
     BindParams(m);
     BindNodes(m);
-    BindTracks(m);
     BindModifiers(m);
     BindMaterials(m);
+    BindTracks(m);
+    BindControllers(m);
     BindNative(m);
+    BindScene(m);
     BindOrganize(m);
     BindViewport(m);
-    BindScene(m);
     BindFiles(m);
     BindMesh(m);
-    BindLighting(m);
     BindSolids(m);
     BindCurves(m);
-    BindAnimation(m);
+    BindLighting(m);
     BindPlugins(m);
 
     m.def("redraw", [] { RequireMain(); GetCOREInterface()->RedrawViews(GetCOREInterface()->GetTime()); },

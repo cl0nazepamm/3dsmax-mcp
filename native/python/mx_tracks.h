@@ -1,6 +1,6 @@
 // Tracks resolved to their controller and the slot that holds it, shared by
-// mx_anim.cpp (time, keys, key edits) and mx_animation.cpp (controllers,
-// wiring, script controllers).
+// mx_tracks.cpp (time, tracks, keys and key edits) and mx_controllers.cpp
+// (controllers, wiring, script controllers).
 #pragma once
 
 #include "mx_common.h"
@@ -32,6 +32,8 @@ nb::object ValueAt(const ResolvedTrack& r, TimeValue t);
 // Put c in the track's slot (c is null: a parameter becomes unanimated).
 void PutController(const ResolvedTrack& r, Control* c);
 bool IsController(Animatable* anim);
+// The controller's MAXScript class name.
+inline std::string CtrlClass(Animatable* c) { return HandlerHelpers::MaxScriptVisibleClassName(c); }
 // Every track under the node: controllers and animatable parameters.
 std::vector<Track> NodeTracks(const Node& n, const std::optional<std::string>& filter, int depth);
 

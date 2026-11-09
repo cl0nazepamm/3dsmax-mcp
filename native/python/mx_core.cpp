@@ -1,6 +1,8 @@
 // Names, time, node identity and value conversion shared by every binding.
 #include "mx_common.h"
 
+#include <iInstanceMgr.h>
+
 namespace mx {
 inline namespace MX_ABI_TAG {
 
@@ -9,6 +11,12 @@ inline namespace MX_ABI_TAG {
 std::string Lower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return (char)std::tolower(c); });
     return s;
+}
+
+std::string Trim(const std::string& s) {
+    const char* space = " \t\n\r\f\v";
+    const size_t first = s.find_first_not_of(space);
+    return first == std::string::npos ? std::string() : s.substr(first, s.find_last_not_of(space) - first + 1);
 }
 
 static size_t EditDistance(const std::string& a, const std::string& b) {
@@ -112,7 +120,7 @@ Node FindNode(nb::handle key) {
         Resolve(n);
         return n;
     }
-    if (nb::isinstance<nb::int_>(key) && !nb::isinstance<nb::bool_>(key)) {
+    if (IsInteger(key)) {
         Node n{(AnimHandle)nb::cast<unsigned long long>(key)};
         Resolve(n);
         return n;
@@ -136,9 +144,14 @@ Node FindNode(nb::handle key) {
 }
 
 // A Node, a name, a handle, or a list of them.
+int InstanceCount(INode* node) {
+    INodeTab nodes;
+    return int(IInstanceMgr::GetInstanceMgr()->GetInstances(*node, nodes));
+}
+
 std::vector<INode*> NodeList(nb::handle nodes, const char* what, bool allow_empty) {
     std::vector<INode*> out;
-    if (nb::isinstance<nb::list>(nodes) || nb::isinstance<nb::tuple>(nodes)) {
+    if (IsSequence(nodes)) {
         for (nb::handle item : nodes) out.push_back(Resolve(FindNode(item)));
     } else {
         out.push_back(Resolve(FindNode(nodes)));

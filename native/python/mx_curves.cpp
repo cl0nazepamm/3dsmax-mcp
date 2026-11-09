@@ -12,23 +12,18 @@
 //
 // Spline, knot and segment indices are 0-based, like the lists that hold them
 // (MAXScript's are 1-based). Edits change the spline base beneath modifiers.
-#include "mx_common.h"
+#include "mx_construction.h"
 
-#include <bcrypt.h>
 #include <iInstanceMgr.h>
 #include <iepoly.h>
-#include <maxscript/compiler/thunks.h>
 #include <mnmesh.h>
 #include <splshape.h>
 
 #include <array>
-#include <charconv>
 #include <functional>
 #include <limits>
-#include <locale.h>
 #include <map>
 
-#pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "mnmath.lib")
 
 namespace mx {
@@ -68,13 +63,6 @@ Point3 ToP3(const V3& v) { return Point3(float(v.x), float(v.y), float(v.z)); }
 nb::object Tuple(const V3& v) { return nb::make_tuple(v.x, v.y, v.z); }
 double Radians(double degrees) { return degrees * (kPi / 180); }
 double Degrees(double radians) { return radians * (180 / kPi); }
-
-// Python's float modulo: the result takes the divisor's sign.
-double PyMod(double a, double b) {
-    double r = std::fmod(a, b);
-    if (r != 0 && ((r < 0) != (b < 0))) r += b;
-    return r;
-}
 
 V3 Center(const std::vector<V3>& points) {
     V3 lo = points.front(), hi = points.front();
@@ -354,17 +342,9 @@ void PutQa(nb::dict& d, const Qa& q) {
 
 // ── Definition values ────────────────────────────────────────────
 
-using Values = std::map<std::string, double>;
-
 bool IsNumber(const json& j) {
     const auto t = j.type();
     return t == json::value_t::number_integer || t == json::value_t::number_unsigned || t == json::value_t::number_float;
-}
-
-double Finite(double value, const std::string& label) {
-    if (!std::isfinite(value) || std::abs(value) > 1e12)
-        throw BadParam(label + " must be a finite number with magnitude at most 1e12");
-    return value;
 }
 
 double Num(const json& value, const std::string& label) {
@@ -411,13 +391,6 @@ int JsonInt(const json& value, const std::string& label, int low, int high) {
     return InRange(value.get<long long>(), label, low, high);
 }
 
-const char* const kMathFunctions[] = {"sin", "cos", "sqrt", "abs", "min", "max"};
-
-bool IsMathName(const std::string& name) {
-    return name == "pi" || std::any_of(std::begin(kMathFunctions), std::end(kMathFunctions),
-                                       [&](const char* f) { return name == f; });
-}
-
 Values ParseValues(const json& parameters) {
     Values out;
     if (parameters.type() == json::value_t::null) return out;
@@ -425,199 +398,16 @@ Values ParseValues(const json& parameters) {
         throw BadParam("parameters must be a dict of at most 64 numbers: {'width': 4}");
     for (auto it = parameters.begin(); it != parameters.end(); ++it) {
         const std::string& key = it.key();
-        bool valid = !key.empty() && key.size() <= 64 && std::isalpha((unsigned char)key[0]) && !IsMathName(key);
-        for (char c : key) valid = valid && c > 0 && (std::isalnum((unsigned char)c) || c == '_');
-        if (!valid) throw BadParam("Parameter names must be ASCII identifiers and cannot shadow pi or math functions");
+        if (!IsParameterName(key)) throw BadParam(kParameterNameRule);
         out[key] = Num(it.value(), "parameters." + key);
     }
     return out;
 }
 
-// The arithmetic subset of Python the curve_model tool evaluates: numbers,
-// parameter names, pi, + - * / % **, sin cos sqrt abs (one argument) and
-// min max (2-8 arguments).
-class Expression {
-public:
-    Expression(std::string text, const Values& values) : text_(std::move(text)), values_(values) {}
-
-    double Evaluate() {
-        const double v = Sum();
-        Skip();
-        if (at_ != text_.size()) Invalid();
-        return v;
-    }
-
-private:
-    void Skip() {
-        while (at_ < text_.size() && std::isspace((unsigned char)text_[at_])) ++at_;
-    }
-    bool Peek(const char* op) {
-        Skip();
-        return text_.compare(at_, std::strlen(op), op) == 0;
-    }
-    bool Eat(const char* op) {
-        if (!Peek(op)) return false;
-        at_ += std::strlen(op);
-        return true;
-    }
-    void Count() {
-        if (++nodes_ > 128) throw BadParam("Coordinate expression is too complex");
-    }
-    [[noreturn]] void Invalid() const { throw BadParam("Invalid coordinate expression: '" + text_ + "'"); }
-    [[noreturn]] void Fail(const char* why) const {
-        throw BadParam("Cannot evaluate coordinate expression '" + text_ + "': " + why);
-    }
-
-    double Sum() {
-        double v = Product();
-        for (;;) {
-            if (Eat("+")) { Count(); const double r = Product(); v = Finite(v + r, "expression result"); }
-            else if (Eat("-")) { Count(); const double r = Product(); v = Finite(v - r, "expression result"); }
-            else return v;
-        }
-    }
-
-    double Product() {
-        double v = Unary();
-        for (;;) {
-            if (Peek("//")) throw BadParam("Only +, -, *, /, %, ** arithmetic is supported");
-            if (Eat("*")) {
-                Count();
-                const double r = Unary();
-                v = Finite(v * r, "expression result");
-            } else if (Eat("/")) {
-                Count();
-                const double r = Unary();
-                if (r == 0) Fail("division by zero");
-                v = Finite(v / r, "expression result");
-            } else if (Eat("%")) {
-                Count();
-                const double r = Unary();
-                if (r == 0) Fail("modulo by zero");
-                v = Finite(PyMod(v, r), "expression result");
-            } else {
-                return v;
-            }
-        }
-    }
-
-    double Unary() {
-        if (Eat("+")) { Count(); return Unary(); }
-        if (Eat("-")) { Count(); return -Unary(); }
-        return Power();
-    }
-
-    double Power() {
-        const double base = Atom();
-        if (!Eat("**")) return base;
-        Count();
-        const double exponent = Unary();
-        if (std::abs(exponent) > 16) throw BadParam("Expression exponents must have magnitude at most 16");
-        if (base == 0 && exponent < 0) Fail("zero cannot be raised to a negative power");
-        if (base < 0 && exponent != std::floor(exponent)) Fail("a negative base needs a whole exponent");
-        return Finite(std::pow(base, exponent), "expression result");
-    }
-
-    double Atom() {
-        Skip();
-        if (at_ >= text_.size()) Invalid();
-        const unsigned char c = (unsigned char)text_[at_];
-        if (c == '(') {
-            ++at_;
-            const double v = Sum();
-            if (!Eat(")")) Invalid();
-            return v;
-        }
-        const bool fraction = c == '.' && at_ + 1 < text_.size() && std::isdigit((unsigned char)text_[at_ + 1]);
-        if (std::isdigit(c) || fraction) return Literal();
-        if (std::isalpha(c) || c == '_') return NameOrCall();
-        Invalid();
-    }
-
-    double Literal() {
-        const size_t begin = at_;
-        auto digits = [&] {
-            while (at_ < text_.size() && std::isdigit((unsigned char)text_[at_])) ++at_;
-        };
-        digits();
-        if (at_ < text_.size() && text_[at_] == '.') { ++at_; digits(); }
-        if (at_ < text_.size() && (text_[at_] == 'e' || text_[at_] == 'E')) {
-            ++at_;
-            if (at_ < text_.size() && (text_[at_] == '+' || text_[at_] == '-')) ++at_;
-            if (at_ >= text_.size() || !std::isdigit((unsigned char)text_[at_])) Invalid();
-            digits();
-        }
-        double v = 0;
-        auto [end, error] = std::from_chars(text_.data() + begin, text_.data() + at_, v);
-        // Out of range: an overflow (rejected below) or, with a negative exponent, an underflow to 0.
-        if (error == std::errc::result_out_of_range) {
-            v = text_.find('-', begin) < at_ ? 0.0 : HUGE_VAL;
-            error = std::errc();
-        }
-        if (error != std::errc() || end != text_.data() + at_) Invalid();
-        Count();
-        return Finite(v, "expression constant");
-    }
-
-    double NameOrCall() {
-        const size_t begin = at_;
-        while (at_ < text_.size() && (std::isalnum((unsigned char)text_[at_]) || text_[at_] == '_')) ++at_;
-        const std::string name = text_.substr(begin, at_ - begin);
-        Count();
-        if (Peek("(")) return Call(name);
-        if (name == "pi") return kPi;
-        const auto it = values_.find(name);
-        if (it == values_.end()) {
-            std::vector<std::string> names;
-            for (const auto& [key, value] : values_) names.push_back(key);
-            throw BadParam("Unknown construction parameter: " + name + "." + Suggest(name, names));
-        }
-        return it->second;
-    }
-
-    double Call(const std::string& name) {
-        Eat("(");
-        std::vector<double> args;
-        if (!Peek(")")) {
-            do args.push_back(Sum());
-            while (Eat(","));
-        }
-        if (!Eat(")")) Invalid();
-        if (name == "pi" || !IsMathName(name))
-            throw BadParam("Only sin, cos, sqrt, abs, min and max calls without keywords are allowed");
-        const bool many = name == "min" || name == "max";
-        if (many ? args.size() < 2 || args.size() > 8 : args.size() != 1)
-            throw BadParam("Math calls need one argument, or 2-8 for min/max");
-        double r = 0;
-        if (name == "min") r = *std::min_element(args.begin(), args.end());
-        else if (name == "max") r = *std::max_element(args.begin(), args.end());
-        else if (name == "sin") r = std::sin(args[0]);
-        else if (name == "cos") r = std::cos(args[0]);
-        else if (name == "abs") r = std::abs(args[0]);
-        else if (args[0] < 0) Fail("math domain error");
-        else r = std::sqrt(args[0]);
-        return Finite(r, "function result");
-    }
-
-    const std::string text_;
-    const Values& values_;
-    size_t at_ = 0;
-    int nodes_ = 0;
-};
-
-std::string Strip(const std::string& text) {
-    size_t begin = 0, end = text.size();
-    while (begin < end && std::isspace((unsigned char)text[begin])) ++begin;
-    while (end > begin && std::isspace((unsigned char)text[end - 1])) --end;
-    return text.substr(begin, end - begin);
-}
-
 // A number, or an arithmetic expression over the parameters: "width/2".
 double Coordinate(const json& value, const Values& values) {
     if (value.type() != json::value_t::string) return Num(value, "section coordinate");
-    const std::string& text = value.get_ref<const std::string&>();
-    if (text.empty() || text.size() > 256) throw BadParam("Coordinate expressions must contain 1-256 characters");
-    return Expression(Strip(text), values).Evaluate();
+    return Expression(value.get_ref<const std::string&>(), values);
 }
 
 V3 Vec(const json& value, const Values& values) {
@@ -1088,47 +878,8 @@ Stations LoftStations(const Build& b, const json& stored) {
 
 // Quads between corresponding section points; caps close the ends.
 void BuildLoft(const Stations& s, bool caps, bool reverse, Model& m) {
-    const auto& sections = s.sections;
-    if (caps && (!s.closedProfile || s.closedPath)) throw BadParam("caps requires closed profiles and an open path");
-    const size_t minimumSections = s.closedPath ? 3 : 2, minimumPoints = s.closedProfile ? 3 : 2;
-    if (sections.size() < minimumSections || sections.size() > 1000)
-        throw BadParam("Use " + std::to_string(minimumSections) + "-1000 ordered cross sections");
-    const size_t per = sections[0].size();
-    if (per < minimumPoints || per > 1000)
-        throw BadParam("Each section needs " + std::to_string(minimumPoints) + "-1000 points");
-    if (sections.size() * per > 50000) throw BadParam("Use at most 50000 loft vertices");
-    for (const auto& section : sections) {
-        if (section.size() != per) throw BadParam("All sections must contain the same number of corresponding points");
-        for (const V3& p : section)
-            for (int axis = 0; axis < 3; ++axis) Finite(p[axis], "section coordinate");
-        if (s.closedProfile && section.front() == section.back())
-            throw BadParam("Closed profiles wrap automatically; do not repeat the first point at the end");
-        for (size_t j = 0; j < (s.closedProfile ? per : per - 1); ++j)
-            if (section[j] == section[(j + 1) % per]) throw BadParam("A section contains a zero-length segment");
-        if (!m.vertices.empty() && std::equal(section.begin(), section.end(), m.vertices.end() - per))
-            throw BadParam("Consecutive sections must not be identical");
-        m.vertices.insert(m.vertices.end(), section.begin(), section.end());
-    }
-    if (s.closedPath && std::equal(sections.front().begin(), sections.front().end(), sections.back().begin()))
-        throw BadParam("Closed paths wrap automatically; do not repeat the first section");
-    const int count = int(sections.size()), points = int(per);
-    for (int si = 0; si < (s.closedPath ? count : count - 1); ++si) {
-        const int next = (si + 1) % count;
-        for (int j = 0; j < (s.closedProfile ? points : points - 1); ++j) {
-            const int k = (j + 1) % points;
-            m.faces.push_back({si * points + j, si * points + k, next * points + k, next * points + j});
-        }
-    }
-    if (caps) {
-        std::vector<int> first, last;
-        for (int j = points - 1; j >= 0; --j) first.push_back(j);
-        for (int j = 0; j < points; ++j) last.push_back((count - 1) * points + j);
-        m.faces.push_back(first);
-        m.faces.push_back(last);
-    }
-    if (reverse)
-        for (auto& face : m.faces) std::reverse(face.begin(), face.end());
-    if (m.faces.size() > 50000) throw BadParam("Use at most 50000 loft faces");
+    m.faces = LoftQuads(s.sections, {s.closedProfile, s.closedPath, caps, reverse});
+    for (const auto& section : s.sections) m.vertices.insert(m.vertices.end(), section.begin(), section.end());
 }
 
 // Compiles named curves to a spline or a quad cage; `stored` locks loft seams.
@@ -1223,52 +974,6 @@ nb::dict Preview(const Model& m) {
     return out;
 }
 
-// ── Hashes ───────────────────────────────────────────────────────
-
-std::array<unsigned char, 32> Sha256(const std::string& data) {
-    static BCRYPT_ALG_HANDLE algorithm = [] {
-        BCRYPT_ALG_HANDLE handle = nullptr;
-        return BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(&handle, BCRYPT_SHA256_ALGORITHM, nullptr, 0)) ? handle : nullptr;
-    }();
-    std::array<unsigned char, 32> digest{};
-    BCRYPT_HASH_HANDLE hash = nullptr;
-    const bool ok = algorithm && BCRYPT_SUCCESS(BCryptCreateHash(algorithm, &hash, nullptr, 0, nullptr, 0, 0)) &&
-                    BCRYPT_SUCCESS(BCryptHashData(hash, (PUCHAR)data.data(), ULONG(data.size()), 0)) &&
-                    BCRYPT_SUCCESS(BCryptFinishHash(hash, digest.data(), ULONG(digest.size()), 0));
-    if (hash) BCryptDestroyHash(hash);
-    if (!ok) throw MaxError("SHA-256 is unavailable on this system");
-    return digest;
-}
-
-// Lowercase hex, as Python's hexdigest().
-std::string Hex(const std::array<unsigned char, 32>& digest) {
-    static const char* digits = "0123456789abcdef";
-    std::string out;
-    for (unsigned char b : digest) { out += digits[b >> 4]; out += digits[b & 15]; }
-    return out;
-}
-
-// "AB-CD-...", as .NET's BitConverter.ToString, which the tool's MAXScript uses.
-std::string Dashed(const std::array<unsigned char, 32>& digest) {
-    static const char* digits = "0123456789ABCDEF";
-    std::string out;
-    for (unsigned char b : digest) {
-        if (!out.empty()) out += '-';
-        out += digits[b >> 4];
-        out += digits[b & 15];
-    }
-    return out;
-}
-
-bool IsFingerprint(const std::string& text) {
-    if (text.size() != 95) return false;
-    for (size_t i = 0; i < text.size(); ++i) {
-        const char c = text[i];
-        if (i % 3 == 2 ? c != '-' : !(std::isdigit((unsigned char)c) || (c >= 'A' && c <= 'F'))) return false;
-    }
-    return true;
-}
-
 // ── Editable splines in the scene ────────────────────────────────
 
 const char* const kKnotTypes[] = {"smooth", "corner", "bezier", "bezier_corner"};      // by KTYPE_*
@@ -1309,8 +1014,6 @@ bool IsEditableSpline(Object* base) {
            (base->ClassID() == splineShapeClassID || base->ClassID() == Class_ID(SPLINE3D_CLASS_ID, 0));
 }
 
-std::string Quoted(INode* node) { return "'" + NodeName(node) + "'"; }
-
 SplineShape* EditableSpline(INode* node) {
     Object* base = BaseObject(node);
     if (IsEditableSpline(base)) return static_cast<SplineShape*>(base);
@@ -1345,11 +1048,6 @@ Matrix3 LocalTM(INode* node, const Matrix3& world) {
     return Inverse(world);
 }
 
-int InstanceCount(INode* node) {
-    INodeTab nodes;
-    return int(IInstanceMgr::GetInstanceMgr()->GetInstances(*node, nodes));
-}
-
 // Equivalent of MAXScript's updateShape: handles, selections, binds, caches.
 void Commit(SplineShape* ss) {
     BezierShape& shape = ss->shape;
@@ -1381,7 +1079,7 @@ std::string CurveToken(INode* node, SplineShape* ss) {
     }
     const Matrix3 tm = WorldTM(node);
     for (int row = 0; row < 4; ++row) point(tm.GetRow(row));
-    return Hex(Sha256(bytes)).substr(0, 32);
+    return HexDigest(Sha256(bytes)).substr(0, 32);
 }
 
 // An editable spline about to change, after the guards every edit shares.
@@ -2021,14 +1719,6 @@ constexpr const char* kSchema = "3dsmax-mcp/curve-model";
 constexpr size_t kMaxRecipeBytes = 4000000;
 constexpr size_t kHistoryLimit = 16;
 
-// formattedPrint v format:".9g", whatever the C locale.
-std::string G9(float v) {
-    static _locale_t c = _create_locale(LC_NUMERIC, "C");
-    char text[32];
-    _snprintf_l(text, sizeof text, "%.9g", c, double(v));
-    return text;
-}
-
 std::string McPoint(const Point3& p) { return "[" + G9(p.x) + "," + G9(p.y) + "," + G9(p.z) + "]"; }
 
 // The text the tool's cvToken hashes for the base spline.
@@ -2047,50 +1737,12 @@ std::string SplineText(SplineShape* ss) {
     return out;
 }
 
-// MAXScript's print form of a BitArray: #{1..3, 5}.
-std::string Bits(int count, const std::function<bool(int)>& set) {
-    std::string out;
-    for (int i = 0; i < count; ++i) {
-        if (!set(i)) continue;
-        int j = i;
-        while (j + 1 < count && set(j + 1)) ++j;
-        out += (out.empty() ? "" : ", ") + std::to_string(i + 1) + (j > i ? ".." + std::to_string(j + 1) : "");
-        i = j;
-    }
-    return "#{" + out + "}";
-}
-
-std::string IdList(const int* ids, int count) {
-    std::string out = "#(";
-    for (int i = 0; i < count; ++i) out += (i ? ", " : "") + std::to_string(ids[i] + 1);
-    return out + ")";
-}
-
-// The text the tool's lfToken hashes for the base cage.
-std::string MeshText(const MNMesh& mesh) {
-    const int nv = mesh.VNum(), ne = mesh.ENum(), nf = mesh.FNum();
-    std::string out = std::to_string(nv) + "," + std::to_string(ne) + "," + std::to_string(nf) + "|";
-    out += Bits(nv, [&](int i) { return mesh.V(i)->GetFlag(MN_DEAD) != 0; }) + "|";
-    out += Bits(ne, [&](int i) { return mesh.E(i)->GetFlag(MN_DEAD) != 0; }) + "|";
-    out += Bits(nf, [&](int i) { return mesh.F(i)->GetFlag(MN_DEAD) != 0; }) + "|";
-    for (int i = 0; i < nv; ++i) {
-        const Point3& p = mesh.V(i)->p;
-        out += G9(p.x) + ";" + G9(p.y) + ";" + G9(p.z) + ";";
-    }
-    for (int i = 0; i < ne; ++i) {
-        const int ids[] = {mesh.E(i)->v1, mesh.E(i)->v2};
-        out += "E" + IdList(ids, 2) + ";";
-    }
-    for (int i = 0; i < nf; ++i) out += "F" + IdList(mesh.F(i)->vtx, mesh.F(i)->deg) + ";";
-    return out;
-}
-
 // The tool's cmToken: the geometry state recipes record. None when the base
 // is neither an editable spline nor an Editable Poly.
 std::optional<std::string> Fingerprint(INode* node) {
     Object* base = BaseObject(node);
-    if (IsEditableSpline(base)) return Dashed(Sha256(SplineText(static_cast<SplineShape*>(base))));
-    if (MNMesh* mesh = PolyMesh(base)) return Dashed(Sha256(MeshText(*mesh)));
+    if (IsEditableSpline(base)) return DashedDigest(Sha256(SplineText(static_cast<SplineShape*>(base))));
+    if (MNMesh* mesh = PolyMesh(base)) return CageFingerprint(*mesh);
     return std::nullopt;
 }
 
@@ -2172,45 +1824,9 @@ Recipe Decode(const std::string& raw) {
     return r;
 }
 
-// Calls a MAXScript global function; the caller keeps the arguments alive.
-Value* MxsApply(const MCHAR* name, Value** args, int count) {
-    Value* fn = globals->get(Name::intern(name));
-    while (fn && (is_globalthunk(fn) || is_constglobalthunk(fn))) fn = static_cast<GlobalThunk*>(fn)->cell;
-    if (!fn) throw MaxError("MAXScript has no " + WideToUtf8(name) + " function");
-    try {
-        return fn->apply(args, count);
-    } catch (const MAXScriptException& error) {
-        StringStream* text = new StringStream(0);
-        error.sprin1(text);
-        throw MaxError(WideToUtf8(name) + " failed: " + WideToUtf8(text->to_string()));
-    }
-}
-
-// The recipe lives in MAXScript AppData: the tool reads and writes it with
-// getAppData/setAppData, whose chunk ids are not part of the SDK.
-std::optional<std::string> ReadRecipe(INode* node) {
-    ScopedMaxScriptEvaluationContext context;
-    three_value_locals(target, slot, result);
-    vl.target = MAXNode::intern(node);
-    vl.slot = Integer::intern(kRecipeSlot);
-    Value* args[] = {vl.target, vl.slot};
-    vl.result = MxsApply(L"getAppData", args, 2);
-    if (!vl.result || vl.result == &undefined) return std::nullopt;
-    return WideToUtf8(vl.result->to_string());
-}
-
-void WriteRecipe(INode* node, const std::string& raw) {
-    {
-        ScopedMaxScriptEvaluationContext context;
-        three_value_locals(target, slot, text);
-        vl.target = MAXNode::intern(node);
-        vl.slot = Integer::intern(kRecipeSlot);
-        vl.text = new String(Utf8ToWide(raw).c_str());
-        Value* args[] = {vl.target, vl.slot, vl.text};
-        MxsApply(L"setAppData", args, 3);
-    }
-    if (ReadRecipe(node) != raw) throw MaxError("the curve_model recipe did not persist on " + Quoted(node));
-}
+// The recipe lives in MAXScript AppData, as the tool keeps it.
+std::optional<std::string> ReadRecipe(INode* node) { return GetAppData(node, kRecipeSlot); }
+void WriteRecipe(INode* node, const std::string& raw) { SetAppData(node, kRecipeSlot, raw, "curve_model recipe"); }
 
 std::optional<Values> Active(const Recipe& r, const std::optional<std::string>& fingerprint) {
     std::vector<const Values*> matches;
@@ -2223,7 +1839,7 @@ std::optional<Values> Active(const Recipe& r, const std::optional<std::string>& 
 }
 
 std::string ModelToken(INode* node, const std::optional<std::string>& fingerprint, const std::string& raw) {
-    return Hex(Sha256(std::to_string(Animatable::GetHandleByAnim(node)) + "|" + fingerprint.value_or("") + "|" + raw));
+    return HexDigest(Sha256(std::to_string(Animatable::GetHandleByAnim(node)) + "|" + fingerprint.value_or("") + "|" + raw));
 }
 
 struct Stored {
@@ -2276,7 +1892,7 @@ Node CurveCreate(nb::handle definition, const std::string& name, nb::handle para
     const V3 origin = Center(points);
     INode* node = m.kind == "curve" ? CreateCurveNode(name, m.curve, origin) : CreateMeshNode(name, m, origin);
     try {
-        const Recipe r{def, origin, m.kind, m.alignment, Hex(Sha256(TopologyText(m))), {{values, *Fingerprint(node)}}};
+        const Recipe r{def, origin, m.kind, m.alignment, HexDigest(Sha256(TopologyText(m))), {{values, *Fingerprint(node)}}};
         WriteRecipe(node, Encode(r));
     } catch (...) {
         GetCOREInterface()->DeleteNode(node, FALSE);  // a failed create leaves nothing behind
@@ -2325,7 +1941,7 @@ nb::dict CurveUpdate(const Node& n, nb::handle parameters, const std::optional<s
     Stored s = LoadRecipe(node);
     const std::optional<std::string> fingerprint = Fingerprint(node);
     if (expected && *expected != ModelToken(node, fingerprint, s.raw))
-        throw MaxError("STALE_MODEL: " + Quoted(node) + "'s construction changed; read node.curve_model() again");
+        throw MaxError("STALE_MODEL: the construction of " + Quoted(node) + " changed; read node.curve_model() again");
     const std::optional<Values> current = Active(s.recipe, fingerprint);
     if (!current)
         throw MaxError(Quoted(node) + " was edited by hand or is outside its retained undo history; "
@@ -2347,7 +1963,7 @@ nb::dict CurveUpdate(const Node& n, nb::handle parameters, const std::optional<s
         return out;
     }
     const Model m = BuildModel(s.recipe.definition, updated, s.recipe.alignment);
-    if (Hex(Sha256(TopologyText(m))) != s.recipe.topology)
+    if (HexDigest(Sha256(TopologyText(m))) != s.recipe.topology)
         throw BadParam("this parameter change alters the topology; build a separate construction with curve_create()");
     const std::string oldRaw = s.raw;
     const std::function<void()> restore = Rewrite(node, m, s.recipe.origin);
@@ -2388,7 +2004,7 @@ void ConvertToSpline(const Node& n) {
         one_value_local(target);
         vl.target = MAXNode::intern(node);
         Value* args[] = {vl.target};
-        MxsApply(L"convertToSplineShape", args, 1);
+        MxsCall(L"convertToSplineShape", args, 1);
     }
     if (!IsEditableSpline(BaseObject(node))) throw MaxError("3ds Max did not convert " + Quoted(node) + " to an editable spline");
 }

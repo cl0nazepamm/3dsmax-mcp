@@ -1,15 +1,84 @@
-// MAXScript property access: the fallback for names that are not ParamBlock2
-// parameters. It covers what MAXScript adds on top of parameter blocks: legacy
-// aliases (Bend's `angle`), old-style parameter blocks, scripted plugins and
-// MAXScript-only properties (`center`, `gizmo`). Values are literals; no
-// script text is evaluated.
+// MAXScript: generated source and its literals, calls into MAXScript, and
+// property access, the fallback for names that are not ParamBlock2
+// parameters. Property access covers what MAXScript adds on top of parameter
+// blocks: legacy aliases (Bend's `angle`), old-style parameter blocks,
+// scripted plugins and MAXScript-only properties (`center`, `gizmo`). Its
+// values are literals; no script text is evaluated.
 #include "mx_common.h"
 
+#include <maxscript/compiler/thunks.h>
 #include <maxscript/foundation/colors.h>
 #include <maxscript/foundation/3dmath.h>
 
+#include <charconv>
+
 namespace mx {
 inline namespace MX_ABI_TAG {
+
+using json = nlohmann::json;
+
+// ── Generated source ─────────────────────────────────────────────
+
+std::string MxsString(const std::string& text) {
+    if (text.find('\0') != std::string::npos) throw BadParam("text for 3ds Max cannot contain NUL characters");
+    return "\"" + HandlerHelpers::JsonEscape(text) + "\"";
+}
+
+std::string MxsNumber(double v) {
+    char text[40];
+    const std::string out(text, std::to_chars(text, text + sizeof text, v, std::chars_format::general, 9).ptr);
+    return v < 0 ? "(" + out + ")" : out;
+}
+
+std::string MxsPoint(const Point3& p) { return "[" + MxsNumber(p.x) + "," + MxsNumber(p.y) + "," + MxsNumber(p.z) + "]"; }
+
+std::string MxsAnim(AnimHandle handle) { return "(getAnimByHandle " + std::to_string((unsigned long long)handle) + ")"; }
+
+const char* const kMxsQuote = R"MXS(
+fn __mxQuote s = (
+    local bs = bit.intAsChar 92 as string
+    local dq = bit.intAsChar 34 as string
+    s = substituteString (s as string) bs (bs + bs)
+    s = substituteString s dq (bs + dq)
+    s = substituteString s "\n" (bs + "n")
+    s = substituteString s "\r" (bs + "r")
+    s = substituteString s "\t" (bs + "t")
+    dq + s + dq
+)
+)MXS";
+
+std::string RunMaxScript(const std::string& code) {
+    const json result = NativeJson("maxscript", {{"code", code}});
+    return (result.is_string)() ? result.get<std::string>() : result.dump();
+}
+
+Value* MxsCall(const MCHAR* name, Value** args, int count) {
+    Value* fn = globals->get(Name::intern(name));
+    while (fn && (is_globalthunk(fn) || is_constglobalthunk(fn))) fn = static_cast<GlobalThunk*>(fn)->cell;
+    if (!fn) throw MaxError("MAXScript has no " + WideToUtf8(name) + " function");
+    try {
+        return fn->apply(args, count);
+    } catch (const MAXScriptException& error) {
+        throw MaxError(WideToUtf8(name) + " failed: " + MxsErrorText(error));
+    }
+}
+
+std::string MxsShown(Value* v) {
+    StringStream* text = new StringStream(0);
+    v->sprin1(text);
+    return WideToUtf8(text->to_string());
+}
+
+std::string MxsErrorText(const MAXScriptException& e) {
+    StringStream* text = new StringStream(0);
+    e.sprin1(text);
+    std::string out = WideToUtf8(text->to_string());
+    while (!out.empty() && std::isspace((unsigned char)out.back())) out.pop_back();
+    if (out.rfind("-- ", 0) == 0) out.erase(0, 3);
+    return out;
+}
+
+// ── Property access ──────────────────────────────────────────────
 
 // MAXScript's own name resolution for a ParamBlock2 parameter, aliases included.
 std::optional<ParamRef> MxsFindParam(Animatable* owner, const std::string& name) {
@@ -40,7 +109,7 @@ static Value* ToMxs(nb::handle value, const std::string& what) {
         return new String(Utf8ToWide(text).c_str());
     }
     if (nb::isinstance<Node>(value)) return MAXNode::intern(Resolve(nb::cast<Node>(value)));
-    if (nb::isinstance<nb::list>(value) || nb::isinstance<nb::tuple>(value)) {
+    if (IsSequence(value)) {
         const auto xs = Floats(value, 3, 3, what);
         return new Point3Value(Point3(xs[0], xs[1], xs[2]));
     }
@@ -71,30 +140,13 @@ static nb::object FromMxs(Value* v) {
         return items;
     }
     // Anything else (controllers, gizmos, maps) is shown, not converted.
-    StringStream* text = new StringStream(0);
-    v->sprin1(text);
-    nb::str shown(WideToUtf8(text->to_string()).c_str());
-    return shown;
+    return nb::str(MxsShown(v).c_str());
 }
 
 static ReferenceTarget* AsRef(Animatable* owner) {
     if (!owner || !owner->IsRefMaker() || !static_cast<ReferenceMaker*>(owner)->IsRefTarget()) return nullptr;
     return static_cast<ReferenceTarget*>(owner);
 }
-
-// MAXScript evaluates properties at its own time; carry at() into it.
-struct MxsTime {
-    BOOL usedContext;
-    TimeValue previous;
-    explicit MxsTime(TimeValue t) : usedContext(thread_local(use_time_context)), previous(thread_local(current_time)) {
-        thread_local(use_time_context) = TRUE;
-        thread_local(current_time) = t;
-    }
-    ~MxsTime() {
-        thread_local(use_time_context) = usedContext;
-        thread_local(current_time) = previous;
-    }
-};
 
 std::optional<nb::object> MxsGet(Animatable* owner, const std::string& name, TimeValue t) {
     RequireMain();

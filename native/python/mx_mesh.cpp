@@ -379,7 +379,7 @@ static float CosDegrees(double angle, const char* what) {
 
 static std::pair<Point3, Point3> ToBox(nb::handle value) {
     std::vector<nb::handle> corners;
-    if (nb::isinstance<nb::list>(value) || nb::isinstance<nb::tuple>(value))
+    if (IsSequence(value))
         for (nb::handle corner : value) corners.push_back(corner);
     if (corners.size() != 2) throw BadParam("bbox is ((min x, y, z), (max x, y, z)), like node.bbox");
     const Point3 lo = ToPoint3(corners[0], "bbox min"), hi = ToPoint3(corners[1], "bbox max");
@@ -455,28 +455,6 @@ static nb::list Find(const Poly& p, const std::string& levelName, const std::opt
 }
 
 // ── native:mesh_script ───────────────────────────────────────────
-
-// A MAXScript number; negatives in parentheses, so `f 0 (-2)` stays two arguments.
-static std::string Num(double v) {
-    char text[32];
-    std::snprintf(text, sizeof text, "%.9g", v);
-    return v < 0 ? "(" + std::string(text) + ")" : std::string(text);
-}
-
-static std::string PointLiteral(const Point3& p) { return "[" + Num(p.x) + "," + Num(p.y) + "," + Num(p.z) + "]"; }
-
-static std::string StringLiteral(const std::string& text) {
-    std::string out = "\"";
-    for (char ch : text) {
-        if (ch == '\n') out += "\\n";
-        else if (ch == '\r') out += "\\r";
-        else {
-            if (ch == '"' || ch == '\\') out += '\\';
-            out += ch;
-        }
-    }
-    return out + "\"";
-}
 
 // #{1,4..9} from 1-based IDs.
 static std::string BitsLiteral(std::vector<int> ids) {
@@ -582,7 +560,7 @@ struct OpArgs {
 
     double Between(const char* key, double fallback, double lo, double hi) const {
         const double x = Number(key, fallback);
-        if (x < lo || x > hi) throw BadParam(label + ": " + key + " must be " + Num(lo) + " to " + Num(hi));
+        if (x < lo || x > hi) throw BadParam(label + ": " + key + " must be " + ReprOf(nb::float_(lo)) + " to " + ReprOf(nb::float_(hi)));
         return x;
     }
 
@@ -623,7 +601,7 @@ static std::string SelectionScript(const OpArgs& op, Level level) {
         out = "local chosen = polyop.get" + kind + "Selection mesh\n";
     } else if (nb::isinstance<nb::str>(sel) && Lower(nb::cast<std::string>(sel)) == "all") {
         out = "local chosen = #{}\nif " + count + " > 0 do chosen = #{1.." + count + "}\n";
-    } else if (nb::isinstance<nb::list>(sel) || nb::isinstance<nb::tuple>(sel)) {
+    } else if (IsSequence(sel)) {
         std::vector<int> ids;
         try {
             ids = nb::cast<std::vector<int>>(sel);
@@ -635,8 +613,8 @@ static std::string SelectionScript(const OpArgs& op, Level level) {
         if (*std::min_element(ids.begin(), ids.end()) < 1) throw BadParam(op.label + ": IDs start at 1");
         out = "local chosen = " + BitsLiteral(ids) + "\n"
               "if " + std::to_string(top) + " > " + count + " do throw (" +
-              StringLiteral(op.label + ": " + LevelName(level) + " " + std::to_string(top) + " does not exist; the cage has ") +
-              " + " + count + " as string + " + StringLiteral(std::string(" ") + Plural(level)) + ")\n";
+              MxsString(op.label + ": " + LevelName(level) + " " + std::to_string(top) + " does not exist; the cage has ") +
+              " + " + count + " as string + " + MxsString(std::string(" ") + Plural(level)) + ")\n";
     } else {
         throw BadParam(op.label + ": selection is a list of IDs, 'current' or 'all'; "
                        "get IDs first: ids = poly.find('face', normal=(0, 0, 1))");
@@ -658,7 +636,7 @@ static int ExtrusionType(const OpArgs& op) {
 }
 
 static std::string Fails(const OpArgs& op, const std::string& call, const std::string& what) {
-    return "if not (" + call + ") do throw " + StringLiteral(op.label + ": " + what);
+    return "if not (" + call + ") do throw " + MxsString(op.label + ": " + what);
 }
 
 // The operation's edit of `chosen`, a port of mesh_edit's.
@@ -668,11 +646,11 @@ static std::string OpBody(const std::string& name, const OpArgs& op, Level level
     if (name == "move")
         return Affected(level) + "local invTM = inverse tm\n"
                "for v in affected do polyop.setVert mesh v (((polyop.getVert mesh v) * tm + " +
-               PointLiteral(op.Vector("offset")) + ") * invTM)";
+               MxsPoint(op.Vector("offset")) + ") * invTM)";
     if (name == "scale") {
-        const std::string factors = PointLiteral(op.Vector("factors"));
+        const std::string factors = MxsPoint(op.Vector("factors"));
         const std::string pivot = op.Has("pivot")
-            ? "local pivot = " + PointLiteral(op.Vector("pivot")) + "\n"
+            ? "local pivot = " + MxsPoint(op.Vector("pivot")) + "\n"
             : "local pivot = [0,0,0]\nfor v in affected do pivot += (polyop.getVert mesh v) * tm\npivot /= affected.numberSet\n";
         return Affected(level) + pivot + "local invTM = inverse tm\n"
                "for v in affected do (local p = (polyop.getVert mesh v) * tm - pivot; polyop.setVert mesh v ((pivot + p * " +
@@ -680,20 +658,20 @@ static std::string OpBody(const std::string& name, const OpArgs& op, Level level
     }
     if (name == "extrude" || name == "bevel" || name == "inset") {
         const std::string type = "mesh.extrusionType = " + std::to_string(ExtrusionType(op)) + "\n";
-        if (name == "extrude") return type + "polyop.extrudeFaces mesh chosen " + Num(op.Number("amount"));
+        if (name == "extrude") return type + "polyop.extrudeFaces mesh chosen " + MxsNumber(op.Number("amount"));
         if (name == "bevel")
-            return type + "polyop.bevelFaces mesh chosen " + Num(op.Number("amount")) + " " + Num(op.Number("outline", 0.0));
-        return type + "polyop.bevelFaces mesh chosen 0.0 " + Num(-op.Positive("amount"));
+            return type + "polyop.bevelFaces mesh chosen " + MxsNumber(op.Number("amount")) + " " + MxsNumber(op.Number("outline", 0.0));
+        return type + "polyop.bevelFaces mesh chosen 0.0 " + MxsNumber(-op.Positive("amount"));
     }
     if (name == "chamfer") {
         const double amount = op.Positive("amount");
         return "mesh.edgeChamferSegments = " + std::to_string(op.Integer("segments", 1, 1, 32)) +
-               "\nmesh.edgeChamferSmooth = true\nmesh.EditablePoly.chamferEdges " + Num(amount) + " open:false";
+               "\nmesh.edgeChamferSmooth = true\nmesh.EditablePoly.chamferEdges " + MxsNumber(amount) + " open:false";
     }
     if (name == "connect")
         return "mesh.connectEdgeSegments = " + std::to_string(op.Integer("segments", 1, 1, 100)) +
-               "\nmesh.connectEdgePinch = " + Num(op.Between("pinch", 0, -100, 100)) +
-               "\nmesh.connectEdgeSlide = " + Num(op.Between("slide", 0, -100, 100)) + "\n" +
+               "\nmesh.connectEdgePinch = " + MxsNumber(op.Between("pinch", 0, -100, 100)) +
+               "\nmesh.connectEdgeSlide = " + MxsNumber(op.Between("slide", 0, -100, 100)) + "\n" +
                Fails(op, "mesh.EditablePoly.ConnectEdges()", "the edges could not be connected");
     if (name == "bridge")
         return "mesh.bridgeSegments = " + std::to_string(op.Integer("segments", 1, 1, 100)) + "\nmesh.bridgeSelected = 1\n" +
@@ -701,7 +679,7 @@ static std::string OpBody(const std::string& name, const OpArgs& op, Level level
     if (name == "cap") return Fails(op, "mesh.EditablePoly.capHoles #Edge", "the selection has no border to cap");
     if (name == "delete") return std::string("polyop.delete") + PolyopName(level) + "s mesh chosen";
     // relax
-    return "mesh.relaxAmount = " + Num(op.Between("amount", 0.25, 0, 1)) +
+    return "mesh.relaxAmount = " + MxsNumber(op.Between("amount", 0.25, 0, 1)) +
            "\nmesh.relaxIterations = " + std::to_string(op.Integer("iterations", 1, 1, 100)) +
            "\nmesh.relaxHoldBoundaryPoints = true\nmesh.relaxHoldOuterPoints = true\n" +
            Fails(op, "mesh.EditablePoly.Relax selLevel:#" + lv, "the selection could not be relaxed");
@@ -757,7 +735,7 @@ static Step OpScript(nb::handle item, size_t index) {
     const std::string script =
         "(\n" +
         SelectionScript(op, level) +
-        "if chosen.numberSet == 0 do throw " + StringLiteral(op.label + ": the selection has no " + Plural(level)) + "\n"
+        "if chosen.numberSet == 0 do throw " + MxsString(op.label + ": the selection has no " + Plural(level)) + "\n"
         "local beforeCounts = mcCounts mesh\n"
         "polyop.set" + kind + "Selection mesh chosen\n" +
         OpBody(spec.name, op, level) + "\n"
@@ -780,8 +758,8 @@ static std::string EditScript(INode* node, const std::vector<Step>& steps) {
         "if not isValidNode obj do throw \"the node is no longer in the scene\"\n"
         "if classof obj.baseobject != Editable_Poly do throw \"the base is no longer an Editable_Poly\"\n"
         "local mesh = obj.baseobject\n"
-        "local tm = matrix3 " + PointLiteral(tm.GetRow(0)) + " " + PointLiteral(tm.GetRow(1)) + " " +
-        PointLiteral(tm.GetRow(2)) + " " + PointLiteral(tm.GetRow(3)) + "\n"
+        "local tm = matrix3 " + MxsPoint(tm.GetRow(0)) + " " + MxsPoint(tm.GetRow(1)) + " " +
+        MxsPoint(tm.GetRow(2)) + " " + MxsPoint(tm.GetRow(3)) + "\n"
         "local out = stringstream \"\"\n"
         "format \"" + h + "\\n\" to:out\n";
     for (const Step& step : steps) out += step.script;
@@ -834,7 +812,7 @@ static nb::list ParseSteps(const std::string& output) {
 
 static nb::dict Edit(const Poly& p, nb::handle ops, const std::string& expected, bool show) {
     const Cage c = ResolveCage(p);
-    if (!(nb::isinstance<nb::list>(ops) || nb::isinstance<nb::tuple>(ops)) || nb::len(ops) == 0)
+    if (!IsSequence(ops) || nb::len(ops) == 0)
         throw BadParam("edit takes a list of operations: edit([{'op': 'extrude', 'selection': ids, 'amount': 5}])");
     std::vector<Step> steps;
     for (nb::handle item : ops) steps.push_back(OpScript(item, steps.size() + 1));
@@ -865,7 +843,7 @@ static Poly ConvertToPoly(const Node& n) {
 }
 
 static std::vector<Point3> MeshVerts(nb::handle verts) {
-    if (!(nb::isinstance<nb::list>(verts) || nb::isinstance<nb::tuple>(verts)))
+    if (!IsSequence(verts))
         throw BadParam("verts is a list of (x, y, z) world positions");
     std::vector<Point3> out;
     for (nb::handle item : verts) {
@@ -878,7 +856,7 @@ static std::vector<Point3> MeshVerts(nb::handle verts) {
 }
 
 static std::vector<std::vector<int>> MeshFaces(nb::handle faces, size_t vertCount) {
-    if (!(nb::isinstance<nb::list>(faces) || nb::isinstance<nb::tuple>(faces)))
+    if (!IsSequence(faces))
         throw BadParam("faces is a list of polygons, each a list of 1-based vertex IDs");
     std::vector<std::vector<int>> out;
     size_t corners = 0;
@@ -915,7 +893,7 @@ static Node CreateMesh(const std::string& name, nb::handle verts, nb::handle fac
     for (const Point3& p : points) box += p;
     const Point3 center = box.Center();
     std::string pointList, faceList;
-    for (const Point3& p : points) pointList += (pointList.empty() ? "" : ",") + PointLiteral(p - center);
+    for (const Point3& p : points) pointList += (pointList.empty() ? "" : ",") + MxsPoint(p - center);
     for (const auto& polygon : polygons) {
         std::string ids;
         for (int id : polygon) ids += (ids.empty() ? "" : ",") + std::to_string(id);
@@ -923,7 +901,7 @@ static Node CreateMesh(const std::string& name, nb::handle verts, nb::handle fac
     }
     const MeshReply reply = RunMeshScript(
         "(\n"
-        "local obj = Editable_Mesh name:" + StringLiteral(name) + " pos:" + PointLiteral(center) + "\n"
+        "local obj = Editable_Mesh name:" + MxsString(name) + " pos:" + MxsPoint(center) + "\n"
         "convertToPoly obj\n"
         "local mesh = obj.baseobject\n"
         "for p in #(" + pointList + ") do polyop.createVert mesh p\n"

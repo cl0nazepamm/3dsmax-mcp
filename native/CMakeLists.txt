@@ -295,24 +295,28 @@ if(MCP_MX_PYTHON)
     find_package(nanobind CONFIG REQUIRED PATHS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanobind/cmake" NO_DEFAULT_PATH)
 
     nanobind_add_module(_mx NB_STATIC NB_DOMAIN mcp_mx
+        # core: shared rules, values, MAXScript and the bridge's handlers
         python/mx_module.cpp
         python/mx_core.cpp
-        python/mx_params.cpp
-        python/mx_nodes.cpp
-        python/mx_anim.cpp
-        python/mx_modifiers.cpp
-        python/mx_materials.cpp
         python/mx_maxscript.cpp
         python/mx_native.cpp
+        python/mx_construction.cpp
+        # object model
+        python/mx_params.cpp
+        python/mx_nodes.cpp
+        python/mx_modifiers.cpp
+        python/mx_materials.cpp
+        python/mx_tracks.cpp
+        python/mx_controllers.cpp
+        # domains
+        python/mx_scene.cpp
         python/mx_organize.cpp
         python/mx_viewport.cpp
-        python/mx_scene.cpp
         python/mx_files.cpp
         python/mx_mesh.cpp
-        python/mx_lighting.cpp
         python/mx_solids.cpp
         python/mx_curves.cpp
-        python/mx_animation.cpp
+        python/mx_lighting.cpp
         python/mx_plugins.cpp)
     mcp_bridge_apply_settings(_mx)
     target_link_libraries(_mx PRIVATE psapi.lib)

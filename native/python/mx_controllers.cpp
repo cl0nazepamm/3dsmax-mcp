@@ -2,7 +2,7 @@
 // parameter wiring, and script controllers checked off the track before they
 // replace anything.
 #include "mx_common.h"
-#include "mx_animation.h"
+#include "mx_tracks.h"
 
 #include <iparamwire.h>
 #include <maxscript/foundation/3dmath.h>
@@ -27,8 +27,6 @@ static Control* ResolveController(const ControllerRef& ref) {
 }
 
 static ControllerRef RefOf(Control* c) { return ControllerRef{Animatable::GetHandleByAnim(c)}; }
-
-static std::string CtrlClass(Animatable* c) { return HandlerHelpers::MaxScriptVisibleClassName(c); }
 
 static const char* KindName(SClass_ID super) {
     switch (super) {
@@ -61,16 +59,8 @@ static auto Guarded(const std::string& what, F&& f) -> decltype(f()) {
     try {
         return f();
     } catch (const MAXScriptException& e) {
-        StringStream* text = new StringStream(0);
-        e.sprin1(text);
-        throw BadParam(what + ": " + WideToUtf8(text->to_string()));
+        throw BadParam(what + ": " + MxsErrorText(e));
     }
-}
-
-// A MAXScript string literal.
-static std::string MxsString(const std::string& text) {
-    if (text.find('\0') != std::string::npos) throw BadParam("text for 3ds Max cannot contain NUL characters");
-    return "\"" + HandlerHelpers::JsonEscape(text) + "\"";
 }
 
 static std::string FrameText(TimeValue t) { return ReprOf(nb::float_(TicksToFrame(t))); }
@@ -79,24 +69,6 @@ static nb::dict Dict(std::initializer_list<std::pair<const char*, nb::object>> i
     nb::dict out;
     for (const auto& [key, value] : items) out[key] = value;
     return out;
-}
-
-// JSON text from MAXScript: __mcpStr quotes a string.
-const char* const kMxsJson = R"MXS(
-fn __mcpStr s = (
-    local bs = bit.intAsChar 92 as string
-    local dq = bit.intAsChar 34 as string
-    s = substituteString (s as string) bs (bs + bs)
-    s = substituteString s dq (bs + dq)
-    s = substituteString s "\n" (bs + "n")
-    s = substituteString s "\r" (bs + "r")
-    s = substituteString s "\t" (bs + "t")
-    dq + s + dq
-)
-)MXS";
-
-static std::string MxsHandle(Animatable* anim) {
-    return "(getAnimByHandle " + std::to_string(Animatable::GetHandleByAnim(anim)) + ")";
 }
 
 // ── Assigning controllers ────────────────────────────────────────
@@ -249,19 +221,13 @@ static nb::list Targets(Control* c) {
 
 // ── Script controller variables ──────────────────────────────────
 
-static std::string Shown(Value* v) {
-    StringStream* text = new StringStream(0);
-    v->sprin1(text);
-    return WideToUtf8(text->to_string());
-}
-
 static nb::object FromMxsConstant(Value* v) {
     if (v == &true_value || v == &false_value) return nb::bool_(v == &true_value);
     if (is_integer(v)) return nb::int_(v->to_int());
     if (is_float(v) || is_double(v)) return nb::float_(v->to_double());
     if (is_point3(v)) return FromPoint3(v->to_point3());
     if (is_string(v)) return nb::str(WideToUtf8(v->to_string()).c_str());
-    return nb::str(Shown(v).c_str());
+    return nb::str(MxsShown(v).c_str());
 }
 
 // The name of a variable type ("constant", "target", "node", "object"),
@@ -311,13 +277,13 @@ static std::vector<ScriptVar> ScriptVars(IScriptCtrl* sc) {
                 v.shown = object ? CtrlClass(object) : "";
             } else if (v.kind == "target") {
                 vl.item = sc->GetTarget(vl.which, FALSE);
-                v.shown = Shown(vl.item);
+                v.shown = MxsShown(vl.item);
                 v.value = nb::str(v.shown.c_str());
                 vl.item = sc->GetTarget(vl.which, TRUE);
                 if (ReferenceTarget* owner = vl.item ? vl.item->to_reftarg() : nullptr) v.identity = Animatable::GetHandleByAnim(owner);
             } else {
                 vl.item = sc->GetVariable(vl.which, FALSE, 0);
-                v.shown = Shown(vl.item);
+                v.shown = MxsShown(vl.item);
                 v.value = FromMxsConstant(vl.item);
             }
         } catch (const MAXScriptException&) {
@@ -354,12 +320,8 @@ static bool IsIdentifier(const std::string& name) {
     return std::all_of(name.begin(), name.end(), [](unsigned char c) { return std::isalnum(c) || c == '_'; });
 }
 
-static bool IsNumber(nb::handle v) {
-    return (nb::isinstance<nb::int_>(v) || nb::isinstance<nb::float_>(v)) && !nb::isinstance<nb::bool_>(v);
-}
-
 static bool IsNumbers(nb::handle v, size_t count) {
-    if (!nb::isinstance<nb::tuple>(v) && !nb::isinstance<nb::list>(v)) return false;
+    if (!IsSequence(v)) return false;
     if (nb::len(v) != count) return false;
     for (nb::handle item : v)
         if (!IsNumber(item)) return false;
@@ -473,26 +435,26 @@ static void ReplaceBindings(IScriptCtrl* sc, const std::vector<Binding>& binding
 // ── Expression controllers (MAXScript's IExprCtrl) ───────────────
 
 static std::string ExpressionText(Control* c) {
-    const json text = NativeJson("maxscript", {{"code", std::string("(\n") + kMxsJson + "__mcpStr (" + MxsHandle(c) +
+    const json text = NativeJson("maxscript", {{"code", std::string("(\n") + kMxsQuote + "__mxQuote (" + MxsAnim(c) +
                                                            ".GetExpression())\n)"}});
     return (text.is_string)() ? text.get<std::string>() : text.dump();
 }
 
 static void SetExpressionText(Control* c, const std::string& expression) {
-    NativeJson("maxscript", {{"code", "(local c = " + MxsHandle(c) + "\nif not (c.SetExpression " + MxsString(expression) +
+    NativeJson("maxscript", {{"code", "(local c = " + MxsAnim(c) + "\nif not (c.SetExpression " + MxsString(expression) +
                                           ") do throw \"3ds Max rejected the expression\"\nc.Update()\ntrue)"}});
 }
 
 static nb::list ExpressionVars(Control* c) {
-    const json rows = NativeJson("maxscript", {{"code", std::string("(\n") + kMxsJson + "local c = " + MxsHandle(c) + R"MXS(
+    const json rows = NativeJson("maxscript", {{"code", std::string("(\n") + kMxsQuote + "local c = " + MxsAnim(c) + R"MXS(
 local out = ""
 for i = 1 to c.NumScalars() do (
     local n = c.GetScalarName i
     if findItem #("T", "S", "F", "NT") n == 0 do
-        out += (if out == "" then "" else ",") + "[" + __mcpStr n + "," + __mcpStr ((c.GetScalarType i) as string) + "]"
+        out += (if out == "" then "" else ",") + "[" + __mxQuote n + "," + __mxQuote ((c.GetScalarType i) as string) + "]"
 )
 for i = 1 to c.NumVectors() do
-    out += (if out == "" then "" else ",") + "[" + __mcpStr (c.GetVectorName i) + "," + __mcpStr ((c.GetVectorType i) as string) + "]"
+    out += (if out == "" then "" else ",") + "[" + __mxQuote (c.GetVectorName i) + "," + __mxQuote ((c.GetVectorType i) as string) + "]"
 "[" + out + "]"
 ))MXS"}});
     // MAXScript names the kinds in camel case: scalarTarget -> scalar_target.
@@ -519,11 +481,10 @@ static void AddExpressionInput(Control* c, const std::string& name, nb::handle t
         const ResolvedTrack r = ResolveTrack(nb::cast<Track>(target));
         const bool scalar = r.kind == TrackKind::Float;
         if (!scalar && r.kind != TrackKind::Point3) throw BadParam(r.label + ": expression inputs are float or point3 tracks");
-        const std::string source = r.ctrl ? MxsHandle(r.ctrl) : "(getSubAnim " + MxsHandle(r.parent) + " " + std::to_string(r.sub + 1) + ")";
+        const std::string source = r.ctrl ? MxsAnim(r.ctrl) : "(getSubAnim " + MxsAnim(r.parent) + " " + std::to_string(r.sub + 1) + ")";
         call = std::string(scalar ? "AddScalarTarget " : "AddVectorTarget ") + MxsString(name) + " " + source;
     } else if (nb::isinstance<Node>(target)) {
-        call = "AddVectorNode " + MxsString(name) + " (getAnimByHandle " +
-               std::to_string(Animatable::GetHandleByAnim(Resolve(nb::cast<Node>(target)))) + ")";
+        call = "AddVectorNode " + MxsString(name) + " " + MxsAnim(Resolve(nb::cast<Node>(target)));
     } else if (IsNumber(target)) {
         call = "AddScalarConstant " + MxsString(name) + " " + ReprOf(nb::float_(nb::cast<double>(target)));
     } else if (IsNumbers(target, 3)) {
@@ -533,7 +494,7 @@ static void AddExpressionInput(Control* c, const std::string& name, nb::handle t
     } else {
         throw BadParam("an expression input is a Track, a Node, a number or (x, y, z), not " + TypeNameOf(target));
     }
-    NativeJson("maxscript", {{"code", "(if not (" + MxsHandle(c) + "." + call + ") do throw \"3ds Max refused the input '" +
+    NativeJson("maxscript", {{"code", "(if not (" + MxsAnim(c) + "." + call + ") do throw \"3ds Max refused the input '" +
                                           HandlerHelpers::JsonEscape(name) + "'\"\ntrue)"}});
 }
 
@@ -739,7 +700,7 @@ try (
     "{\"samples\":[" + out + "]}"
 ) catch (
     try (c.throwOnError = false) catch ()
-    "{\"stage\":" + __mcpStr stage + ",\"index\":" + (index as string) + ",\"message\":" + __mcpStr (getCurrentException()) + "}"
+    "{\"stage\":" + __mxQuote stage + ",\"index\":" + (index as string) + ",\"message\":" + __mxQuote (getCurrentException()) + "}"
 )
 )MXS";
 
@@ -760,7 +721,7 @@ static Samples Evaluate(Control* candidate, const std::string& source, const cha
                         const std::vector<TimeValue>& times, double scale) {
     std::string list;
     for (TimeValue t : times) list += (list.empty() ? "" : ", ") + FrameText(t);
-    const std::string code = std::string("(\n") + kMxsJson + "local c = " + MxsHandle(candidate) + "\nlocal times = #(" + list +
+    const std::string code = std::string("(\n") + kMxsQuote + "local c = " + MxsAnim(candidate) + "\nlocal times = #(" + list +
                              ")\nlocal kind = \"" + kind + "\"\nlocal source = " + MxsString(source) + "\n" + kEvaluate + ")";
     const json reply = NativeJson("maxscript", {{"code", code}});
     if (!reply.is_object()) throw MaxError("the script check returned no result");
@@ -1018,7 +979,7 @@ static std::vector<nb::dict> NodeWires(const Node& n, int depth) {
 
 // ── Binding ──────────────────────────────────────────────────────
 
-void BindAnimation(nb::module_& m) {
+void BindControllers(nb::module_& m) {
     nb::class_<ControllerRef>(m, "Controller",
         "A track's controller: track.controller. c.params holds its parameters (Noise frequency, constraint relative, ...).")
         .def_prop_ro("class_name", [](const ControllerRef& c) { return CtrlClass(ResolveController(c)); },

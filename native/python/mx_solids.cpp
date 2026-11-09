@@ -7,7 +7,7 @@
 // reads and writes use the Editable Poly SDK: EPoly::ApplyDelta, as
 // polyop.setVert does, so edits join a caller's undo hold and key in animate
 // mode.
-#include "mx_common.h"
+#include "mx_construction.h"
 
 #include <iEPoly.h>
 #include <mnmesh.h>
@@ -26,13 +26,6 @@ using json = nlohmann::json;
 
 // ── Shared ───────────────────────────────────────────────────────
 
-std::string Trim(const std::string& s) {
-    const char* space = " \t\n\r\f\v";
-    const size_t first = s.find_first_not_of(space);
-    if (first == std::string::npos) return "";
-    return s.substr(first, s.find_last_not_of(space) - first + 1);
-}
-
 std::vector<std::string> Split(const std::string& text, char sep) {
     std::vector<std::string> parts;
     size_t start = 0;
@@ -46,56 +39,7 @@ std::string Replace(std::string text, const std::string& from, const std::string
     return at == std::string::npos ? text : text.replace(at, from.size(), to);
 }
 
-bool IsNumber(nb::handle v) {
-    return (nb::isinstance<nb::int_>(v) || nb::isinstance<nb::float_>(v)) && !nb::isinstance<nb::bool_>(v);
-}
-
-bool IsInteger(nb::handle v) { return nb::isinstance<nb::int_>(v) && !nb::isinstance<nb::bool_>(v); }
-
-bool IsSequence(nb::handle v) { return nb::isinstance<nb::list>(v) || nb::isinstance<nb::tuple>(v); }
-
 std::string PyText(nb::handle v) { return nb::cast<std::string>(nb::str(v)); }
-
-// %.9g without the C locale: a float survives the round trip through MAXScript.
-std::string MxsNumber(double v) {
-    char buf[40];
-    const auto end = std::to_chars(buf, buf + sizeof buf, v, std::chars_format::general, 9).ptr;
-    return std::string(buf, end);
-}
-
-std::string MxsPoint(const Point3& p) { return "[" + MxsNumber(p.x) + "," + MxsNumber(p.y) + "," + MxsNumber(p.z) + "]"; }
-
-std::string MxsString(const std::string& s) { return "\"" + HandlerHelpers::JsonEscape(s) + "\""; }
-
-std::string MxsRef(AnimHandle handle) { return "(getAnimByHandle " + std::to_string((unsigned long long)handle) + ")"; }
-
-std::string Base64(const std::string& in) {
-    static const char* digits = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::string out;
-    out.reserve((in.size() + 2) / 3 * 4);
-    for (size_t i = 0; i < in.size(); i += 3) {
-        const size_t left = in.size() - i;
-        const unsigned n = (unsigned char)in[i] << 16 | (left > 1 ? (unsigned char)in[i + 1] << 8 : 0) |
-                           (left > 2 ? (unsigned char)in[i + 2] : 0);
-        out += digits[n >> 18 & 63];
-        out += digits[n >> 12 & 63];
-        out += left > 1 ? digits[n >> 6 & 63] : '=';
-        out += left > 2 ? digits[n & 63] : '=';
-    }
-    return out;
-}
-
-// MAXScript expression for UTF-8 text that never passes through a string
-// literal: stored data cannot add escapes or trip the bridge's safe-mode screen.
-std::string MxsDecoded(const std::string& text) {
-    return "((dotNetClass \"System.Text.Encoding\").UTF8.GetString ((dotNetClass \"System.Convert\").FromBase64String \"" +
-           Base64(text) + "\"))";
-}
-
-std::string RunMxs(const std::string& code) {
-    const json result = NativeJson("maxscript", {{"code", code}});
-    return (result.is_string)() ? result.get<std::string>() : result.dump();
-}
 
 bool IsGeometry(INode* node) {
     const ObjectState os = node->EvalWorldState(Now());
@@ -416,7 +360,7 @@ BooleanRef ApplyBoolean(const Node& n, nb::handle operands, const std::string& o
     std::string reply;
     {
         NoAnimate noAnimate;
-        reply = RunMxs(ApplyScript(base, nodes, enums, made, settings));
+        reply = RunMaxScript(ApplyScript(base, nodes, enums, made, settings));
     }
     return MakeBoolean(n.handle, AppendedModifier(reply, names));
 }
@@ -506,7 +450,7 @@ out + "]"
 // Operands in flat-index order; the base object (index 1) is left out.
 std::vector<OperandInfo> Operands(const BooleanRef& r) {
     ResolveBoolean(r);
-    const json rows = NativeJson("maxscript", {{"code", "(local bm = " + MxsRef(r.mod) + "\n" + kOperandsScript + ")"}});
+    const json rows = NativeJson("maxscript", {{"code", "(local bm = " + MxsAnim(r.mod) + "\n" + kOperandsScript + ")"}});
     if (!(rows.is_array)()) throw MaxError("the Boolean modifier returned an unreadable operand list");
     std::vector<OperandInfo> out;
     for (const json& row : rows) {
@@ -523,11 +467,11 @@ std::string RunOperandScript(const BooleanRef& r, int index, const std::string& 
     ResolveBoolean(r);
     if (index < 1) throw BadParam("operand indices start at 1; .operands lists them");
     const std::string i = std::to_string(index);
-    std::string code = "(\nlocal obj = " + MxsRef(r.node) + "\nlocal bm = " + MxsRef(r.mod) +
+    std::string code = "(\nlocal obj = " + MxsAnim(r.node) + "\nlocal bm = " + MxsAnim(r.mod) +
                        "\nlocal total = bm.GetNumOperands()\nif " + i + " > total then (\"RANGE|\" + (total as string)) else (\n"
                        "local ty = #single\ntry (bm.GetRootOperandType " + i + " &ty) catch ()\n";
     code += rejectBase ? "if ty == #modified then \"BASE\" else (\n" + body + "\n)" : body;
-    const std::string reply = RunMxs(code + "\n)\n)");
+    const std::string reply = RunMaxScript(code + "\n)\n)");
     if (reply.rfind("RANGE|", 0) == 0)
         throw BadParam("no operand at index " + i + ": this Boolean has " + reply.substr(6) +
                        " operands counting the base at 1; .operands lists the others");
@@ -636,7 +580,7 @@ PolyBase EditablePoly(const Node& n, bool convert) {
         if (!convert)
             throw BadParam("'" + NodeName(node) + "' has " + WithArticle(ClassOf(node)) +
                            " base, not Editable_Poly; pass convert=True to collapse it to Editable Poly");
-        RunMxs("convertTo " + HandlerHelpers::NodeScriptRef(node) + " Editable_Poly");
+        RunMaxScript("convertTo " + HandlerHelpers::NodeScriptRef(node) + " Editable_Poly");
         base = BaseObject(node);
         if (!base || base->ClassID() != EPOLYOBJ_CLASS_ID)
             throw MaxError("3ds Max could not convert '" + NodeName(node) + "' to Editable Poly");
@@ -783,7 +727,7 @@ std::vector<std::optional<Point3>> SplinePoints(INode* target, int spline, const
         "if d == undefined then format \"-\\n\" to:out\n"
         "else format \"%,%,%\\n\" (formattedPrint d.x format:\".9g\") (formattedPrint d.y format:\".9g\") (formattedPrint d.z format:\".9g\") to:out\n"
         ")\nout as string\n)\n)))";
-    const std::string reply = RunMxs(code);
+    const std::string reply = RunMaxScript(code);
     if (reply.rfind("FEW|", 0) == 0)
         throw BadParam("'" + NodeName(target) + "' has " + reply.substr(4) + " splines; spline " + s + " does not exist");
     std::vector<std::optional<Point3>> out;
@@ -874,258 +818,15 @@ std::pair<int, int> ConformVerts(const Node& n, nb::handle targetKey, const std:
 // A loft is an Editable Poly of quads between matched cross sections, whose
 // coordinates may be arithmetic over named parameters ('-width/2'). The
 // definition and up to 16 parameter states, each keyed by a fingerprint of the
-// cage it built, live in the node's AppData; a geometry undo is recognized by
-// its fingerprint, and a cage edited by hand is never rebuilt.
+// cage it built, live in the node's AppData in the loft_mesh tool's format; a
+// geometry undo is recognized by its fingerprint, and a cage edited by hand is
+// never rebuilt.
 
 constexpr int kLoftAppData = 1280263764;  // "LOFT"
 const char* const kLoftSchema = "3dsmax-mcp/loft";
 constexpr size_t kLoftHistory = 16;
 constexpr size_t kLoftMaxBytes = 4000000;
 const char* const kLoftMarker = "__MCP_LOFT_CAGE_TOKEN__";  // replaced by the cage fingerprint when stored
-constexpr double kLoftMaxMagnitude = 1e12;
-
-// The MCP tool's cage fingerprint, verbatim: both sides must hash a cage the same way.
-const char* const kLoftFunctions = R"MXS(
-fn mcCounts mesh = (
-    (polyop.getNumVerts mesh as string) + "," + (polyop.getNumEdges mesh as string) + "," + (polyop.getNumFaces mesh as string)
-)
-fn lfToken obj = (
-    if classof obj.baseobject != Editable_Poly do throw "Loft requires its original Editable Poly base"
-    local mesh = obj.baseobject
-    local ss = stringstream ""
-    format "%|%|%|%|" (mcCounts mesh) (polyop.getDeadVerts mesh) (polyop.getDeadEdges mesh) (polyop.getDeadFaces mesh) to:ss
-    for i = 1 to polyop.getNumVerts mesh do (
-        local p = polyop.getVert mesh i
-        for axis = 1 to 3 do format "%;" (formattedPrint p[axis] format:".9g") to:ss
-    )
-    for i = 1 to polyop.getNumEdges mesh do format "E%;" (polyop.getEdgeVerts mesh i) to:ss
-    for i = 1 to polyop.getNumFaces mesh do format "F%;" (polyop.getFaceVerts mesh i) to:ss
-    local sha = (dotNetClass "System.Security.Cryptography.SHA256").Create()
-    local bytes = (dotNetClass "System.Text.Encoding").UTF8.GetBytes (ss as string)
-    local digest = (dotNetClass "System.BitConverter").ToString (sha.ComputeHash bytes)
-    sha.Dispose()
-    digest as string
-)
-)MXS";
-
-using LoftParams = std::map<std::string, double>;
-
-double Finite(double v, const std::string& label) {
-    if (!std::isfinite(v) || std::fabs(v) > kLoftMaxMagnitude)
-        throw BadParam(label + " must be a finite number with magnitude at most 1e12");
-    return v;
-}
-
-// Coordinate expressions: the MCP tool evaluates them with Python's ast, so
-// this accepts a subset of Python's syntax and computes as Python does
-// (floored %, right-associative **, -2**2 == -4).
-struct ExprNode {
-    char kind = 'n';  // n number, v name, u unary, b binary, c call
-    char op = 0;      // + - * / % and ^ for **
-    double value = 0;
-    std::string name;
-    std::vector<ExprNode> args;
-};
-
-struct ExprSyntax {};
-
-class ExprParser {
-public:
-    explicit ExprParser(const std::string& text) : text_(text) {}
-
-    ExprNode Parse() {
-        ExprNode e = Sum();
-        Space();
-        if (at_ != text_.size()) throw ExprSyntax{};
-        return e;
-    }
-
-private:
-    const std::string& text_;
-    size_t at_ = 0;
-
-    void Space() {
-        while (at_ < text_.size() && (text_[at_] == ' ' || text_[at_] == '\t')) ++at_;
-    }
-    bool Next(const char* token) {
-        Space();
-        const size_t n = std::strlen(token);
-        if (text_.compare(at_, n, token) != 0) return false;
-        at_ += n;
-        return true;
-    }
-    static ExprNode Make(char kind, char op, std::vector<ExprNode> args) {
-        ExprNode e;
-        e.kind = kind;
-        e.op = op;
-        e.args = std::move(args);
-        return e;
-    }
-    ExprNode Sum() {
-        ExprNode left = Product();
-        for (;;) {
-            const char op = Next("+") ? '+' : Next("-") ? '-' : 0;
-            if (!op) return left;
-            ExprNode right = Product();
-            left = Make('b', op, {std::move(left), std::move(right)});
-        }
-    }
-    ExprNode Product() {
-        ExprNode left = Unary();
-        for (;;) {
-            const char op = Next("*") ? '*' : Next("/") ? '/' : Next("%") ? '%' : 0;
-            if (!op) return left;
-            ExprNode right = Unary();
-            left = Make('b', op, {std::move(left), std::move(right)});
-        }
-    }
-    ExprNode Unary() {
-        if (Next("-")) return Make('u', '-', {Unary()});
-        if (Next("+")) return Make('u', '+', {Unary()});
-        return Power();
-    }
-    ExprNode Power() {
-        ExprNode base = Primary();
-        if (!Next("**")) return base;
-        ExprNode exponent = Unary();
-        return Make('b', '^', {std::move(base), std::move(exponent)});
-    }
-    ExprNode Primary() {
-        Space();
-        if (at_ >= text_.size()) throw ExprSyntax{};
-        const unsigned char c = text_[at_];
-        if (c == '(') {
-            ++at_;
-            ExprNode inner = Sum();
-            if (!Next(")")) throw ExprSyntax{};
-            return inner;
-        }
-        if (std::isdigit(c) || c == '.') return NumberLiteral();
-        if (!IsAsciiAlpha(c) && c != '_') throw ExprSyntax{};
-        ExprNode e;
-        e.name = Identifier();
-        e.kind = 'v';
-        if (!Next("(")) return e;
-        e.kind = 'c';
-        do e.args.push_back(Sum()); while (Next(","));
-        if (!Next(")")) throw ExprSyntax{};
-        return e;
-    }
-    static bool IsAsciiAlpha(unsigned char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
-    static bool IsWordChar(unsigned char c) { return IsAsciiAlpha(c) || std::isdigit(c) || c == '_'; }
-    std::string Identifier() {
-        static const std::set<std::string> keywords = {
-            "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue",
-            "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in",
-            "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield"};
-        const size_t start = at_;
-        while (at_ < text_.size() && IsWordChar(text_[at_])) ++at_;
-        if (at_ < text_.size() && (unsigned char)text_[at_] >= 0x80) throw ExprSyntax{};
-        std::string word = text_.substr(start, at_ - start);
-        if (keywords.count(word)) throw ExprSyntax{};
-        return word;
-    }
-    // Python decimal literals: 12, 1.5, .5, 5., 1e-3. Leading zeros only in floats.
-    ExprNode NumberLiteral() {
-        const size_t start = at_;
-        auto digits = [&] {
-            const size_t from = at_;
-            while (at_ < text_.size() && std::isdigit((unsigned char)text_[at_])) ++at_;
-            return at_ - from;
-        };
-        const size_t whole = digits();
-        bool isFloat = false;
-        size_t fraction = 0;
-        if (at_ < text_.size() && text_[at_] == '.') {
-            ++at_;
-            isFloat = true;
-            fraction = digits();
-        }
-        if (!whole && !fraction) throw ExprSyntax{};
-        if (at_ < text_.size() && (text_[at_] == 'e' || text_[at_] == 'E')) {
-            ++at_;
-            if (at_ < text_.size() && (text_[at_] == '+' || text_[at_] == '-')) ++at_;
-            if (!digits()) throw ExprSyntax{};
-            isFloat = true;
-        }
-        if (at_ < text_.size() && (IsWordChar(text_[at_]) || text_[at_] == '.' || (unsigned char)text_[at_] >= 0x80))
-            throw ExprSyntax{};
-        if (!isFloat && whole > 1 && text_[start] == '0' && text_.find_first_not_of('0', start) < at_) throw ExprSyntax{};
-        ExprNode e;
-        std::from_chars(text_.data() + start, text_.data() + at_, e.value);
-        return e;
-    }
-};
-
-// Nodes as Python's ast.walk counts them (each operator and name context is a node).
-int CountNodes(const ExprNode& e) {
-    int n = e.kind == 'n' ? 1 : e.kind == 'c' ? 3 : 2;
-    for (const ExprNode& arg : e.args) n += CountNodes(arg);
-    return n;
-}
-
-[[noreturn]] void CannotEvaluate(const std::string& text, const char* reason) {
-    throw BadParam("Cannot evaluate coordinate expression '" + text + "': " + reason);
-}
-
-double PyMod(double a, double b) {
-    double r = std::fmod(a, b);
-    if (r != 0 && ((r < 0) != (b < 0))) r += b;
-    return r == 0 ? std::copysign(0.0, b) : r;
-}
-
-double Evaluate(const ExprNode& e, const LoftParams& params, const std::string& text);
-
-double CallFunction(const ExprNode& e, const LoftParams& params, const std::string& text) {
-    static const std::set<std::string> functions = {"sin", "cos", "sqrt", "abs", "min", "max"};
-    if (!functions.count(e.name)) throw BadParam("Only sin, cos, sqrt, abs, min and max calls without keywords are allowed");
-    const bool minmax = e.name == "min" || e.name == "max";
-    if (minmax ? e.args.size() < 2 || e.args.size() > 8 : e.args.size() != 1)
-        throw BadParam("Math calls need one argument, or 2-8 for min/max");
-    std::vector<double> xs;
-    for (const ExprNode& arg : e.args) xs.push_back(Evaluate(arg, params, text));
-    double out = 0;
-    if (e.name == "sin") out = std::sin(xs[0]);
-    else if (e.name == "cos") out = std::cos(xs[0]);
-    else if (e.name == "abs") out = std::fabs(xs[0]);
-    else if (e.name == "min") out = *std::min_element(xs.begin(), xs.end());
-    else if (e.name == "max") out = *std::max_element(xs.begin(), xs.end());
-    else if (xs[0] < 0) CannotEvaluate(text, "math domain error");
-    else out = std::sqrt(xs[0]);
-    return Finite(out, "function result");
-}
-
-double Evaluate(const ExprNode& e, const LoftParams& params, const std::string& text) {
-    switch (e.kind) {
-    case 'n': return Finite(e.value, "expression constant");
-    case 'v': {
-        if (e.name == "pi") return 3.141592653589793;
-        const auto found = params.find(e.name);
-        if (found == params.end()) throw BadParam("Unknown construction parameter: " + e.name);
-        return found->second;
-    }
-    case 'u': {
-        const double v = Evaluate(e.args[0], params, text);
-        return e.op == '-' ? -v : v;
-    }
-    case 'c': return CallFunction(e, params, text);
-    default: break;
-    }
-    const double a = Evaluate(e.args[0], params, text), b = Evaluate(e.args[1], params, text);
-    double out = 0;
-    switch (e.op) {
-    case '+': out = a + b; break;
-    case '-': out = a - b; break;
-    case '*': out = a * b; break;
-    case '/': if (b == 0) CannotEvaluate(text, "division by zero"); out = a / b; break;
-    case '%': if (b == 0) CannotEvaluate(text, "modulo by zero"); out = PyMod(a, b); break;
-    default:
-        if (std::fabs(b) > 16) throw BadParam("Expression exponents must have magnitude at most 16");
-        if (a == 0 && b < 0) CannotEvaluate(text, "0.0 cannot be raised to a negative power");
-        out = std::pow(a, b);
-    }
-    return Finite(out, "expression result");
-}
 
 // A section coordinate: a number, or an expression kept as written.
 struct LoftCoord {
@@ -1138,27 +839,9 @@ using LoftPoint = std::array<LoftCoord, 3>;
 using LoftSections = std::vector<std::vector<LoftPoint>>;
 using Vec3 = std::array<double, 3>;
 
-double Coordinate(const LoftCoord& c, const LoftParams& params) {
-    if (!c.isExpr) return Finite(c.number, "section coordinate");
-    if (c.text.empty() || c.text.size() > 256) throw BadParam("Coordinate expressions must contain 1-256 characters");
-    ExprNode tree;
-    try {
-        tree = ExprParser(Trim(c.text)).Parse();
-    } catch (const ExprSyntax&) {
-        throw BadParam("Invalid coordinate expression: '" + c.text + "'");
-    }
-    if (1 + CountNodes(tree) > 128) throw BadParam("Coordinate expression is too complex");
-    return Evaluate(tree, params, c.text);
+double Coordinate(const LoftCoord& c, const Values& params) {
+    return c.isExpr ? Expression(c.text, params) : Finite(c.number, "section coordinate");
 }
-
-bool ValidParamName(const std::string& name) {
-    static const std::set<std::string> reserved = {"sin", "cos", "sqrt", "abs", "min", "max", "pi"};
-    auto alpha = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); };
-    if (name.empty() || name.size() > 64 || !alpha(name[0]) || reserved.count(name)) return false;
-    return std::all_of(name.begin(), name.end(), [&](char c) { return alpha(c) || (c >= '0' && c <= '9') || c == '_'; });
-}
-
-const char* const kParamNameRule = "Parameter names must be ASCII identifiers and cannot shadow pi or math functions";
 
 double PyNumber(nb::handle v, const std::string& label) {
     if (!IsNumber(v)) throw BadParam(label + " must be a finite number with magnitude at most 1e12");
@@ -1171,14 +854,14 @@ double PyNumber(nb::handle v, const std::string& label) {
     return Finite(d, label);
 }
 
-LoftParams ParamsFromPython(nb::handle value) {
-    LoftParams out;
+Values ParamsFromPython(nb::handle value) {
+    Values out;
     if (value.is_none()) return out;
     if (!nb::isinstance<nb::dict>(value) || nb::len(value) > 64)
         throw BadParam("parameters must be a dict of at most 64 numbers: {'width': 40}");
     for (auto [key, item] : nb::borrow<nb::dict>(value)) {
         const std::string name = nb::isinstance<nb::str>(key) ? nb::cast<std::string>(key) : std::string();
-        if (!ValidParamName(name)) throw BadParam(kParamNameRule);
+        if (!IsParameterName(name)) throw BadParam(kParameterNameRule);
         out[name] = PyNumber(item, "parameters." + name);
     }
     return out;
@@ -1186,18 +869,18 @@ LoftParams ParamsFromPython(nb::handle value) {
 
 bool IsJsonNumber(const json& v) { return v.is_number() && !v.is_boolean(); }
 
-LoftParams ParamsFromJson(const json& value) {
+Values ParamsFromJson(const json& value) {
     if (!value.is_object() || value.size() > 64) throw MaxError("Stored loft parameters are invalid");
-    LoftParams out;
+    Values out;
     for (auto it = value.begin(); it != value.end(); ++it) {
-        if (!ValidParamName(it.key())) throw MaxError(std::string("Stored loft parameters are invalid: ") + kParamNameRule);
+        if (!IsParameterName(it.key())) throw MaxError(std::string("Stored loft parameters are invalid: ") + kParameterNameRule);
         if (!IsJsonNumber(it.value())) throw MaxError("Stored loft parameter " + it.key() + " is not a number");
         out[it.key()] = Finite(it.value().get<double>(), "parameters." + it.key());
     }
     return out;
 }
 
-json ParamsJson(const LoftParams& params) {
+json ParamsJson(const Values& params) {
     json out = json::object();
     for (const auto& [name, value] : params) out[name] = value;
     return out;
@@ -1259,58 +942,21 @@ LoftSections SectionsFromJson(const json& sections) {
     return out;
 }
 
-struct LoftOptions {
-    bool profileClosed = true;
-    bool closePath = false;
-    bool caps = false;
-    bool reverse = false;
-};
-
 struct LoftBuild {
-    std::vector<Vec3> vertices;              // initial world coordinates
-    std::vector<std::vector<int>> faces;     // 1-based vertex IDs
+    std::vector<Vec3> vertices;           // initial world coordinates
+    std::vector<std::vector<int>> faces;  // 0-based vertex indices
     json definition;
 };
 
-std::vector<std::vector<int>> LoftFaces(size_t sectionCount, size_t perSection, const LoftOptions& o) {
-    const int S = int(sectionCount), P = int(perSection);
-    const int paths = o.closePath ? S : S - 1;
-    const int around = o.profileClosed ? P : P - 1;
-    std::vector<std::vector<int>> faces;
-    for (int si = 0; si < paths; ++si) {
-        const int next = (si + 1) % S;
-        for (int j = 0; j < around; ++j) {
-            const int k = (j + 1) % P;
-            faces.push_back({si * P + j + 1, si * P + k + 1, next * P + k + 1, next * P + j + 1});
-        }
-    }
-    if (o.caps) {
-        std::vector<int> first, last;
-        for (int v = P; v >= 1; --v) first.push_back(v);
-        for (int v = (S - 1) * P + 1; v <= S * P; ++v) last.push_back(v);
-        faces.push_back(first);
-        faces.push_back(last);
-    }
-    if (o.reverse)
-        for (auto& face : faces) std::reverse(face.begin(), face.end());
-    return faces;
-}
-
-// Vertices and quads between matched sections; no implicit resampling or weld.
-LoftBuild BuildLoft(const LoftSections& sections, const LoftParams& params, const LoftOptions& o) {
-    if (o.caps && (!o.profileClosed || o.closePath)) throw BadParam("caps requires closed profiles and an open path");
-    const size_t minSections = o.closePath ? 3 : 2;
-    if (sections.size() < minSections || sections.size() > 1000)
-        throw BadParam("Use " + std::to_string(minSections) + "-1000 ordered cross sections");
-    const size_t minPoints = o.profileClosed ? 3 : 2;
-    const size_t P = sections[0].size();
-    if (P < minPoints || P > 1000) throw BadParam("Each section needs " + std::to_string(minPoints) + "-1000 points");
-    if (sections.size() * P > 50000) throw BadParam("Use at most 50000 loft vertices");
-    LoftBuild out;
+// Evaluates the sections, then builds the quads between them.
+LoftBuild BuildLoft(const LoftSections& sections, const Values& params, const LoftShape& shape) {
+    CheckLoftCounts(sections.size(), sections.empty() ? 0 : sections[0].size(), shape);
+    std::vector<std::vector<Vec3>> points;
     json normalized = json::array();
     for (const auto& section : sections) {
-        if (section.size() != P) throw BadParam("All sections must contain the same number of corresponding points");
-        std::vector<Vec3> points;
+        if (section.size() != sections[0].size())
+            throw BadParam("All sections must contain the same number of corresponding points");
+        std::vector<Vec3> evaluated;
         json expressions = json::array();
         for (const LoftPoint& point : section) {
             Vec3 xyz{};
@@ -1319,25 +965,17 @@ LoftBuild BuildLoft(const LoftSections& sections, const LoftParams& params, cons
                 xyz[a] = Coordinate(point[a], params);
                 coords.push_back(point[a].isExpr ? json(point[a].text) : json(Finite(point[a].number, "coordinate")));
             }
-            points.push_back(xyz);
+            evaluated.push_back(xyz);
             expressions.push_back(std::move(coords));
         }
-        if (o.profileClosed && points.front() == points.back())
-            throw BadParam("Closed profiles wrap automatically; do not repeat the first point at the end");
-        const size_t segments = o.profileClosed ? P : P - 1;
-        for (size_t j = 0; j < segments; ++j)
-            if (points[j] == points[(j + 1) % P]) throw BadParam("A section contains a zero-length segment");
-        if (!out.vertices.empty() && std::equal(points.begin(), points.end(), out.vertices.end() - std::ptrdiff_t(P)))
-            throw BadParam("Consecutive sections must not be identical");
-        out.vertices.insert(out.vertices.end(), points.begin(), points.end());
+        points.push_back(std::move(evaluated));
         normalized.push_back(std::move(expressions));
     }
-    if (o.closePath && std::equal(out.vertices.begin(), out.vertices.begin() + std::ptrdiff_t(P), out.vertices.end() - std::ptrdiff_t(P)))
-        throw BadParam("Closed paths wrap automatically; do not repeat the first section");
-    out.faces = LoftFaces(sections.size(), P, o);
-    if (out.faces.size() > 50000) throw BadParam("Use at most 50000 loft faces");
-    out.definition = {{"sections", std::move(normalized)}, {"profile_closed", o.profileClosed},
-                      {"close_path", o.closePath}, {"caps", o.caps}, {"reverse", o.reverse}};
+    LoftBuild out;
+    out.faces = LoftQuads(points, shape);
+    for (const auto& section : points) out.vertices.insert(out.vertices.end(), section.begin(), section.end());
+    out.definition = {{"sections", std::move(normalized)}, {"profile_closed", shape.profileClosed},
+                      {"close_path", shape.closePath}, {"caps", shape.caps}, {"reverse", shape.reverse}};
     return out;
 }
 
@@ -1360,16 +998,10 @@ std::string StoredText(const json& data) {
     return text;
 }
 
-bool IsFingerprint(const json& v) {
-    if (!(v.is_string)()) return false;
-    const std::string s = v.get<std::string>();
-    if (s.size() != 95) return false;
-    for (size_t i = 0; i < s.size(); ++i) {
-        const char c = s[i];
-        const bool ok = i % 3 == 2 ? c == '-' : (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F');
-        if (!ok) return false;
-    }
-    return true;
+std::string WithFingerprint(std::string text, const std::string& fingerprint) {
+    for (size_t at = text.find(kLoftMarker); at != std::string::npos; at = text.find(kLoftMarker, at + fingerprint.size()))
+        text.replace(at, std::strlen(kLoftMarker), fingerprint);
+    return text;
 }
 
 // The stored definition, checked as the MCP tool checks it on read.
@@ -1397,7 +1029,9 @@ json ParseStored(const std::string& raw) {
         throw MaxError("Stored loft parameter history is invalid");
     std::optional<std::set<std::string>> names;
     for (const json& row : history) {
-        if (!row.is_object() || row.size() != 2 || !row.contains("parameters") || !IsFingerprint(row.value("fingerprint", json())))
+        const json fingerprint = row.is_object() ? row.value("fingerprint", json()) : json();
+        if (!row.is_object() || row.size() != 2 || !row.contains("parameters") || !(fingerprint.is_string)() ||
+            !IsFingerprint(fingerprint.get<std::string>()))
             throw MaxError("Stored loft cage fingerprint is invalid");
         std::set<std::string> rowNames;
         for (const auto& entry : ParamsFromJson(row["parameters"])) rowNames.insert(entry.first);
@@ -1407,7 +1041,7 @@ json ParseStored(const std::string& raw) {
     return data;
 }
 
-LoftOptions OptionsFromJson(const json& definition) {
+LoftShape ShapeFromJson(const json& definition) {
     for (const char* key : {"profile_closed", "close_path", "caps", "reverse"})
         if (!definition[key].is_boolean()) throw MaxError(std::string("Stored loft ") + key + " must be boolean");
     return {definition["profile_closed"].get<bool>(), definition["close_path"].get<bool>(), definition["caps"].get<bool>(),
@@ -1431,6 +1065,7 @@ struct LoftRef { AnimHandle node = 0; };
 
 struct LoftState {
     json data;
+    std::string raw;          // the stored text
     std::string fingerprint;  // empty unless the cage was read
     long long instances = 0;
     long long vertices = 0, faces = 0;
@@ -1442,47 +1077,34 @@ void RequirePolyBase(INode* node) {
         throw MaxError("'" + NodeName(node) + "' lost its Editable Poly base; its loft definition no longer applies");
 }
 
-std::string LoftPrelude(INode* node) {
-    return "(\n" + std::string(kLoftFunctions) + "local obj = " + HandlerHelpers::NodeScriptRef(node) +
-           "\nlocal data = getAppData obj " + std::to_string(kLoftAppData) + "\n";
-}
+bool HasLoft(const Node& n) { return GetAppData(Resolve(n), kLoftAppData).has_value(); }
 
-bool HasLoft(const Node& n) {
-    return RunMxs(LoftPrelude(Resolve(n)) + "if data == undefined then \"NONE\" else \"LOFT\"\n)") == "LOFT";
-}
-
-// The node's loft definition; with `cage`, also the cage's fingerprint, counts
-// and instance count, read in the same step.
+// The node's loft definition; with `cage`, also the cage's fingerprint,
+// counts and instance count.
 LoftState ReadLoft(const LoftRef& r, bool cage) {
     INode* node = Resolve(Node{r.node});
     if (cage) RequirePolyBase(node);
-    const std::string head = cage ? "local instances = #()\nInstanceMgr.GetInstances obj &instances\n"
-                                    "\"OK|\" + (lfToken obj) + \"|\" + (instances.count as string) + \"|\" + (mcCounts obj.baseobject)"
-                                  : "\"OK\"";
-    const std::string reply = RunMxs(LoftPrelude(node) + "if data == undefined then \"NONE\" else (\n" + head + " + \"\\n\" + data\n)\n)");
-    if (reply == "NONE") throw NotFound("'" + NodeName(node) + "' no longer has a loft definition");
-    const size_t eol = reply.find('\n');
-    if (eol == std::string::npos || reply.rfind("OK", 0) != 0) throw MaxError("unreadable loft readback: " + reply.substr(0, 200));
+    std::optional<std::string> raw = GetAppData(node, kLoftAppData);
+    if (!raw) throw NotFound("'" + NodeName(node) + "' no longer has a loft definition");
     LoftState s;
-    s.data = ParseStored(reply.substr(eol + 1));
+    s.data = ParseStored(*raw);
+    s.raw = std::move(*raw);
     if (!cage) return s;
-    const std::vector<std::string> fields = Split(reply.substr(0, eol), '|');
-    const std::vector<std::string> counts = fields.size() == 4 ? Split(fields[3], ',') : std::vector<std::string>{};
-    if (counts.size() != 3) throw MaxError("unreadable loft readback: " + reply.substr(0, eol));
-    s.fingerprint = fields[1];
-    s.instances = std::stoll(fields[2]);
-    s.vertices = std::stoll(counts[0]);
-    s.faces = std::stoll(counts[2]);
+    const PolyBase pb = EditablePoly(Node{r.node}, false);
+    s.fingerprint = CageFingerprint(*pb.mesh);
+    s.instances = InstanceCount(node);
+    s.vertices = pb.mesh->VNum();
+    s.faces = pb.mesh->FNum();
     return s;
 }
 
-std::optional<LoftParams> MatchedParams(const LoftState& s) {
+std::optional<Values> MatchedParams(const LoftState& s) {
     const auto revision = ActiveRevision(s.data, s.fingerprint);
     if (!revision) return std::nullopt;
     return ParamsFromJson(s.data["history"][*revision]["parameters"]);
 }
 
-nb::object ParamsPython(const LoftParams& params) {
+nb::object ParamsPython(const Values& params) {
     nb::dict out;
     for (const auto& [name, value] : params) out[name.c_str()] = value;
     return out;
@@ -1496,44 +1118,45 @@ Node CreateLoft(const std::string& name, nb::handle sections, nb::handle paramet
     for (INode* node : AllNodes())
         if (_wcsicmp(node->GetName(), wide.c_str()) == 0)
             throw BadParam("a node named '" + NodeName(node) + "' already exists; loft_mesh needs a new name");
-    const LoftParams params = ParamsFromPython(parameters);
+    const Values params = ParamsFromPython(parameters);
     const LoftBuild built = BuildLoft(SectionsFromPython(sections), params, {profileClosed, closePath, caps, reverse});
     const Vec3 origin = BoxCenter(built.vertices);
     const json data = {{"schema", kLoftSchema}, {"version", 1}, {"origin", origin}, {"definition", built.definition},
                        {"history", json::array({json{{"parameters", ParamsJson(params)}, {"fingerprint", kLoftMarker}}})}};
     const std::string text = StoredText(data);
 
+    // Double-precision coordinates go to MAXScript as written, not through Point3.
+    auto point = [](double x, double y, double z) { return "[" + MxsNumber(x) + "," + MxsNumber(y) + "," + MxsNumber(z) + "]"; };
     std::string verts, faces;
-    for (const Vec3& v : built.vertices)
-        verts += (verts.empty() ? "[" : ",[") + MxsNumber(v[0] - origin[0]) + "," + MxsNumber(v[1] - origin[1]) + "," + MxsNumber(v[2] - origin[2]) + "]";
+    for (const Vec3& v : built.vertices) verts += (verts.empty() ? "" : ",") + point(v[0] - origin[0], v[1] - origin[1], v[2] - origin[2]);
     for (const auto& face : built.faces) {
         faces += faces.empty() ? "#(" : ",#(";
-        for (size_t i = 0; i < face.size(); ++i) faces += (i ? "," : "") + std::to_string(face[i]);
+        for (size_t i = 0; i < face.size(); ++i) faces += (i ? "," : "") + std::to_string(face[i] + 1);
         faces += ")";
     }
-    const std::string id = std::to_string(kLoftAppData);
     // No undo hold: a failure deletes the half-built node instead.
     const std::string code =
-        "(\n" + std::string(kLoftFunctions) + "local obj = undefined\ntry (\n"
-        "obj = Editable_Mesh name:" + MxsString(name) + " pos:[" + MxsNumber(origin[0]) + "," + MxsNumber(origin[1]) + "," + MxsNumber(origin[2]) + "]\n"
+        "(\nlocal obj = undefined\ntry (\n"
+        "obj = Editable_Mesh name:" + MxsString(name) + " pos:" + point(origin[0], origin[1], origin[2]) + "\n"
         "convertToPoly obj\nlocal mesh = obj.baseobject\n"
         "for p in #(" + verts + ") do polyop.createVert mesh p\n"
         "for f in #(" + faces + ") do (local faceId = polyop.createPolygon mesh f; "
         "if faceId == undefined or faceId == 0 do throw \"Could not create polygon; check winding and topology\")\n"
         "update obj\n"
-        "local loftData = substituteString " + MxsDecoded(text) + " \"" + kLoftMarker + "\" (lfToken obj)\n"
-        "setAppData obj " + id + " loftData\n"
-        "if getAppData obj " + id + " != loftData do throw \"Loft definition did not persist on the node\"\n"
         "\"OK|\" + (formattedPrint ((getHandleByAnim obj) as integer64) format:\"d\")\n"
         ") catch (\nif obj != undefined and isValidNode obj do delete obj\nthrow()\n)\n)";
-    std::string reply;
-    {
-        NoAnimate noAnimate;
-        reply = RunMxs(code);
-    }
+    NoAnimate noAnimate;
+    const std::string reply = RunMaxScript(code);
     if (reply.rfind("OK|", 0) != 0) throw MaxError("unexpected loft creation reply: " + reply.substr(0, 200));
     const Node created{(AnimHandle)std::stoull(reply.substr(3))};
-    Resolve(created);
+    INode* node = Resolve(created);
+    try {
+        SetAppData(node, kLoftAppData, WithFingerprint(text, CageFingerprint(*EditablePoly(created, false).mesh)),
+                   "loft definition");
+    } catch (...) {
+        GetCOREInterface()->DeleteNode(node, FALSE);
+        throw;
+    }
     return created;
 }
 
@@ -1548,14 +1171,14 @@ void RestoreCage(const PolyBase& pb, const std::vector<Point3>& before) {
 // Rebuilds the cage for changed parameters; vertex IDs, the transform,
 // modifiers and materials stay. Returns {name: (before, after)} of what changed.
 nb::dict UpdateLoft(const LoftRef& r, nb::kwargs values) {
-    const LoftParams changes = ParamsFromPython(values);
+    const Values changes = ParamsFromPython(values);
     if (changes.empty()) throw BadParam("update needs at least one parameter: loft.update(width=20)");
     LoftState s = ReadLoft(r, true);
     const auto revision = ActiveRevision(s.data, s.fingerprint);
     if (!revision)
         throw MaxError("Loft cage changed manually or is outside retained parameter history; inspect before rebuilding");
     if (s.instances > 1) throw MaxError("Loft base is instanced; make it unique before changing construction parameters");
-    const LoftParams current = ParamsFromJson(s.data["history"][*revision]["parameters"]);
+    const Values current = ParamsFromJson(s.data["history"][*revision]["parameters"]);
     std::vector<std::string> names, unknown;
     for (const auto& entry : current) names.push_back(entry.first);
     for (const auto& entry : changes)
@@ -1563,7 +1186,7 @@ nb::dict UpdateLoft(const LoftRef& r, nb::kwargs values) {
     if (!unknown.empty())
         throw BadParam("Unknown construction parameters: " + Join(unknown) + "." + Suggest(unknown[0], names) +
                        " Parameters: " + Join(names));
-    LoftParams updated = current;
+    Values updated = current;
     for (const auto& [name, value] : changes) updated[name] = value;
     nb::dict changed;
     for (const auto& [name, value] : changes)
@@ -1571,17 +1194,16 @@ nb::dict UpdateLoft(const LoftRef& r, nb::kwargs values) {
     if (changed.empty()) return changed;
 
     const json& definition = s.data["definition"];
-    const LoftBuild built = BuildLoft(SectionsFromJson(definition["sections"]), updated, OptionsFromJson(definition));
+    const LoftBuild built = BuildLoft(SectionsFromJson(definition["sections"]), updated, ShapeFromJson(definition));
     if ((long long)built.vertices.size() != s.vertices || (long long)built.faces.size() != s.faces)
         throw MaxError("Stored loft topology no longer matches the cage");
 
     // Fingerprints of states with other parameters: reaching one would make
     // a later geometry undo ambiguous.
-    std::string aliases;
+    std::vector<std::string> aliases;
     json history = s.data["history"];
     for (const json& row : history)
-        if (ParamsFromJson(row["parameters"]) != updated)
-            aliases += (aliases.empty() ? "\"" : ",\"") + row["fingerprint"].get<std::string>() + "\"";
+        if (ParamsFromJson(row["parameters"]) != updated) aliases.push_back(row["fingerprint"].get<std::string>());
     history.push_back(json{{"parameters", ParamsJson(updated)}, {"fingerprint", kLoftMarker}});
     if (history.size() > kLoftHistory) history.erase(history.begin(), history.end() - std::ptrdiff_t(kLoftHistory));
     json data = s.data;
@@ -1599,27 +1221,22 @@ nb::dict UpdateLoft(const LoftRef& r, nb::kwargs values) {
         const Vec3& w = built.vertices[v];
         delta[v] = Point3(float(w[0] - origin[0]), float(w[1] - origin[1]), float(w[2] - origin[2])) - before.back();
     }
-    const std::string id = std::to_string(kLoftAppData);
-    const std::string store =
-        "(\n" + std::string(kLoftFunctions) + "local obj = " + HandlerHelpers::NodeScriptRef(pb.node) +
-        "\nlocal previous = getAppData obj " + id + "\nlocal fingerprint = lfToken obj\n"
-        "if (findItem #(" + aliases + ") fingerprint) > 0 then \"ALIAS\" else (\n"
-        "local newData = substituteString " + MxsDecoded(text) + " \"" + kLoftMarker + "\" fingerprint\n"
-        "setAppData obj " + id + " newData\n"
-        "if getAppData obj " + id + " == newData then \"OK\" else (setAppData obj " + id + " previous; \"UNSTORED\")\n)\n)";
     NoAnimate noAnimate;
     pb.epoly->ApplyDelta(delta, pb.epoly, Now());
-    std::string reply;
     try {
-        reply = RunMxs(store);
+        const std::string fingerprint = CageFingerprint(*pb.mesh);
+        if (std::find(aliases.begin(), aliases.end(), fingerprint) != aliases.end())
+            throw MaxError("Different parameter values produce an existing cage state; undo would be ambiguous");
+        SetAppData(pb.node, kLoftAppData, WithFingerprint(text, fingerprint), "loft definition update");
     } catch (...) {
         RestoreCage(pb, before);
+        try {
+            if (GetAppData(pb.node, kLoftAppData) != s.raw) SetAppData(pb.node, kLoftAppData, s.raw, "previous loft definition");
+        } catch (const MaxError&) {
+        }
         throw;
     }
-    if (reply == "OK") return changed;
-    RestoreCage(pb, before);
-    if (reply == "ALIAS") throw MaxError("Different parameter values produce an existing cage state; undo would be ambiguous");
-    throw MaxError(reply == "UNSTORED" ? "Loft definition update was not stored" : "unexpected loft update reply: " + reply.substr(0, 200));
+    return changed;
 }
 
 std::string LoftRepr(const LoftRef& r) {

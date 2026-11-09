@@ -60,6 +60,7 @@ inline void RequireMain() {
 // ── Names and suggestions ────────────────────────────────────────
 
 std::string Lower(std::string s);
+std::string Trim(const std::string& s);
 // " Did you mean 'x'?" for the closest name within a few edits, else "".
 std::string Suggest(const std::string& wanted, const std::vector<std::string>& names);
 std::string Join(const std::vector<std::string>& names, size_t limit = 16);
@@ -105,10 +106,21 @@ std::vector<INode*> AllNodes();
 Object* BaseObject(INode* node);
 std::string ClassOf(INode* node);
 inline std::string NodeName(INode* node) { return WideToUtf8(node->GetName()); }
+// 'name', for messages.
+inline std::string Quoted(INode* node) { return "'" + NodeName(node) + "'"; }
 Node FindNode(nb::handle key);
 std::vector<INode*> NodeList(nb::handle nodes, const char* what, bool allow_empty = false);
+// Nodes sharing this node's object, itself included.
+int InstanceCount(INode* node);
 
 // ── Values ───────────────────────────────────────────────────────
+
+// An int or float; bools are not numbers here.
+inline bool IsNumber(nb::handle v) {
+    return (nb::isinstance<nb::int_>(v) || nb::isinstance<nb::float_>(v)) && !nb::isinstance<nb::bool_>(v);
+}
+inline bool IsInteger(nb::handle v) { return nb::isinstance<nb::int_>(v) && !nb::isinstance<nb::bool_>(v); }
+inline bool IsSequence(nb::handle v) { return nb::isinstance<nb::list>(v) || nb::isinstance<nb::tuple>(v); }
 
 std::vector<float> Floats(nb::handle value, size_t lo, size_t hi, const std::string& what);
 Point3 ToPoint3(nb::handle value, const std::string& what);
@@ -163,6 +175,47 @@ std::vector<std::string> MxsPropNames(Animatable* owner);
 
 // External value = internal * scale: degrees for angles, 0-100 for percentages.
 double ParamScale(int type);
+
+// ── Generated MAXScript (mx_maxscript.cpp) ───────────────────────
+// Where an operation exists only in MAXScript, its source is built here.
+// Values enter it only through these literals.
+
+// A string literal; NUL characters are refused.
+std::string MxsString(const std::string& text);
+// %.9g whatever the C locale; negatives in parentheses, so `f (-2)` stays one argument.
+std::string MxsNumber(double v);
+std::string MxsPoint(const Point3& p);
+// (getAnimByHandle N)
+std::string MxsAnim(AnimHandle handle);
+inline std::string MxsAnim(Animatable* anim) { return MxsAnim(Animatable::GetHandleByAnim(anim)); }
+// MAXScript source defining `fn __mxQuote s`: s as a JSON string literal, for
+// scripts that reply with JSON text.
+extern const char* const kMxsQuote;
+
+// Runs source through the bridge's maxscript handler; its result as text.
+std::string RunMaxScript(const std::string& code);
+// Calls the MAXScript global function `name`; the caller keeps `args` alive.
+// A MAXScript error becomes MaxError.
+Value* MxsCall(const MCHAR* name, Value** args, int count);
+// A value's printed form, and an error's message without its leading "-- ".
+std::string MxsShown(Value* v);
+std::string MxsErrorText(const MAXScriptException& e);
+
+// MAXScript evaluates at its own time; this carries at() into it.
+struct MxsTime {
+    BOOL usedContext;
+    TimeValue previous;
+    explicit MxsTime(TimeValue t) : usedContext(thread_local(use_time_context)), previous(thread_local(current_time)) {
+        thread_local(use_time_context) = TRUE;
+        thread_local(current_time) = t;
+    }
+    ~MxsTime() {
+        thread_local(use_time_context) = usedContext;
+        thread_local(current_time) = previous;
+    }
+    MxsTime(const MxsTime&) = delete;
+    MxsTime& operator=(const MxsTime&) = delete;
+};
 
 // ── Tracks ───────────────────────────────────────────────────────
 
@@ -241,22 +294,22 @@ void AddProperty(const char* name, G&& getter, S&& setter, const char* doc) {
 
 // ── Bindings ─────────────────────────────────────────────────────
 
-void BindParams(nb::module_& m);
-void BindNodes(nb::module_& m);
-void BindTracks(nb::module_& m);
-void BindAnimation(nb::module_& m);
-void BindModifiers(nb::module_& m);
-void BindMaterials(nb::module_& m);
-void BindNative(nb::module_& m);
-void BindOrganize(nb::module_& m);
-void BindViewport(nb::module_& m);
-void BindScene(nb::module_& m);
-void BindFiles(nb::module_& m);
-void BindMesh(nb::module_& m);
-void BindLighting(nb::module_& m);
-void BindSolids(nb::module_& m);
-void BindCurves(nb::module_& m);
-void BindPlugins(nb::module_& m);
+void BindParams(nb::module_& m);       // mx_params.cpp
+void BindNodes(nb::module_& m);        // mx_nodes.cpp
+void BindModifiers(nb::module_& m);    // mx_modifiers.cpp
+void BindMaterials(nb::module_& m);    // mx_materials.cpp
+void BindTracks(nb::module_& m);       // mx_tracks.cpp
+void BindControllers(nb::module_& m);  // mx_controllers.cpp
+void BindNative(nb::module_& m);       // mx_native.cpp
+void BindScene(nb::module_& m);        // mx_scene.cpp
+void BindOrganize(nb::module_& m);     // mx_organize.cpp
+void BindViewport(nb::module_& m);     // mx_viewport.cpp
+void BindFiles(nb::module_& m);        // mx_files.cpp
+void BindMesh(nb::module_& m);         // mx_mesh.cpp
+void BindSolids(nb::module_& m);       // mx_solids.cpp
+void BindCurves(nb::module_& m);       // mx_curves.cpp
+void BindLighting(nb::module_& m);     // mx_lighting.cpp
+void BindPlugins(nb::module_& m);      // mx_plugins.cpp
 
 } // namespace MX_ABI_TAG
 } // namespace mx

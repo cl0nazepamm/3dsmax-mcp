@@ -1,7 +1,7 @@
 // Time and animation: at()/animate() contexts, the timeline, tracks, keys and
 // key edits (delete, move, scale, resample, bake, match, loop, out-of-range).
 #include "mx_common.h"
-#include "mx_animation.h"
+#include "mx_tracks.h"
 
 #include <decomp.h>
 
@@ -351,8 +351,6 @@ static std::vector<Control*> Leaves(Control* c) {
 }
 
 static bool Keyable(Control* leaf) { return GetKeyControlInterface(leaf) && leaf->IsKeyable(); }
-
-static std::string CtrlClass(Control* c) { return HandlerHelpers::MaxScriptVisibleClassName(c); }
 
 // Keys on the leaves, or BadParam naming the procedural controller in the way.
 static std::vector<Control*> KeyedLeaves(const ResolvedTrack& r) {
@@ -838,7 +836,7 @@ static int SetTcb(const Track& tr, std::optional<double> tension, std::optional<
     for (const LeafKeys& keys : picks) {
         std::string indices;
         for (int i : keys.picked) indices += (indices.empty() ? "" : ",") + std::to_string(i + 1);
-        code += "(local c = getAnimByHandle " + std::to_string(Animatable::GetHandleByAnim(keys.leaf)) + "; for i in #(" +
+        code += "(local c = " + MxsAnim(keys.leaf) + "; for i in #(" +
                 indices + ") do (local k = getKey c i" + assign + "))\n";
     }
     NativeJson("maxscript", {{"code", code + "true\n)"}});

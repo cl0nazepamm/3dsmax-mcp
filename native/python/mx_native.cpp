@@ -136,7 +136,7 @@ json FromPython(nb::handle value) {
         for (auto [key, item] : nb::borrow<nb::dict>(value)) out[nb::cast<std::string>(nb::str(key))] = FromPython(item);
         return out;
     }
-    if (nb::isinstance<nb::list>(value) || nb::isinstance<nb::tuple>(value)) {
+    if (IsSequence(value)) {
         json out = json::array();
         for (nb::handle item : value) out.push_back(FromPython(item));
         return out;

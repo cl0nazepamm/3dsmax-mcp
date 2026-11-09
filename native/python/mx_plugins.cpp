@@ -432,38 +432,13 @@ static nb::object WrapAnim(Animatable* anim) {
     return nb::cast(Params{0, handle});
 }
 
-// Calls run at the frame of the innermost at(), like other edits.
-struct MxsAt {
-    BOOL used;
-    TimeValue previous;
-    explicit MxsAt(TimeValue t) : used(thread_local(use_time_context)), previous(thread_local(current_time)) {
-        thread_local(use_time_context) = TRUE;
-        thread_local(current_time) = t;
-    }
-    ~MxsAt() {
-        thread_local(use_time_context) = used;
-        thread_local(current_time) = previous;
-    }
-    MxsAt(const MxsAt&) = delete;
-    MxsAt& operator=(const MxsAt&) = delete;
-};
-
-static std::string MxsErrorText(MAXScriptException& e) {
-    StringStream* text = new StringStream(0);
-    e.sprin1(text);
-    std::string out = WideToUtf8(text->to_string());
-    while (!out.empty() && std::isspace((unsigned char)out.back())) out.pop_back();
-    if (out.rfind("-- ", 0) == 0) out.erase(0, 3);
-    return out;
-}
-
 // Runs `body(_tls)` in a MAXScript frame; a MAXScript error becomes MaxError.
 template <typename F>
 static nb::object InMaxScript(const std::string& what, F&& body) {
     RequireMain();
     ScopedMaxScriptEvaluationContext context;
     MAXScript_TLS* _tls = context.Get_TLS();
-    MxsAt at(Now());
+    MxsTime at(Now());  // calls run at the innermost at(), like other edits
     std::string error;
     nb::object result;
     try {
@@ -594,7 +569,7 @@ static void ToValue(Value*& slot, nb::handle v, int type, const std::string& wha
             slot = MAXClass::make_wrapper_for(ref);
             return;
         }
-        if (nb::isinstance<nb::list>(v) || nb::isinstance<nb::tuple>(v)) return ToCompound(slot, v, base, (type & TYPE_TAB) != 0, what);
+        if (IsSequence(v)) return ToCompound(slot, v, base, (type & TYPE_TAB) != 0, what);
     } catch (const nb::cast_error&) {
         throw BadParam(what + ": cannot convert " + ReprOf(v) + " for 3ds Max");
     }
@@ -609,11 +584,7 @@ static nb::object FromArray(Array* array) {
     return items;
 }
 
-static nb::object Shown(Value* v) {
-    StringStream* text = new StringStream(0);
-    v->sprin1(text);
-    return nb::str(WideToUtf8(text->to_string()).c_str());
-}
+static nb::object Shown(Value* v) { return nb::str(MxsShown(v).c_str()); }
 
 // A MAXScript value as Python: numbers, strings, tuples, lists, Node,
 // Material, Interface, Params for other scene objects, else its printed form.

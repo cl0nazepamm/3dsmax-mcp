@@ -169,7 +169,7 @@ static std::vector<std::string> Tokens(nb::handle value, const std::vector<std::
     std::vector<std::string> names;
     if (nb::isinstance<nb::str>(value)) {
         names.push_back(nb::cast<std::string>(value));
-    } else if (nb::isinstance<nb::list>(value) || nb::isinstance<nb::tuple>(value)) {
+    } else if (IsSequence(value)) {
         for (nb::handle item : value) {
             if (!nb::isinstance<nb::str>(item)) throw BadParam(what + " names are strings, not " + TypeNameOf(item));
             names.push_back(nb::cast<std::string>(item));
@@ -265,7 +265,7 @@ static INode* ResolveRef(nb::handle ref) {
         if (!InScene(node)) throw NotFound("node " + ReprOf(ref) + " is no longer in the scene");
         return node;
     }
-    if (nb::isinstance<Node>(ref) || (nb::isinstance<nb::int_>(ref) && !nb::isinstance<nb::bool_>(ref)))
+    if (nb::isinstance<Node>(ref) || IsInteger(ref))
         return Resolve(FindNode(ref));
     throw BadParam("a node is a Node, a name, a handle, a '/Parent/Child' path or a {'handle', 'name', 'path'} dict, "
                    "not " + TypeNameOf(ref));
@@ -303,7 +303,7 @@ static unsigned long long SeqOf(nb::handle value, bool scene, const std::string&
         const SceneMark mark = nb::cast<SceneMark>(value);
         return scene ? mark.scene_seq : mark.seq;
     }
-    if (nb::isinstance<nb::int_>(value) && !nb::isinstance<nb::bool_>(value) && nb::cast<long long>(value) >= 0)
+    if (IsInteger(value) && nb::cast<long long>(value) >= 0)
         return (unsigned long long)nb::cast<long long>(value);
     throw BadParam(what + " is a Mark from mark() or its " + (scene ? "scene_seq" : "seq") + ", not " + ReprOf(value));
 }
@@ -641,8 +641,6 @@ static std::optional<nb::object> BaseValue(Object* base, const std::string& key,
     return MxsGet(base, key, t);
 }
 
-static bool IsNumber(nb::handle v) { return nb::isinstance<nb::int_>(v) || nb::isinstance<nb::float_>(v); }
-
 static std::vector<nb::handle> Items(nb::handle sequence) {
     std::vector<nb::handle> items;
     for (nb::handle item : sequence) items.push_back(item);
@@ -666,8 +664,8 @@ static bool Same(nb::handle actual, nb::handle wanted) {
         const double b = nb::cast<double>(wanted);
         return std::fabs(a - b) <= 1e-4 * std::max({1.0, std::fabs(a), std::fabs(b)});
     }
-    const bool sequences = (nb::isinstance<nb::list>(wanted) || nb::isinstance<nb::tuple>(wanted)) &&
-                           (nb::isinstance<nb::list>(actual) || nb::isinstance<nb::tuple>(actual));
+    const bool sequences = IsSequence(wanted) &&
+                           IsSequence(actual);
     if (sequences) {
         const std::vector<nb::handle> xs = Items(actual);
         const std::vector<nb::handle> ys = Items(wanted);

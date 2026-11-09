@@ -433,7 +433,7 @@ Capture CaptureTiles(const ViewRef& v, json args, nb::handle subject, const std:
 // A count spread over the animation range, or explicit frame numbers.
 json StripFrames(nb::handle frames) {
     const char* usage = "frames is a count, capture_frames(6), or frame numbers, capture_frames([0, 10, 20])";
-    if (nb::isinstance<nb::int_>(frames) && !nb::isinstance<nb::bool_>(frames))
+    if (IsInteger(frames))
         return {{"frame_count", nb::cast<long long>(frames)}};
     if (!nb::isinstance<nb::sequence>(frames) || nb::isinstance<nb::str>(frames)) throw BadParam(usage);
     json list = json::array();

@@ -21,8 +21,6 @@ static std::string Counted(size_t n, const char* noun) {
     return std::to_string(n) + " " + noun + (n == 1 ? "" : "s");
 }
 
-static std::string Quoted(INode* node) { return "'" + NodeName(node) + "'"; }
-
 static INodeTab ToTab(const std::vector<INode*>& nodes) {
     INodeTab tab;
     for (INode* node : nodes) tab.AppendNode(node);
@@ -644,7 +642,6 @@ struct StateSetInfo {
 // against live scene nodes in C++ before anything touches it.
 static const char* const kStateSetsScript = R"MXS(
 (
-    fn esc s = substituteString (substituteString (s as string) "\\" "\\\\") "\"" "\\\""
     fn rangeJson r = try ("[" + ((r.Start as integer) as string) + "," + ((r.End as integer) as string) + "]") catch ("null")
     fn cameraAddress ss = (
         local cam = try (ss.ActiveViewportCamera) catch (undefined)
@@ -660,7 +657,7 @@ static const char* const kStateSetsScript = R"MXS(
             local ss = master.Children.Item[i]
             local locked = try (ss.IsLockingCameraAnimationToRange == true) catch (false)
             if i > 0 do text += ","
-            text += "{\"name\":\"" + (esc ss.Name) + "\""
+            text += "{\"name\":" + (__mxQuote ss.Name)
             text += ",\"camera\":\"" + (cameraAddress ss) + "\""
             text += ",\"render\":" + (rangeJson (try (ss.RenderRange) catch (undefined)))
             text += ",\"anim\":" + (rangeJson (try (ss.AnimationRange) catch (undefined)))
@@ -689,7 +686,7 @@ static void CollectAddresses(INode* parent, std::unordered_map<uintptr_t, INode*
 }
 
 static std::vector<StateSetInfo> StateSets() {
-    const json reply = NativeJson("maxscript", {{"code", kStateSetsScript}});
+    const json reply = NativeJson("maxscript", {{"code", std::string("(\n") + kMxsQuote + kStateSetsScript + "\n)"}});
     if (reply.is_null()) throw MaxError("3ds Max's State Sets system is not available");
     if (reply.type() != json::value_t::array)
         throw MaxError("State Sets returned data _mx cannot read: " + reply.dump().substr(0, 160));
