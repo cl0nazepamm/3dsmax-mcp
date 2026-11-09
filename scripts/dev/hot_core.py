@@ -5,10 +5,10 @@ built core DLL is and how the shell finds it, and shows which core a shell
 would load. It never installs, copies into Program Files or ProgramData, or
 stops 3ds Max; deploying the hot shell .gup is a separate step.
 
-    python scripts/hot_core.py configure            # native/build-hot-2027
-    python scripts/hot_core.py build                # mcp_core target only, Release
-    python scripts/hot_core.py path
-    python scripts/hot_core.py status --gup-dir "<folder of the installed .gup>"
+    python scripts/dev/hot_core.py configure            # native/build-hot-2027
+    python scripts/dev/hot_core.py build                # mcp_core target only, Release
+    python scripts/dev/hot_core.py path
+    python scripts/dev/hot_core.py status --gup-dir "<folder of the installed .gup>"
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-NATIVE = Path(__file__).resolve().parents[1] / "native"
+NATIVE = Path(__file__).resolve().parents[2] / "native"
 VERSIONS = ("2023", "2024", "2025", "2026", "2027")
 CORE_DLL = Path("Release") / "core" / "mcp_core.dll"
 SHELL_GUP = Path("Release") / "mcp_bridge.gup"

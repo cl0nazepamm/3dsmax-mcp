@@ -51,7 +51,7 @@ After install, restart 3ds Max. The installer:
     scripts\mcp_server.ms
 ```
 
-Manifest template: [`bundle/PackageContents.xml.in`](../bundle/PackageContents.xml.in). Max loads the GUP matching its version (`plugins parts`) and the shared TCP fallback script (`post-start-up scripts parts`).
+Manifest template: [`maxmcp/assets/PackageContents.xml.in`](../maxmcp/assets/PackageContents.xml.in). Max loads the GUP matching its version (`plugins parts`) and the shared TCP fallback script (`post-start-up scripts parts`).
 
 ### Dev testing without install
 
@@ -59,7 +59,7 @@ Build native binaries, stage the bundle, and point Max at it:
 
 ```powershell
 native\build.bat all
-uv run python scripts/stage_bundle.py --dest bundle
+uv run python scripts/release/stage_bundle.py --dest bundle
 set ADSK_APPLICATION_PLUGINS=C:\path\to\3dsmax-mcp\bundle
 ```
 
@@ -220,8 +220,8 @@ The skill teaches agents tool choice, material workflows, controller paths, and 
 Manual rebuild:
 
 ```powershell
-python scripts/build_skill.py
-python scripts/build_skill.py --target global   # user-level .claude/skills and .agents/skills
+python scripts/release/build_skill.py
+python scripts/release/build_skill.py --target global   # user-level .claude/skills and .agents/skills
 ```
 
 Bundled MAXScript reference lives under `skills/3dsmax-mcp-dev/` (10 topic files). MCP resource: `resource://3dsmax-mcp/skill`.
@@ -256,13 +256,13 @@ The **shell** holds everything 3ds Max keeps a pointer into: plugin registration
 
 ### Building the hot layout
 
-`scripts/hot_core.py` keeps the hot tree apart from the release trees and never installs anything, writes into Max or ProgramData folders, or stops Max:
+`scripts/dev/hot_core.py` keeps the hot tree apart from the release trees and never installs anything, writes into Max or ProgramData folders, or stops Max:
 
 ```powershell
-python scripts/hot_core.py configure   # native/build-hot-2027, same Visual Studio instance as native/build-2027
-python scripts/hot_core.py build       # mcp_core target only, Release
-python scripts/hot_core.py path        # built DLL plus the mcp_core.path line and MCP_CORE_DLL value
-python scripts/hot_core.py status --gup-dir "<folder of the installed .gup>"
+python scripts/dev/hot_core.py configure   # native/build-hot-2027, same Visual Studio instance as native/build-2027
+python scripts/dev/hot_core.py build       # mcp_core target only, Release
+python scripts/dev/hot_core.py path        # built DLL plus the mcp_core.path line and MCP_CORE_DLL value
+python scripts/dev/hot_core.py status --gup-dir "<folder of the installed .gup>"
 ```
 
 `--max-version` picks another Max (default 2027) and `--build-dir` another tree. A full `cmake --build native\build-hot-2027 --config Release` also builds the hot shell (`Release\mcp_bridge.gup`). Install that shell in place of the static GUP and restart Max once; from then on, core rebuilds reload in place. A core loads only into a shell built with the same compiler, Max SDK, configuration and boundary versions, so build both from the same tree.
@@ -311,21 +311,24 @@ Inside Max:
 Regenerate smoke catalog:
 
 ```powershell
-python scripts/gen_tool_smoke.py
-python scripts/run_live_tool_smoke.py --tier read
+python scripts/codegen/gen_tool_smoke.py
+python scripts/live/run_live_tool_smoke.py --tier read
 ```
 
 ## Project layout
 
 | Path | Purpose |
 |------|---------|
-| `maxmcp/server.py` | FastMCP entry, tool registration |
-| `maxmcp/tools/` | MCP tool implementations |
-| `maxmcp/diagnostics/` | Native stack capture for hung-Max diagnostics |
-| `native/` | C++ GUP bridge |
-| `maxscript/` | Listener + autostart |
+| `maxmcp/server.py` | FastMCP entry; advertises `run_python` and the instance routing tools |
+| `maxmcp/registry.py` | Finds a tool by name, checks its arguments, and backs `mx.help` and `mx.find_tools` |
+| `maxmcp/mx/`, `maxmcp/inmax/` | The script API, and its host inside 3ds Max |
+| `maxmcp/tools/<group>/` | One folder per subject. Modules without a leading underscore declare tools; `_*.py` are their helpers |
+| `maxmcp/core/` | Named-pipe client, response envelopes, MAXScript escaping, hung-Max diagnostics |
+| `maxmcp/assets/` | What ships that is not Python: config template, bundle manifest, MAXScript, tyFlow script checker, MCG samples |
+| `native/` | C++ GUP bridge and the `_mx` Python module |
 | `skills/3dsmax-mcp-dev/` | Agent skill source |
-| `scripts/build_skill.py` | Skill archive builder and installer |
-| `scripts/hot_core.py` | Hot-reloadable native core build helper (development) |
-| `scripts/mcpcall.py` | Runs one tool from current source in a fresh process, optionally pinned to a Max `--pid` (development) |
-| `scripts/gen_tool_registry.py` | Native diagnostic tool registry |
+| `install.py`, `uninstall.py` | Source installer and uninstaller |
+| `scripts/dev/` | `mcpcall.py` runs one tool from current source in a fresh process; `hot_core.py` builds the hot-reloadable core |
+| `scripts/codegen/` | Generators for the native tool registry, smoke cases and sdk reference; `vendor_qt.py` |
+| `scripts/release/` | `build_skill.py` (skill archive and install), `stage_bundle.py` |
+| `scripts/live/` | Checks that run against a live 3ds Max |

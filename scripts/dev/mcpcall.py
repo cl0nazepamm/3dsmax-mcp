@@ -7,12 +7,12 @@ named pipe, so a Python tool change is testable without restarting the
 server. --pid or --pipe pins one 3ds Max, so parallel agents can each drive
 their own instance. Keep mutating calls to one Max sequential.
 
-    python scripts/mcpcall.py query_scene '{"action": "overview"}'
-    python scripts/mcpcall.py --pid 2112 reload_native_core
-    python scripts/mcpcall.py create_object @local/args.json
-    python scripts/mcpcall.py create_object - < args.json
-    python scripts/mcpcall.py --list [substring]
-    python scripts/mcpcall.py --manual create_object
+    python scripts/dev/mcpcall.py query_scene '{"action": "overview"}'
+    python scripts/dev/mcpcall.py --pid 2112 reload_native_core
+    python scripts/dev/mcpcall.py create_object @local/args.json
+    python scripts/dev/mcpcall.py create_object - < args.json
+    python scripts/dev/mcpcall.py --list [substring]
+    python scripts/dev/mcpcall.py --manual create_object
 
 Prints the ToolEnvelope as JSON and a timing line on stderr. Exit status: 0
 when the envelope is ok, 1 when it is not, 2 for usage errors.
@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def load_arguments(text: str | None) -> dict[str, Any]:

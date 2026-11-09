@@ -4,9 +4,9 @@ This is NOT pytest — every call goes through the real named-pipe/TCP bridge.
 
 Usage (Max must be open with MCP Bridge loaded):
 
-    python scripts/run_live_tool_smoke.py --tier read
-    python scripts/run_live_tool_smoke.py --tier native
-    python scripts/run_live_tool_smoke.py --tier full
+    python scripts/live/run_live_tool_smoke.py --tier read
+    python scripts/live/run_live_tool_smoke.py --tier native
+    python scripts/live/run_live_tool_smoke.py --tier full
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from maxmcp.core.max_client import MaxClient  # noqa: E402
@@ -67,7 +67,7 @@ def _looks_like_error(result: Any) -> bool:
 def _load_cases(path: Path) -> list[dict]:
     if not path.exists():
         raise FileNotFoundError(
-            f"{path} missing — run: python scripts/gen_tool_smoke.py"
+            f"{path} missing — run: python scripts/codegen/gen_tool_smoke.py"
         )
     return json.loads(path.read_text(encoding="utf-8"))
 

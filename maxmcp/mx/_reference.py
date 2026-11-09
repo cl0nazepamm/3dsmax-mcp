@@ -1,7 +1,7 @@
 """The sdk (_mx) reference, read from the module itself: mx.help("sdk...") and the generated docs.
 
 Agents and people read the same text: mx.help("sdk") inside a script, and
-docs/mx-sdk-reference.md, which scripts/gen_mx_reference.py writes from a running Max.
+docs/mx-sdk-reference.md, which scripts/codegen/gen_mx_reference.py writes from a running Max.
 """
 
 from __future__ import annotations

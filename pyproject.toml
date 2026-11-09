@@ -54,21 +54,20 @@ Changelog = "https://github.com/cl0nazepamm/3dsmax-mcp/blob/master/docs/CHANGELO
 [tool.hatch.build.targets.wheel]
 packages = ["maxmcp"]
 
-# Ship the Max-side payload inside the package, keeping the SAME relative layout the
-# repo uses. install.py resolves everything from `ROOT = Path(__file__).parent`, so it
-# runs unmodified in both modes: ROOT is the repo root from a checkout, and the
-# installed `maxmcp/` directory from a wheel. Same for scripts/build_skill.py
-# (ROOT = parent.parent). Sources are native/bin (tracked) rather than the staged
-# bundle/Contents/bin copies (gitignored), so a release builds from a clean checkout.
+# Ship what the installer needs from outside the package inside it, keeping the SAME
+# relative layout the repo uses. install.py resolves these from
+# `ROOT = Path(__file__).parent`, so it runs unmodified in both modes: ROOT is the repo
+# root from a checkout, and the installed `maxmcp/` directory from a wheel. Same for
+# scripts/release/build_skill.py (ROOT = parents[2]). The bridges come from native/bin
+# (tracked) rather than the staged bundle/ copies (gitignored), so a release builds from
+# a clean checkout. The config template, bundle manifest and MAXScript listener already
+# live in the package, under maxmcp/assets.
 [tool.hatch.build.targets.wheel.force-include]
 "install.py" = "maxmcp/installer.py"
 "pyproject.toml" = "maxmcp/pyproject.toml"
-"mcp_config.ini" = "maxmcp/mcp_config.ini"
-"maxscript" = "maxmcp/maxscript"
 "native/bin" = "maxmcp/native/bin"
-"bundle/PackageContents.xml.in" = "maxmcp/bundle/PackageContents.xml.in"
 "skills/3dsmax-mcp-dev" = "maxmcp/skills/3dsmax-mcp-dev"
-"scripts/build_skill.py" = "maxmcp/scripts/build_skill.py"
+"scripts/release/build_skill.py" = "maxmcp/scripts/release/build_skill.py"
 
 [project.scripts]
 3dsmax-mcp = "maxmcp.server:main"

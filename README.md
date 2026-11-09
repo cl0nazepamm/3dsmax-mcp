@@ -2,8 +2,8 @@
 
 <p align="left">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./images/logo-white.png">
-    <img src="./images/logo.png" alt="3dsmax-mcp logo" width="600">
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/images/logo-white.png">
+    <img src="./docs/images/logo.png" alt="3dsmax-mcp logo" width="600">
   </picture>
 </p>
 
@@ -405,7 +405,7 @@ and existing procedural skies use the provider's dome or environment binding.
 
 ## Skill & reference
 
-The installer builds an agent skill from `skills/3dsmax-mcp-dev/SKILL.md` with tool-choice rules, material pipeline notes, and MAXScript reference files. Rebuild manually with `python scripts/build_skill.py` — see [Advanced configuration](docs/ADVANCED.md#agent-skill).
+The installer builds an agent skill from `skills/3dsmax-mcp-dev/SKILL.md` with tool-choice rules, material pipeline notes, and MAXScript reference files. Rebuild manually with `python scripts/release/build_skill.py` — see [Advanced configuration](docs/ADVANCED.md#agent-skill).
 
 ## Further reading
 

@@ -382,7 +382,7 @@ static std::string RunToolSmokeImpl(const std::string& params, MCPBridgeGUP* gup
 
     if (kSmokeCaseCount == 0) {
 
-        report["warning"] = "No smoke cases generated — run scripts/gen_tool_smoke.py and rebuild native plugin.";
+        report["warning"] = "No smoke cases generated — run scripts/codegen/gen_tool_smoke.py and rebuild native plugin.";
 
         return report.dump();
 

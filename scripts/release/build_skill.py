@@ -6,7 +6,7 @@ import shutil
 import zipfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 SKILL_DIR = ROOT / "skills" / "3dsmax-mcp-dev"
 SKILL_SRC = SKILL_DIR / "SKILL.md"
 PROCEDURAL_GRAPHS_REF = SKILL_DIR / "procedural-graphs.md"

@@ -31,12 +31,12 @@ smoke_err.txt
 /docs/MODELING-DEVELOPMENT.md
 
 # One-off smoke scripts.
-scripts/run_live_smoke.py
-scripts/live_native_port_parity.py
-scripts/run_agent_viewport_smoke.py
-scripts/run_archviz_smoke.py
-scripts/run_mesh_mcp_smoke.py
-scripts/run_mesh_smoke.py
+scripts/live/run_live_smoke.py
+scripts/live/live_native_port_parity.py
+scripts/live/run_agent_viewport_smoke.py
+scripts/live/run_archviz_smoke.py
+scripts/live/run_mesh_mcp_smoke.py
+scripts/live/run_mesh_smoke.py
 
 # Native C++ build artifacts (but ship the binary)
 native/build/
@@ -45,16 +45,12 @@ native/build2027/
 native/generated/
 !native/bin/
 
-# Staged bundle outputs (build.bat / stage_bundle.py); template + .gitkeep stay tracked
-bundle/PackageContents.xml
-bundle/Contents/bin/*.gup
-bundle/Contents/scripts/
+# The staged ApplicationPlugins bundle (build.bat / stage_bundle.py). Its manifest
+# template and MAXScript listener are in maxmcp/assets.
+/bundle/
 
 # Dev convenience scripts are personal — install.py is the user-facing installer,
 # build.bat/clean.bat stay for devs who want a bare build. Everything else is local.
 dev.bat
 native/dev.bat
 native/deploy.bat
-
-# _mx staged beside the bundled bridges (native/build.bat)
-bundle/Contents/bin/mx_*/

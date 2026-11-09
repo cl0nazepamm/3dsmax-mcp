@@ -1,7 +1,7 @@
 """A/B benchmark: same handler, direct (worker thread) vs forced main thread.
 
 Uses _forceMainThread flag to run the exact same handler both ways.
-Run with: uv run python scripts/benchmark_threading.py
+Run with: uv run python scripts/live/benchmark_threading.py
 """
 
 import json
@@ -9,7 +9,7 @@ import time
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from maxmcp.core.max_client import MaxClient
 
 

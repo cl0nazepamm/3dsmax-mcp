@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from maxmcp.tools.lighting import _lighting as l
 from maxmcp.tools.lighting import _fstorm_lighting as fs
 

@@ -25,10 +25,12 @@ from maxmcp.opencode_config import resolve_opencode_config, update_opencode
 
 ROOT = Path(__file__).resolve().parent
 # Installed from a wheel this file is `maxmcp/installer.py`, so ROOT is the package
-# directory; from a checkout it is `install.py` and ROOT is the repo root. The Max-side
-# payload is shipped at the same relative paths either way (see force-include in
-# pyproject.toml), so only MCP client registration has to know the difference.
+# directory; from a checkout it is `install.py` and ROOT is the repo root. What a checkout
+# keeps beside the package (native/bin, skills, scripts/release/build_skill.py) a wheel
+# carries inside it at the same relative paths (see force-include in pyproject.toml).
 IS_PACKAGED = Path(__file__).name == "installer.py"
+# The config template, bundle manifest and MAXScript listener ship in the package itself.
+ASSETS = (ROOT if IS_PACKAGED else ROOT / "maxmcp") / "assets"
 
 GUP_SRCS = {
     2023: ROOT / "native" / "bin" / "mcp_bridge_2023.gup",
@@ -38,14 +40,13 @@ GUP_SRCS = {
     2027: ROOT / "native" / "bin" / "mcp_bridge_2027.gup",
 }
 
-BUNDLE_SRC = ROOT / "bundle"
 BUNDLE_PACKAGE_NAME = "3dsmax-mcp"
 APPLICATION_PACKAGE_DST = (
     Path(os.environ.get("ProgramData", "")) / "Autodesk" / "ApplicationPlugins" / BUNDLE_PACKAGE_NAME
 )
 
-MS_SERVER = ROOT / "maxscript" / "mcp_server.ms"
-CONFIG_SRC = ROOT / "mcp_config.ini"
+MS_SERVER = ASSETS / "mcp_server.ms"
+CONFIG_SRC = ASSETS / "mcp_config.ini"
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "3dsmax-mcp"
 CONFIG_DST = CONFIG_DIR / "mcp_config.ini"
 
@@ -91,7 +92,7 @@ def installer_banner() -> str:
 
 # Extract list of supported years from GUP_SRCS
 MAX_YEARS = sorted(GUP_SRCS.keys(), reverse=True)
-PACKAGE_CONTENTS_TEMPLATE = BUNDLE_SRC / "PackageContents.xml.in"
+PACKAGE_CONTENTS_TEMPLATE = ASSETS / "PackageContents.xml.in"
 APP_VERSION_PLACEHOLDER = "__APP_VERSION__"
 
 
@@ -401,7 +402,7 @@ def build_skills(skip_skill: bool = False) -> bool:
     target = {"1": "local", "3": "both"}.get(choice, "global")
     try:
         subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / "build_skill.py"), "--target", target],
+            [sys.executable, str(ROOT / "scripts" / "release" / "build_skill.py"), "--target", target],
             check=True,
             cwd=str(ROOT),
         )

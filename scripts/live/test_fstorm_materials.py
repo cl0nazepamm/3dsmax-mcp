@@ -1,7 +1,7 @@
 """Offline regressions and an optional disposable Max batch acceptance script.
 
-Run: python scripts/test_fstorm_materials.py
-Emit: python scripts/test_fstorm_materials.py --emit-maxscript local/fstorm-smoke.ms
+Run: python scripts/live/test_fstorm_materials.py
+Emit: python scripts/live/test_fstorm_materials.py --emit-maxscript local/fstorm-smoke.ms
 Then run that .ms with 3dsmaxbatch.exe (no scene input, no render).
 """
 from __future__ import annotations
@@ -11,7 +11,7 @@ from pathlib import Path
 import sys
 import unittest
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from maxmcp.tools.materials._material_tripback import PBR_RENDERER_REGISTRY

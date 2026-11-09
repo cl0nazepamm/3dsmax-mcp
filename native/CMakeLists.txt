@@ -52,8 +52,8 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 file(GLOB_RECURSE PY_TOOL_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../maxmcp/tools/*.py")
 add_custom_command(
     OUTPUT "${TOOL_REGISTRY_INC}"
-    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_registry.py"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_registry.py" ${PY_TOOL_SOURCES}
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/codegen/gen_tool_registry.py"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/codegen/gen_tool_registry.py" ${PY_TOOL_SOURCES}
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     COMMENT "Generating native_tool_registry.inc from maxmcp/tools/*.py"
     VERBATIM
@@ -61,9 +61,9 @@ add_custom_command(
 add_custom_target(gen_tool_registry DEPENDS "${TOOL_REGISTRY_INC}")
 add_custom_command(
     OUTPUT "${TOOL_SMOKE_INC}"
-    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_smoke.py"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_smoke.py"
-            "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_registry.py" ${PY_TOOL_SOURCES}
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/codegen/gen_tool_smoke.py"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/codegen/gen_tool_smoke.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/codegen/gen_tool_registry.py" ${PY_TOOL_SOURCES}
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     COMMENT "Generating tool_smoke_cases.inc from maxmcp/tools/*.py"
     VERBATIM
@@ -199,7 +199,7 @@ endfunction()
 # qt_dialogs.cpp (shell) reads Qt dialogs through the Qt DLLs Max already loads;
 # no Qt binary is shipped. It compiles against vendored headers of the oldest Qt
 # of Max's major version and links import libraries generated from the vendored
-# symbol lists. Regenerate both with scripts/vendor_qt.py.
+# symbol lists. Regenerate both with scripts/codegen/vendor_qt.py.
 if(MAX_VERSION GREATER_EQUAL 2025)
     set(MCP_QT_VERSION "6.5.3")
 else()
@@ -208,7 +208,7 @@ endif()
 set(MCP_QT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/qt/${MCP_QT_VERSION}")
 file(GLOB MCP_QT_DEFS CONFIGURE_DEPENDS "${MCP_QT_DIR}/*.def")
 if(NOT MCP_QT_DEFS)
-    message(FATAL_ERROR "Missing Qt symbol lists in ${MCP_QT_DIR}; run scripts/vendor_qt.py")
+    message(FATAL_ERROR "Missing Qt symbol lists in ${MCP_QT_DIR}; run scripts/codegen/vendor_qt.py")
 endif()
 set(MCP_QT_IMPORT_LIBS)
 foreach(def ${MCP_QT_DEFS})
