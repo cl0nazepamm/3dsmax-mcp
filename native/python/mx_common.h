@@ -183,6 +183,14 @@ struct ModifierRef {
 };
 
 struct MaterialRef { AnimHandle mtl = 0; };
+struct TexmapRef { AnimHandle tex = 0; };
+
+// A reference target as Python: Material, Texmap, Node, None for null, else
+// its class name in angle brackets (mx_materials.cpp).
+nb::object RefToPython(ReferenceTarget* target);
+// The Material, Texmap or Node `value` holds, nullptr for None. `super`
+// restricts the kind (0: any of them); anything else is BadParam naming `what`.
+ReferenceTarget* PythonToRef(nb::handle value, SClass_ID super, const std::string& what);
 
 // A public class by MAXScript or UI name within the superclasses, in order.
 ClassDesc* FindClass(const std::string& name, std::initializer_list<SClass_ID> supers);

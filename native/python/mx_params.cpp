@@ -138,6 +138,9 @@ static nb::object GetOne(const ParamRef& ref, TimeValue t, int index) {
         INode* v = nullptr; pb->GetValue(id, t, v, valid, index);
         return InScene(v) ? nb::cast(Wrap(v)) : nb::none();
     }
+    case TYPE_TEXMAP: { Texmap* v = nullptr; pb->GetValue(id, t, v, valid, index); return RefToPython(v); }
+    case TYPE_MTL: { Mtl* v = nullptr; pb->GetValue(id, t, v, valid, index); return RefToPython(v); }
+    case TYPE_REFTARG: { ReferenceTarget* v = nullptr; pb->GetValue(id, t, v, valid, index); return RefToPython(v); }
     default: return nb::none();
     }
 }
@@ -150,6 +153,23 @@ nb::object GetParam(const ParamRef& ref, TimeValue t) {
 }
 
 // ── Writing ──────────────────────────────────────────────────────
+
+// A material, map or other reference, by object. A reference parameter that
+// names a superclass takes only that kind; a value that already uses this
+// block (a map put inside itself) would close a reference loop.
+static BOOL SetReference(const ParamRef& ref, TimeValue t, nb::handle value, int index, const std::string& what) {
+    IParamBlock2* pb = ref.block;
+    const ParamID id = ref.def->ID;
+    const int type = BaseType(ref.def->type);
+    SClass_ID super = type == TYPE_TEXMAP ? TEXMAP_CLASS_ID : type == TYPE_MTL ? MATERIAL_CLASS_ID : ref.def->sclass_ID;
+    if (super == REF_TARGET_CLASS_ID) super = 0;
+    ReferenceTarget* target = PythonToRef(value, super, what);
+    if (target && target->TestForLoop(FOREVER, pb) != REF_SUCCEED)
+        throw BadParam(what + ": " + ReprOf(value) + " already contains this object, so it cannot go in this slot");
+    if (type == TYPE_TEXMAP) return pb->SetValue(id, t, static_cast<Texmap*>(target), index);
+    if (type == TYPE_MTL) return pb->SetValue(id, t, static_cast<Mtl*>(target), index);
+    return pb->SetValue(id, t, target, index);
+}
 
 static void SetOne(const ParamRef& ref, TimeValue t, nb::handle value, int index, const std::string& what) {
     IParamBlock2* pb = ref.block;
@@ -190,6 +210,7 @@ static void SetOne(const ParamRef& ref, TimeValue t, nb::handle value, int index
             INode* node = value.is_none() ? nullptr : Resolve(FindNode(value));
             ok = pb->SetValue(id, t, node, index); break;
         }
+        case TYPE_TEXMAP: case TYPE_MTL: case TYPE_REFTARG: ok = SetReference(ref, t, value, index, what); break;
         default:
             throw BadParam(what + " is " + WithArticle(TypeName(type)) +
                            " parameter, which _mx cannot set yet; use rt (pymxs)");
@@ -213,7 +234,8 @@ void SetParam(Animatable* owner, const std::string& name, nb::handle value, Time
         throw BadParam(what + " is a list parameter; pass a list");
     std::vector<nb::handle> items;
     for (nb::handle item : value) items.push_back(item);
-    ref.block->SetCount(ref.def->ID, (int)items.size());
+    // Resizing drops or adds entries; a list of the same length keeps them in place.
+    if (ref.block->Count(ref.def->ID) != (int)items.size()) ref.block->SetCount(ref.def->ID, (int)items.size());
     for (size_t i = 0; i < items.size(); ++i) SetOne(ref, t, items[i], (int)i, what + "[" + std::to_string(i) + "]");
 }
 
