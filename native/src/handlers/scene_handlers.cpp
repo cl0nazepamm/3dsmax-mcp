@@ -84,28 +84,8 @@ std::string NativeHandlers::SceneInfo(const std::string& params, MCPBridgeGUP* g
                 INode* parent = n->GetParentNode();
                 if (parent && !parent->IsRootNode()) continue;
             }
-            // Pattern matching (simple wildcard: * at start/end)
-            if (!filterPattern.empty()) {
-                std::string name = WideToUtf8(n->GetName());
-                std::string pat = filterPattern;
-                bool match = false;
-                if (pat == "*") {
-                    match = true;
-                } else if (pat.front() == '*' && pat.back() == '*') {
-                    std::string sub = pat.substr(1, pat.size() - 2);
-                    match = name.find(sub) != std::string::npos;
-                } else if (pat.front() == '*') {
-                    std::string suffix = pat.substr(1);
-                    match = name.size() >= suffix.size() &&
-                            name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0;
-                } else if (pat.back() == '*') {
-                    std::string prefix = pat.substr(0, pat.size() - 1);
-                    match = name.compare(0, prefix.size(), prefix) == 0;
-                } else {
-                    match = (name == pat);
-                }
-                if (!match) continue;
-            }
+            // MAXScript matchPattern rules: '*' and '?' anywhere, any case.
+            if (!filterPattern.empty() && !WildcardMatch(WideToUtf8(n->GetName()), filterPattern)) continue;
             matched.push_back(n);
         }
 

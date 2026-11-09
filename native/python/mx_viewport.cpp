@@ -393,7 +393,13 @@ Capture CaptureViewport(const ViewRef& v, const std::string& method, int maxWidt
     return c;
 }
 
-Capture CaptureScreen(const std::string& target, nb::handle crop, int maxWidth, int maxHeight) {
+Capture CaptureScreen(const std::string& target, nb::handle crop, int maxWidth, int maxHeight, bool desktop) {
+    // The desktop shows whatever else is open (mail, chats, other apps): only
+    // on an explicit request, as the capture_screen tool's enabled=True.
+    if (target == "screen" && !desktop)
+        throw BadParam("capture_screen('screen') captures the whole primary monitor, other applications included; "
+                       "pass desktop=True only when the user asked for that, or capture a window: vray_vfb, corona_vfb, "
+                       "fstorm_vfb or tyflow_editor");
     json args = {{"target", target}, {"max_width", maxWidth}, {"max_height", maxHeight}};
     if (!crop.is_none()) args["crop"] = FromPython(crop);
     return ImageOf(NativeJson("native:capture_screen", args), target);
@@ -406,7 +412,7 @@ Capture CaptureAgent(const ViewRef& v, nb::handle crop, const std::string& metho
         throw MaxError("the " + render.value("mode", "") +
                        " preview is still starting; capture again once it renders (the VFB still shows older pixels)");
     const std::string target = render.value("capture_target", "agent");
-    if (target == "vray_vfb" || target == "corona_vfb") return CaptureScreen(target, crop, maxWidth, maxHeight);
+    if (target == "vray_vfb" || target == "corona_vfb") return CaptureScreen(target, crop, maxWidth, maxHeight, false);
     if (!crop.is_none()) throw BadParam("crop applies to a VFB preview only: render('vray_vfb') or render('corona_vfb')");
     return CaptureViewport(v, method, maxWidth, maxHeight);
 }
@@ -725,8 +731,9 @@ void BindViewport(nb::module_& m) {
        "Open the agent's own floating viewport (or restore it) and return it; the size applies when it first opens: "
        "av = agent_viewport().");
     m.def("capture_screen", &CaptureScreen, "target"_a = "screen", "crop"_a = nb::none(), "max_width"_a = kMaxWidth,
-          "max_height"_a = 0,
-          "Save the primary monitor, or an open, uncovered frame buffer (vray_vfb, corona_vfb, fstorm_vfb), to a JPEG; "
+          "max_height"_a = 0, "desktop"_a = false,
+          "Save an open frame buffer or editor window (vray_vfb, corona_vfb, fstorm_vfb, tyflow_editor) to a JPEG, "
+          "or the primary monitor with desktop=True (only when the user asked: it shows other applications); "
           "crop=(x, y, w, h) in its pixels: capture_screen('vray_vfb').");
     m.def("capture_isolated", &CaptureIsolated, "nodes"_a = nb::none(),
           "Capture each top-level hierarchy of the selection (or of nodes) alone, framed in the active view; instances "

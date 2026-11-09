@@ -81,10 +81,25 @@ inline std::string SanitizeScriptName(std::string value) {
     return value;
 }
 
-// Accept both SDK labels and the control-character aliases returned to clients.
+// A relative rotation from XYZ Euler degrees that turns like MAXScript's
+// `rotate node (eulerAngles x y z)`: about X, then Y, then Z, each
+// counterclockwise looking down the axis. Built from rotation matrices:
+// AngAxis(axis, +angle) and EulerToQuat both turn clockwise through
+// INode::Rotate, since the SDK's quaternions are left-handed.
+inline Quat EulerDegreesToQuat(float x, float y, float z) {
+    return Quat(RotateXMatrix(DegToRad(x)) * RotateYMatrix(DegToRad(y)) * RotateZMatrix(DegToRad(z)));
+}
+
+// Accept SDK labels, the control-character aliases returned to clients, and
+// MAXScript's spelling, where every space or punctuation mark of the label is
+// an underscore ("RailClone Pro" is RailClone_Pro).
 inline bool MatchesClassName(const std::wstring& requested, const MCHAR* candidate) {
     if (!candidate || !*candidate) return false;
     if (_wcsicmp(requested.c_str(), candidate) == 0) return true;
+    std::wstring script(candidate);
+    for (wchar_t& ch : script)
+        if (!iswalnum(ch) && ch != L'_') ch = L'_';
+    if (_wcsicmp(requested.c_str(), script.c_str()) == 0) return true;
     const auto sanitized = Utf8ToWide(SanitizeScriptName(WideToUtf8(candidate)));
     return _wcsicmp(requested.c_str(), sanitized.c_str()) == 0;
 }
@@ -750,30 +765,28 @@ inline std::string JsonEscape(const std::string& s) {
 
 // ── Wildcard pattern matching (case-insensitive) ────────────────
 // Supports: * at start, end, both, or standalone. Exact match otherwise.
+// MAXScript matchPattern rules, case-insensitive: '*' matches any run of
+// characters (anywhere in the pattern, "Wall*_A*" included), '?' one character.
 inline bool WildcardMatch(const std::string& name, const std::string& pattern) {
     if (pattern == "*") return true;
-    // Case-insensitive copies
-    std::string lname = name, lpat = pattern;
-    std::transform(lname.begin(), lname.end(), lname.begin(), ::tolower);
-    std::transform(lpat.begin(), lpat.end(), lpat.begin(), ::tolower);
-
-    bool startsWild = !lpat.empty() && lpat.front() == '*';
-    bool endsWild = !lpat.empty() && lpat.back() == '*';
-
-    if (startsWild && endsWild) {
-        std::string sub = lpat.substr(1, lpat.size() - 2);
-        return lname.find(sub) != std::string::npos;
+    const auto lower = [](char c) { return static_cast<char>(::tolower(static_cast<unsigned char>(c))); };
+    size_t n = 0, p = 0, star = std::string::npos, resume = 0;
+    while (n < name.size()) {
+        if (p < pattern.size() && (pattern[p] == '?' || (pattern[p] != '*' && lower(pattern[p]) == lower(name[n])))) {
+            ++n;
+            ++p;
+        } else if (p < pattern.size() && pattern[p] == '*') {
+            star = p++;
+            resume = n;
+        } else if (star != std::string::npos) {
+            p = star + 1;
+            n = ++resume;
+        } else {
+            return false;
+        }
     }
-    if (startsWild) {
-        std::string suffix = lpat.substr(1);
-        return lname.size() >= suffix.size() &&
-               lname.compare(lname.size() - suffix.size(), suffix.size(), suffix) == 0;
-    }
-    if (endsWild) {
-        std::string prefix = lpat.substr(0, lpat.size() - 1);
-        return lname.compare(0, prefix.size(), prefix) == 0;
-    }
-    return lname == lpat;
+    while (p < pattern.size() && pattern[p] == '*') ++p;
+    return p == pattern.size();
 }
 
 // ── Collect nodes matching a wildcard pattern ───────────────────
@@ -891,30 +904,220 @@ inline Animatable* ResolveSubAnimPath(INode* node, const std::string& path) {
     return current;
 }
 
-// ── Find ClassDesc by class name (iterates all loaded plugins) ──
-inline ClassDesc* FindClassDescByName(const std::string& className, SClass_ID superID = 0) {
-    std::wstring wname = Utf8ToWide(className);
-    ClassDesc* found = nullptr;
-    auto& dir = DllDir::GetInstance();
-    int numDlls = dir.Count();
-    for (int d = 0; d < numDlls; d++) {
-        const DllDesc& dll = dir[d];
-        int numClasses = dll.NumberOfClasses();
-        for (int c = 0; c < numClasses; c++) {
-            ClassDesc* cd = dll[c];
-            if (!cd) continue;
-            if (superID != 0 && cd->SuperClassID() != superID) continue;
-            if (!MatchesClassName(wname, cd->ClassName()) &&
-                !MatchesClassName(wname, cd->InternalName()) &&
-                !MatchesClassName(wname, cd->NonLocalizedClassName())) continue;
-            if (found && (found->ClassID() != cd->ClassID() ||
-                          found->SuperClassID() != cd->SuperClassID()))
-                throw std::runtime_error(StructuredErrorPayload(
-                    "AMBIGUOUS", "Class name is ambiguous: " + className));
-            found = cd;
+// ── Track paths ─────────────────────────────────────────────────
+// One animatable track of a node: its parent and its sub-anim index there.
+struct SubAnimTrack {
+    Animatable* parent = nullptr;
+    int index = -1;
+    Animatable* anim() const { return parent ? parent->SubAnim(index) : nullptr; }
+    MSTR name() const { return parent ? parent->SubAnimName(index, false) : MSTR(); }
+};
+
+// Sub-anim names compare without case, a space matching an underscore
+// ("X Position" is #X_Position in MAXScript).
+inline bool SameTrackName(std::string a, std::string b) {
+    for (std::string* s : {&a, &b}) {
+        std::transform(s->begin(), s->end(), s->begin(), ::tolower);
+        std::replace(s->begin(), s->end(), ' ', '_');
+    }
+    return a == b;
+}
+
+// The child of `owner` named `token`, looking one level further through
+// unnamed-in-paths levels such as a parameter block ("Parameters"), so
+// "[#Object (Box)][#height]" finds what "[#Object (Box)][#Parameters][#height]" names.
+inline std::optional<SubAnimTrack> FindTrackChild(Animatable* owner, const std::string& token) {
+    if (!owner) return std::nullopt;
+    for (int s = 0; s < owner->NumSubs(); s++)
+        if (owner->SubAnim(s) && SameTrackName(token, WideToUtf8(owner->SubAnimName(s, false).data())))
+            return SubAnimTrack{owner, s};
+    for (int s = 0; s < owner->NumSubs(); s++) {
+        Animatable* level = owner->SubAnim(s);
+        if (!level || level->SuperClassID() != PARAMETER_BLOCK2_CLASS_ID) continue;
+        for (int c = 0; c < level->NumSubs(); c++)
+            if (level->SubAnim(c) && SameTrackName(token, WideToUtf8(level->SubAnimName(c, false).data())))
+                return SubAnimTrack{level, c};
+    }
+    return std::nullopt;
+}
+
+// A node's track from a path as the tools list it (list_wireable_params,
+// inspect_track_view: "[#Transform][#Position][#X Position]",
+// "[#Object (Box)][#Parameters][#height]", ".baseObject[#width]"), a transform
+// shorthand ("pos", "pos.x", "rotation.z", "scale") or a bare base-object
+// parameter ("radius"). nullopt when no track has that path.
+inline std::optional<SubAnimTrack> ResolveTrackPath(INode* node, const std::string& rawPath) {
+    if (!node) return std::nullopt;
+    std::string path = rawPath;
+    path.erase(0, path.find_first_not_of(" \t"));
+    path.erase(path.find_last_not_of(" \t") + 1);
+    std::string lower = path;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+
+    // Transform shorthands, the names MAXScript users reach for first.
+    static const std::pair<const char*, const char*> kParts[] = {
+        {"position", "Position"}, {"pos", "Position"}, {"rotation", "Rotation"}, {"rot", "Rotation"},
+        {"scale", "Scale"}};
+    std::vector<std::string> tokens;
+    Animatable* start = node;
+    if (lower == "transform") {
+        tokens = {"Transform"};
+    } else {
+        for (const auto& [alias, part] : kParts) {
+            const std::string a(alias);
+            if (lower == a) tokens = {"Transform", part};
+            else if (lower.size() == a.size() + 2 && lower.compare(0, a.size(), a) == 0 && lower[a.size()] == '.' &&
+                     std::string("xyz").find(lower.back()) != std::string::npos)
+                tokens = {"Transform", part, std::string(1, char(::toupper(lower.back()))) + " " + part};
+            if (!tokens.empty()) break;
         }
     }
-    return found;
+    if (tokens.empty()) {
+        // ".baseObject" / "baseObject" starts at the base object.
+        for (const std::string prefix : {".baseobject", "baseobject"}) {
+            if (lower.rfind(prefix, 0) == 0) {
+                Object* object = node->GetObjectRef();
+                start = object ? object->FindBaseObject() : nullptr;
+                path = path.substr(prefix.size());
+                break;
+            }
+        }
+        for (size_t i = 0; i < path.size();) {
+            const size_t open = path.find('[', i);
+            if (open == std::string::npos) break;
+            const size_t close = path.find(']', open);
+            if (close == std::string::npos) return std::nullopt;
+            std::string token = path.substr(open + 1, close - open - 1);
+            if (!token.empty() && token[0] == '#') token.erase(0, 1);
+            if (!token.empty()) tokens.push_back(token);
+            i = close + 1;
+        }
+        // A bare name ("radius", "width"): a parameter of the base object.
+        if (tokens.empty() && !path.empty() && path.find_first_of(".[]") == std::string::npos) {
+            Object* object = node->GetObjectRef();
+            start = object ? object->FindBaseObject() : nullptr;
+            tokens = {path};
+        }
+    }
+    if (tokens.empty() || !start) return std::nullopt;
+    std::optional<SubAnimTrack> ref;
+    Animatable* current = start;
+    for (const std::string& token : tokens) {
+        // "Parameters" names the parameter block level that FindTrackChild
+        // already looks through.
+        if (SameTrackName(token, "Parameters") && ref) {
+            if (auto exact = FindTrackChild(current, token)) { ref = exact; current = ref->anim(); }
+            continue;
+        }
+        ref = FindTrackChild(current, token);
+        if (!ref) return std::nullopt;
+        current = ref->anim();
+    }
+    return ref;
+}
+
+// MAXScript for that track as a SubAnim value: (getSubAnim <parent> <index>).
+inline std::string TrackScriptRef(const SubAnimTrack& track) {
+    return "(getSubAnim (getAnimByHandle " + std::to_string(Animatable::GetHandleByAnim(track.parent)) + ") " +
+           std::to_string(track.index + 1) + ")";
+}
+
+// The track or a NOT_FOUND error that says which paths work.
+inline SubAnimTrack RequireTrackPath(INode* node, const std::string& path, const std::string& role = "Track") {
+    if (auto track = ResolveTrackPath(node, path)) return *track;
+    throw std::runtime_error(StructuredErrorPayload("NOT_FOUND",
+        role + " not found: " + path + " on " + WideToUtf8(node->GetName()) +
+        ". Use a path from list_wireable_params or inspect_track_view (\"[#Transform][#Position][#X Position]\"), "
+        "a transform shorthand (pos, pos.x, rotation.z, scale) or a base-object parameter name (radius)."));
+}
+
+// The class's name in MAXScript (Bend, SpaceBend, BoxtextureMap), which is
+// neither its UI label nor always its internal name (BendMod). Read from
+// MAXScript's class table on the main thread; elsewhere the script-facing
+// internal name stands in.
+inline std::string MaxScriptClassName(ClassDesc* cd) {
+    if (!cd) return {};
+    if (GetCurrentThreadId() == GetCOREInterface15()->GetMainThreadID()) {
+        try {
+            ScopedMaxScriptEvaluationContext context;
+            Class_ID id = cd->ClassID();
+            MAXClass* cls = MAXClass::lookup_class(&id, cd->SuperClassID(), false);
+            if (cls && cls->name) return WideToUtf8(cls->name->to_string());
+        } catch (...) {
+        }
+    }
+    return ScriptClassName(cd);
+}
+
+// ── Find ClassDesc by class name (iterates all loaded plugins) ──
+// The class directory, not DllDir: it also lists deferred-load plug-ins
+// (RailClone, ...), which DllDir shows only once something loaded them. The
+// matching plug-in is loaded on return; InternalName is read only from
+// plug-ins already loaded, so a lookup never loads every deferred plug-in.
+inline ClassDesc* FindClassDescByName(const std::string& className, SClass_ID superID = 0) {
+    const std::wstring wname = Utf8ToWide(className);
+    ClassDirectory& directory = ClassDirectory::GetInstance();
+    struct Match { ClassEntry* entry; SClass_ID super; };
+    std::vector<Match> matches;
+    for (int s = 0; s < directory.Count(); s++) {
+        SubClassList& list = directory[s];
+        if (superID != 0 && list.SuperID() != superID) continue;
+        for (int i = 0; i < list.Count(ACC_ALL); i++) {
+            ClassEntry& entry = list[i];
+            bool matches_name = MatchesClassName(wname, entry.ClassName().data()) ||
+                                MatchesClassName(wname, entry.NonLocalizedClassName().data());
+            if (!matches_name && entry.IsLoaded()) {
+                ClassDesc* cd = entry.CD();
+                matches_name = cd && MatchesClassName(wname, cd->InternalName());
+            }
+            if (!matches_name) continue;
+            const bool seen = std::any_of(matches.begin(), matches.end(), [&](const Match& m) {
+                return m.entry->ClassID() == entry.ClassID() && m.super == list.SuperID();
+            });
+            if (!seen) matches.push_back({&entry, list.SuperID()});
+        }
+    }
+    const auto loaded = [](const Match& m) -> ClassDesc* {
+        ClassDesc* cd = m.entry->FullCD();
+        return cd && cd->SuperClassID() == m.super && cd->ClassID() == m.entry->ClassID() ? cd : nullptr;
+    };
+    // No label matched: MAXScript's own class names (SpaceBend, BoxtextureMap),
+    // for the plug-ins already loaded.
+    if (matches.empty()) {
+        for (int s = 0; s < directory.Count(); s++) {
+            SubClassList& list = directory[s];
+            if (superID != 0 && list.SuperID() != superID) continue;
+            for (int i = 0; i < list.Count(ACC_ALL); i++) {
+                ClassEntry& entry = list[i];
+                if (!entry.IsLoaded()) continue;
+                ClassDesc* cd = entry.CD();
+                if (cd && _wcsicmp(Utf8ToWide(MaxScriptClassName(cd)).c_str(), wname.c_str()) == 0)
+                    matches.push_back({&entry, list.SuperID()});
+            }
+        }
+    }
+    if (matches.empty()) return nullptr;
+    if (matches.size() == 1) return loaded(matches.front());
+    // Several classes share the UI label ("Box" is the Box object and the Box
+    // texture map, BoxtextureMap in MAXScript): the one whose MAXScript name
+    // is the name asked for wins.
+    ClassDesc* exact = nullptr;
+    int exactCount = 0;
+    std::string candidates;
+    for (const Match& m : matches) {
+        ClassDesc* cd = loaded(m);
+        if (!cd) continue;
+        const std::string script = MaxScriptClassName(cd);
+        candidates += (candidates.empty() ? "" : ", ") + script;
+        if (_wcsicmp(Utf8ToWide(script).c_str(), wname.c_str()) == 0) {
+            exact = cd;
+            ++exactCount;
+        }
+    }
+    if (exactCount == 1) return exact;
+    throw std::runtime_error(StructuredErrorPayload(
+        "AMBIGUOUS", "Class name is ambiguous: " + className + " names " + candidates +
+                     "; pass the MAXScript name of the one you mean"));
 }
 
 // Whole-string numbers only: std::stof and std::stoi read "12abc" as 12 and

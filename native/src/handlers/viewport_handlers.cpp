@@ -1202,7 +1202,7 @@ struct CaptureDpiScope {
     CaptureDpiScope() { if(!previous) throw std::runtime_error("Physical-pixel capture DPI context unavailable"); }
     ~CaptureDpiScope() { if(previous) set(previous); }
 };
-struct VfbSearch { std::string target; std::vector<HWND> windows; };
+struct VfbSearch { std::string target; std::wstring titlePrefix; std::vector<HWND> windows; };
 BOOL CALLBACK FindVfbWindow(HWND window, LPARAM data) {
     DWORD process=0;
     GetWindowThreadProcessId(window,&process);
@@ -1212,7 +1212,9 @@ BOOL CALLBACK FindVfbWindow(HWND window, LPARAM data) {
     wchar_t windowClass[256]{};
     GetClassNameW(window,windowClass,256);
     auto& search=*reinterpret_cast<VfbSearch*>(data);
-    if(CaptureRegion::MatchesVfb(search.target,caption,windowClass)) search.windows.push_back(window);
+    if(!CaptureRegion::MatchesVfb(search.target,caption,windowClass)) return TRUE;
+    if(!search.titlePrefix.empty() && std::wstring(caption).rfind(search.titlePrefix,0)!=0) return TRUE;
+    search.windows.push_back(window);
     return TRUE;
 }
 CaptureRegion::Rect VfbClientRect(HWND window) {
@@ -1249,7 +1251,8 @@ std::string NativeHandlers::CaptureScreen(const std::string& params, MCPBridgeGU
     const json p=json::parse(params);
     if(!p.is_object()) throw std::runtime_error("Expected object payload");
     const std::string target=p.value("target","screen");
-    if(target!="screen" && target!="vray_vfb" && target!="corona_vfb" && target!="fstorm_vfb") throw std::runtime_error("target must be screen, vray_vfb, corona_vfb or fstorm_vfb");
+    if(target!="screen" && target!="vray_vfb" && target!="corona_vfb" && target!="fstorm_vfb" && target!="tyflow_editor")
+        throw std::runtime_error("target must be screen, vray_vfb, corona_vfb, fstorm_vfb or tyflow_editor");
     const int maxWidth=p.value("max_width",1600), maxHeight=p.value("max_height",0);
     if(maxWidth<0 || maxHeight<0 || maxWidth>8192 || maxHeight>8192)
         throw std::runtime_error("Capture maximum dimensions must be between 0 and 8192");
@@ -1258,9 +1261,13 @@ std::string NativeHandlers::CaptureScreen(const std::string& params, MCPBridgeGU
     CaptureRegion::Rect targetRect{0,0,GetSystemMetrics(SM_CXSCREEN),GetSystemMetrics(SM_CYSCREEN)};
     json windowInfo=nullptr;
     if(target!="screen") {
-        VfbSearch search{target,{}};
+        // tyflow_editor: "flow" picks one flow's editor ("<flow> : [tyFlow ... Editor]").
+        const std::string flow=p.value("flow","");
+        VfbSearch search{target,flow.empty() ? std::wstring() : Utf8ToWide(flow+" : ["),{}};
         EnumWindows(FindVfbWindow,reinterpret_cast<LPARAM>(&search));
-        if(search.windows.empty()) throw std::runtime_error("No visible "+target+" in this Max instance; open or restore its VFB first");
+        if(search.windows.empty()) throw std::runtime_error(target=="tyflow_editor"
+            ? "No visible tyFlow editor"+(flow.empty() ? std::string() : " for "+flow)+" in this Max instance; open it first"
+            : "No visible "+target+" in this Max instance; open or restore its VFB first");
         if(search.windows.size()!=1) throw std::runtime_error("AMBIGUOUS: multiple visible "+target+" windows in this Max instance");
         window=search.windows.front(); targetRect=VfbClientRect(window);
         wchar_t caption[1024]{}; GetWindowTextW(window,caption,1024);

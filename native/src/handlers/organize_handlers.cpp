@@ -686,11 +686,19 @@ std::string NativeHandlers::ManageSelectionSets(const std::string& params, MCPBr
             for (INode* node : resolved.nodes) nodes.Append(1, &node);
             if (nodes.Count() == 0) ThrowUnresolvedNames(resolved, "the selection set was not created.");
 
-            if (!mgr->AddNewNamedSelSet(nodes, mname))
+            // A set of that name is replaced, never duplicated: Max keeps two
+            // sets of one name, and a later delete would remove only one.
+            bool exists = false;
+            for (int i = 0; i < mgr->GetNumNamedSelSets() && !exists; i++) {
+                const MCHAR* existing = mgr->GetNamedSelSetName(i);
+                exists = existing && wname == existing;
+            }
+            if (exists ? !mgr->ReplaceNamedSelSet(nodes, mname) : !mgr->AddNewNamedSelSet(nodes, mname))
                 throw std::runtime_error("Failed to create selection set: " + setName);
 
             json result;
             result["created"] = setName;
+            result["replaced"] = exists;
             result["memberCount"] = nodes.Count();
             AddUnresolvedNamesWarnings(result, resolved);
             return result.dump();

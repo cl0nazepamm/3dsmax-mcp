@@ -433,6 +433,25 @@ static bool HasValueRequest(const json& p) {
     return p.contains("value") || p.contains("move");
 }
 
+// value (and move) is ONE value written at every time in times: a number, or 3
+// or 4 numbers for a Point3/Point4/quat track. A longer list reads like one
+// value per key, which would silently write only its first components.
+static void RequireOneKeyValue(const json& p) {
+    for (const char* field : {"value", "move"}) {
+        if (!p.contains(field)) continue;
+        const json& value = p[field];
+        if (JsonIsNumber(value)) continue;
+        bool numbers = JsonIsArray(value);
+        if (numbers)
+            for (const json& item : value) numbers = numbers && JsonIsNumber(item);
+        const size_t count = numbers ? value.size() : 0;
+        if (!numbers || (count != 1 && count != 3 && count != 4))
+            throw std::runtime_error(StructuredErrorPayload("BAD_PARAM",
+                std::string(field) + " is one value set at every time in times: a number, or 3 or 4 numbers; got " +
+                value.dump() + ". Set keys with different values in separate calls, one time each."));
+    }
+}
+
 static bool TargetValueFor(Control* ctrl, TimeValue t, const json& p, int componentIndex, json& target) {
     if (p.contains("value")) {
         const json& value = p["value"];
@@ -1697,6 +1716,7 @@ std::string NativeHandlers::KeyframeTracks(const std::string& params, MCPBridgeG
                 }
             }
         } else if (action == "set") {
+            RequireOneKeyValue(p);
             AnimateGuard anim;
             for (TimeValue t : TimesForSet(p, ip)) {
                 for (const TrackRef& tr : tracks) {

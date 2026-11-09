@@ -6,6 +6,13 @@
 using json = nlohmann::json;
 using namespace HandlerHelpers;
 
+// The effect's own name (SpecialFX::name, MAXScript .name), else the plug-in's
+// name: GetName() names the plug-in ("Blur"), not this effect.
+static std::string EffectInstanceName(SpecialFX* fx) {
+    std::string name = WideToUtf8(fx->name.data());
+    return name.empty() ? WideToUtf8(fx->GetName(false).data()) : name;
+}
+
 // ── native:get_effects ──────────────────────────────────────────
 std::string NativeHandlers::GetEffects(const std::string& params, MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([&]() -> std::string {
@@ -20,7 +27,7 @@ std::string NativeHandlers::GetEffects(const std::string& params, MCPBridgeGUP* 
 
             json entry;
             entry["index"] = i + 1; // 1-based for MAXScript compat
-            entry["name"] = WideToUtf8(atmos->GetName(false).data());
+            entry["name"] = EffectInstanceName(atmos);
             entry["class"] = WideToUtf8(atmos->ClassName().data());
             entry["active"] = atmos->Active(t) ? true : false;
 
@@ -45,7 +52,7 @@ std::string NativeHandlers::GetEffects(const std::string& params, MCPBridgeGUP* 
 
             json entry;
             entry["index"] = i + 1;
-            entry["name"] = WideToUtf8(fx->GetName(false).data());
+            entry["name"] = EffectInstanceName(fx);
             entry["class"] = WideToUtf8(fx->ClassName().data());
             entry["active"] = fx->Active(t) ? true : false;
             renderEffects.push_back(entry);
@@ -115,14 +122,14 @@ std::string NativeHandlers::DeleteEffect(const std::string& params, MCPBridgeGUP
             if (index < 1 || index > count)
                 throw std::runtime_error("Atmospheric index out of range");
             Atmospheric* atmos = ip->GetAtmospheric(index - 1);
-            if (atmos) name = WideToUtf8(atmos->GetName(false).data());
+            if (atmos) name = EffectInstanceName(atmos);
             ip->DeleteAtmosphere(index - 1);
         } else {
             int count = ip->NumEffects();
             if (index < 1 || index > count)
                 throw std::runtime_error("Effect index out of range");
             Effect* fx = ip->GetEffect(index - 1);
-            if (fx) name = WideToUtf8(fx->GetName(false).data());
+            if (fx) name = EffectInstanceName(fx);
             ip->DeleteEffect(index - 1);
         }
 

@@ -669,9 +669,9 @@ std::string NativeHandlers::TransformObject(const std::string& params, MCPBridge
 
         // Rotate
         if (p.contains("rotate") && p["rotate"].type() == json::value_t::array && p["rotate"].size() == 3) {
-            float rx = DegToRad(p["rotate"][0].get<float>());
-            float ry = DegToRad(p["rotate"][1].get<float>());
-            float rz = DegToRad(p["rotate"][2].get<float>());
+            const float rx = p["rotate"][0].get<float>();
+            const float ry = p["rotate"][1].get<float>();
+            const float rz = p["rotate"][2].get<float>();
 
             Matrix3 tmAxis;
             if (coordSys == "local") {
@@ -679,16 +679,8 @@ std::string NativeHandlers::TransformObject(const std::string& params, MCPBridge
                 tmAxis.NoTrans();
             }
 
-            AngAxis aax(Point3(1, 0, 0), rx);
-            AngAxis aay(Point3(0, 1, 0), ry);
-            AngAxis aaz(Point3(0, 0, 1), rz);
-
-            Quat qx(aax), qy(aay), qz(aaz);
-            Quat combined = qx * qy * qz;
-            AngAxis finalAA(combined);
-
             const Matrix3 before = node->GetNodeTM(t);
-            node->Rotate(t, tmAxis, finalAA, TRUE, TRUE, PIV_NONE, TRUE);
+            node->Rotate(t, tmAxis, EulerDegreesToQuat(rx, ry, rz), TRUE, TRUE, PIV_NONE, TRUE);
             check("rotate", before, rx != 0.0f || ry != 0.0f || rz != 0.0f);
             didSomething = true;
         }
@@ -807,12 +799,9 @@ std::string NativeHandlers::SelectObjects(const std::string& params, MCPBridgeGU
             ip->ClearNodeSelection(FALSE);
             int found = 0;
             for (INode* n : allNodes) {
-                bool match = false;
-                if (!pattern.empty()) {
-                    match = WildcardMatch(WideToUtf8(n->GetName()), pattern);
-                } else {
-                    match = (NodeClassName(n) == className);
-                }
+                // Both filters apply when both are given.
+                const bool match = (pattern.empty() || WildcardMatch(WideToUtf8(n->GetName()), pattern)) &&
+                                   (className.empty() || _stricmp(NodeClassName(n).c_str(), className.c_str()) == 0);
                 if (match) {
                     ip->SelectNode(n, FALSE);
                     found++;
@@ -820,9 +809,9 @@ std::string NativeHandlers::SelectObjects(const std::string& params, MCPBridgeGU
             }
             ip->RedrawViews(ip->GetTime());
 
-            std::string desc = !pattern.empty()
-                ? ("matching \"" + pattern + "\"")
-                : ("of class " + className);
+            std::string desc = !pattern.empty() && !className.empty()
+                ? ("matching \"" + pattern + "\" of class " + className)
+                : !pattern.empty() ? ("matching \"" + pattern + "\"") : ("of class " + className);
             json result = selectionResult(found, "Selected " + std::to_string(found) + " objects " + desc);
             if (found == 0) {
                 // The selection is still cleared so a later selection_only edit

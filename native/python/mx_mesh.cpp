@@ -1709,6 +1709,19 @@ static Side Measure(const Body& a, Body& b, const Thresholds& th) {
             side.gapAt = p;
         }
     }
+    // No vertex inside: parts that overlap with coplanar faces (two boxes
+    // sharing their side planes) put every vertex ON the other surface and
+    // every edge IN it, so neither test sees the overlap. Face centers do.
+    if (side.inside == 0 && b.closed) {
+        for (const auto& f : a.mesh.faces) {
+            const Point3 p = (a.mesh.verts[f[0]] + a.mesh.verts[f[1]] + a.mesh.verts[f[2]]) / 3.0f;
+            if (!StrictlyIn(p, b.box)) continue;
+            const float d = tree.Distance(p);
+            if (d <= th.tol || !tree.Inside(p, th.eps)) continue;
+            ++side.inside;
+            if (d > side.depth) { side.depth = d; side.depthAt = p; }
+        }
+    }
     const auto clear = [&](int i) { return (dist[i] < 0 || dist[i] > th.tol) && !inside[i]; };
     std::unordered_set<uint64_t> tested;
     for (const auto& f : a.mesh.faces) {

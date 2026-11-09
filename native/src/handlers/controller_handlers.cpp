@@ -15,8 +15,13 @@ using namespace HandlerHelpers;
 static std::string RunControllerScript(const std::string& script) {
     std::string result = RunMAXScript(script);
     const std::string sentinel = MaxScriptErrorSentinel();
-    if (result.compare(0, sentinel.size(), sentinel) == 0)
-        throw std::runtime_error(result.substr(sentinel.size()));
+    if (result.compare(0, sentinel.size(), sentinel) == 0) {
+        // A script's own `throw "..."` arrives as "-- Runtime error: ...".
+        std::string message = result.substr(sentinel.size());
+        static const std::string prefix = "-- Runtime error: ";
+        if (message.compare(0, prefix.size(), prefix) == 0) message.erase(0, prefix.size());
+        throw std::runtime_error(message);
+    }
     return result;
 }
 
@@ -418,8 +423,7 @@ std::string NativeHandlers::AssignController(const std::string& params, MCPBridg
         // Build MAXScript
         std::string ms;
         ms += "(\n";
-        ms += "  local sa = execute \"" + NodeScriptRef(node) + JsonEscape(paramPath) + "\"\n";
-        ms += "  if sa == undefined do throw \"Track not found: " + JsonEscape(paramPath) + "\"\n";
+        ms += "  local sa = " + TrackScriptRef(RequireTrackPath(node, paramPath)) + "\n";
 
         if (layer) {
             // Layer mode: create/reuse list controller, add new ctrl on top
@@ -535,8 +539,7 @@ std::string NativeHandlers::InspectController(const std::string& params, MCPBrid
         // types with custom properties to replicate in pure C++
         std::string ms;
         ms += "(\n";
-        ms += "  local sa = execute \"" + NodeScriptRef(node) + JsonEscape(paramPath) + "\"\n";
-        ms += "  if sa == undefined do throw \"Track not found\"\n";
+        ms += "  local sa = " + TrackScriptRef(RequireTrackPath(node, paramPath)) + "\n";
         ms += "  local ctrl = sa.controller\n";
         ms += "  if ctrl == undefined do throw \"No controller assigned\"\n";
         ms += "  local BS = bit.intAsChar 92 as string; local DQ = bit.intAsChar 34 as string; fn __mcp_esc s = (s = substituteString s BS (BS+BS); s = substituteString s DQ (BS+DQ); s = substituteString s \"\\n\" (BS+\"n\"); s = substituteString s \"\\r\" \"\"; s = substituteString s \"\\t\" (BS+\"t\"); s)\n";
@@ -590,8 +593,7 @@ std::string NativeHandlers::SetControllerProps(const std::string& params, MCPBri
 
         std::string ms;
         ms += "(\n";
-        ms += "  local sa = execute \"" + NodeScriptRef(node) + JsonEscape(paramPath) + "\"\n";
-        ms += "  if sa == undefined do throw \"Track not found: " + JsonEscape(paramPath) + "\"\n";
+        ms += "  local sa = " + TrackScriptRef(RequireTrackPath(node, paramPath)) + "\n";
         ms += "  local ctrl = sa.controller\n";
         ms += "  if ctrl == undefined do throw \"No controller\"\n";
         if (!script.empty())
@@ -656,7 +658,8 @@ std::string NativeHandlers::AddControllerTarget(const std::string& params, MCPBr
         INode* node = ResolveNamedNode(name, "Object");
         INode* tgtNode = ResolveNamedNode(targetObj, "Target object");
 
-        Animatable* sa = ResolveSubAnimPath(node, paramPath);
+        const SubAnimTrack trackRef = RequireTrackPath(node, paramPath);
+        Animatable* sa = trackRef.anim();
         if (!sa) throw std::runtime_error("Track not found: " + paramPath);
 
         // The resolved sub-anim might be a SubAnim wrapper or the controller itself.
@@ -692,11 +695,9 @@ std::string NativeHandlers::AddControllerTarget(const std::string& params, MCPBr
         std::string vn = varName.empty() ? targetObj : varName;
         std::string safeTgt = JsonEscape(targetObj);
         std::string safeVn = JsonEscape(vn);
-        std::string safePath = JsonEscape(NormalizeSubAnimPath(paramPath));
-        std::string sep = (safePath[0] == '[') ? "" : ".";
-        // Both nodes are reached by handle, so the script cannot pick another
-        // object that shares either name.
-        const std::string track = NodeScriptRef(node) + sep + safePath;
+        // Both nodes and the track are reached by handle, so the script cannot
+        // pick another object that shares a name.
+        const std::string track = TrackScriptRef(trackRef);
         const std::string tgt = NodeScriptRef(tgtNode);
 
         std::string call;
@@ -747,30 +748,49 @@ std::string NativeHandlers::WireParams(const std::string& params, MCPBridgeGUP* 
         if (srcObj.empty() || srcParam.empty() || tgtObj.empty() || tgtParam.empty())
             throw std::runtime_error("source_object, source_param, target_object, target_param are required");
 
-        // Normalize paths — [#Object (Box)] -> .baseObject to avoid execute() parse errors
-        std::string normSrc = NormalizeSubAnimPath(srcParam);
-        std::string normTgt = NormalizeSubAnimPath(tgtParam);
         INode* srcNode = ResolveNamedNode(srcObj, "Source object");
         INode* tgtNode = ResolveNamedNode(tgtObj, "Target object");
+        // Paths as list_wireable_params gives them, transform shorthands or
+        // base-object parameter names; both tracks are reached by handle.
+        const std::string srcRef = TrackScriptRef(RequireTrackPath(srcNode, srcParam, "Source track"));
+        const std::string tgtRef = TrackScriptRef(RequireTrackPath(tgtNode, tgtParam, "Target track"));
 
         std::string ms;
         ms += "(\n";
-        ms += "  local srcSA = execute \"" + NodeScriptRef(srcNode) + JsonEscape(normSrc) + "\"\n";
-        ms += "  local tgtSA = execute \"" + NodeScriptRef(tgtNode) + JsonEscape(normTgt) + "\"\n";
-        ms += "  if srcSA == undefined do throw \"Source track not found\"\n";
-        ms += "  if tgtSA == undefined do throw \"Target track not found\"\n";
+        ms += "  local srcSA = " + srcRef + "\n";
+        ms += "  local tgtSA = " + tgtRef + "\n";
+        // A wire expression sees the driving track by its name, spaces as
+        // underscores ("Width", "Z_Rotation"). An expression naming anything
+        // else evaluates to nothing and the driven track silently stays 0, so
+        // try it first with the driver's current value.
+        ms += "  fn mcpWireVar sa = substituteString (sa.name as string) \" \" \"_\"\n";
+        ms += "  fn mcpWireCheck expr var value expected = (\n";
+        ms += "    global __mcpWireProbe = value\n";
+        ms += "    local r = try (execute (\"(local \" + var + \" = __mcpWireProbe; \" + expr + \")\")) catch (#__mcpWireError)\n";
+        ms += "    __mcpWireProbe = undefined\n";
+        ms += "    local fits = r != undefined and r != #__mcpWireError and r != ok\n";
+        ms += "    if fits and superClassOf expected == Number do fits = superClassOf r == Number\n";
+        ms += "    if fits and classOf expected == Point3 do fits = classOf r == Point3\n";
+        ms += "    if not fits do throw (\"The expression '\" + expr + \"' does not evaluate to a \" + "
+              "((classOf expected) as string) + \" with \" + var + \" = \" + (value as string) + "
+              "\"; a wire expression can use \" + var + \" (the driving track) and MAXScript functions\")\n";
+        ms += "  )\n";
+        ms += "  local srcVar = mcpWireVar srcSA\n";
+        ms += "  local tgtVar = mcpWireVar tgtSA\n";
+        ms += "  local fwd = \"" + JsonEscape(expression) + "\"\n";
+        ms += "  if fwd == \"\" do fwd = srcVar\n";
+        ms += "  mcpWireCheck fwd srcVar srcSA.value tgtSA.value\n";
 
         // paramWire.connect/connect2Way return false when Max refuses the wire
         // (incompatible tracks, a dependency loop); the script then throws.
         if (twoWay) {
-            std::string fwdExpr = expression.empty() ? "target_value" : expression;
-            std::string revExpr = reverseExpr.empty() ? "target_value" : reverseExpr;
-            ms += "  if (paramWire.connect2way srcSA tgtSA \"" + JsonEscape(fwdExpr) + "\" \"" + JsonEscape(revExpr) +
-                  "\") == false do throw \"paramWire.connect2Way refused the wire\"\n";
+            ms += "  local rev = \"" + JsonEscape(reverseExpr) + "\"\n";
+            ms += "  if rev == \"\" do rev = tgtVar\n";
+            ms += "  mcpWireCheck rev tgtVar tgtSA.value srcSA.value\n";
+            ms += "  if (paramWire.connect2way srcSA tgtSA fwd rev) == false do "
+                  "throw \"paramWire.connect2Way refused the wire\"\n";
         } else {
-            std::string expr = expression.empty() ? "source_value" : expression;
-            ms += "  if (paramWire.connect srcSA tgtSA \"" + JsonEscape(expr) +
-                  "\") == false do throw \"paramWire.connect refused the wire\"\n";
+            ms += "  if (paramWire.connect srcSA tgtSA fwd) == false do throw \"paramWire.connect refused the wire\"\n";
         }
 
         ms += "  \"OK\"\n";
@@ -842,19 +862,21 @@ std::string NativeHandlers::UnwireParams(const std::string& params, MCPBridgeGUP
         if (name.empty() || paramPath.empty())
             throw std::runtime_error("name and param_path are required");
 
-        std::string normPath = NormalizeSubAnimPath(paramPath);
         INode* node = ResolveNamedNode(name, "Object");
 
         std::string ms;
         ms += "(\n";
-        ms += "  local sa = execute \"" + NodeScriptRef(node) + JsonEscape(normPath) + "\"\n";
-        ms += "  if sa == undefined do throw \"Track not found\"\n";
+        ms += "  local sa = " + TrackScriptRef(RequireTrackPath(node, paramPath)) + "\n";
         ms += "  if not (matchPattern ((classOf sa.controller) as string) pattern:\"*Wire*\") do\n";
         ms += "    throw (\"Track is not wired: \" + ((classOf sa.controller) as string))\n";
+        // The driven track keeps the value it shows now: disconnect leaves the
+        // driver's own value on it (30 wired as width*2 became 15).
+        ms += "  local held = sa.value\n";
         // paramWire.disconnect takes the wire controller itself and handles
         // one-way wires only.
         ms += "  if (paramWire.disconnect sa.controller) == false do\n";
         ms += "    throw \"paramWire.disconnect refused the track (it disconnects one-way wires only)\"\n";
+        ms += "  try (sa.value = held) catch ()\n";
         ms += "  \"OK\"\n";
         ms += ")\n";
 

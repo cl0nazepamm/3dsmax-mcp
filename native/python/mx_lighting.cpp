@@ -1906,9 +1906,11 @@ static Placed ResolveEffect(const EffectRef& r) {
     throw NotFound("effect #" + std::to_string(r.handle) + " was deleted");
 }
 
+// The instance's own name (SpecialFX::name, MAXScript .name), else the
+// plug-in's name: GetName() names the plug-in, not this effect.
 static std::string EffectName(SpecialFX* fx) {
-    std::string name = WideToUtf8(fx->GetName(false).data());
-    if (name.empty()) name = WideToUtf8(fx->name.data());
+    std::string name = WideToUtf8(fx->name.data());
+    if (name.empty()) name = WideToUtf8(fx->GetName(false).data());
     return name.empty() ? Cls(fx) : name;
 }
 

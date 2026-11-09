@@ -945,17 +945,22 @@ std::string NativeHandlers::GetMaterialSlots(const std::string& params, MCPBridg
         json boolSlots = json::array();
         json otherSlots = json::array();
 
+        // Every parameter is counted; max_slots caps only the slots listed for
+        // the requested scope, so a map scope is not starved by numeric
+        // parameters that come first in the block.
         int scanned = 0;
+        int listed = 0;
+        int inScope = 0;
+        std::map<std::string, int> categoryCounts{{"map", 0}, {"color", 0}, {"numeric", 0}, {"bool", 0}, {"other", 0}};
 
-        // Enumerate all PB2 parameters on the target material
         int numPB = targetMtl->NumParamBlocks();
-        for (int pb_idx = 0; pb_idx < numPB && scanned < maxSlots; pb_idx++) {
+        for (int pb_idx = 0; pb_idx < numPB; pb_idx++) {
             IParamBlock2* pb = targetMtl->GetParamBlock(pb_idx);
             if (!pb) continue;
             ParamBlockDesc2* desc = pb->GetDesc();
             if (!desc) continue;
 
-            for (int pi = 0; pi < desc->count && scanned < maxSlots; pi++) {
+            for (int pi = 0; pi < desc->count; pi++) {
                 ParamID pid = desc->IndextoID(pi);
                 const ParamDef& pd = desc->GetParamDef(pid);
 
@@ -964,22 +969,28 @@ std::string NativeHandlers::GetMaterialSlots(const std::string& params, MCPBridg
 
                 std::string paramName = pd.int_name ? WideToUtf8(pd.int_name) : ("param_" + std::to_string(pid));
                 std::string category = ClassifyParam(pd.type, paramName);
+                scanned++;
 
-                // Build slot entry
+                json* bucket = nullptr;
+                if (category == "map") bucket = &mapSlots;
+                else if (category == "color") bucket = &colorSlots;
+                else if (category == "numeric") bucket = &numericSlots;
+                else if (category == "bool") bucket = &boolSlots;
+                else { bucket = &otherSlots; category = "other"; }
+                categoryCounts[category]++;
+
+                // Summary lists nothing; map lists map slots, all every slot.
+                const bool listedScope = slotScope == "all" || (slotScope == "map" && category == "map");
+                if (!listedScope) continue;
+                inScope++;
+                if (listed >= maxSlots) continue;
                 json slot;
                 slot["name"] = paramName;
                 if (includeValues) {
                     slot["value"] = ReadMtlParamValue(pb, pid, pd.type, t);
                 }
-
-                // Route to the right category array
-                if (category == "map") mapSlots.push_back(slot);
-                else if (category == "color") colorSlots.push_back(slot);
-                else if (category == "numeric") numericSlots.push_back(slot);
-                else if (category == "bool") boolSlots.push_back(slot);
-                else otherSlots.push_back(slot);
-
-                scanned++;
+                bucket->push_back(slot);
+                listed++;
             }
         }
 
@@ -991,12 +1002,13 @@ std::string NativeHandlers::GetMaterialSlots(const std::string& params, MCPBridg
         result["inspectedCount"] = scanned;
 
         json counts;
-        counts["map"] = mapSlots.size();
-        counts["color"] = colorSlots.size();
-        counts["numeric"] = numericSlots.size();
-        counts["bool"] = boolSlots.size();
-        counts["other"] = otherSlots.size();
+        for (const auto& [category, count] : categoryCounts) counts[category] = count;
         result["counts"] = counts;
+        if (inScope > listed) {
+            result["max_slots_reached"] = true;
+            result["listedCount"] = listed;
+            result["inScopeCount"] = inScope;
+        }
 
         // Apply scope and truncation
         json truncated;

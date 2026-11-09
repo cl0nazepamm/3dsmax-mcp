@@ -522,11 +522,9 @@ json ApplyTransform(const PlannedOperation& item, TimeValue time) {
     if (item.args.contains("rotate")) {
         const Point3 degrees = ParseVector3(item.args["rotate"], "rotate", item.index);
         if (!IsZero(degrees)) {
-            const Quat x(AngAxis(Point3(1, 0, 0), DegToRad(degrees.x)));
-            const Quat y(AngAxis(Point3(0, 1, 0), DegToRad(degrees.y)));
-            const Quat z(AngAxis(Point3(0, 0, 1), DegToRad(degrees.z)));
             const Matrix3 before = item.target->GetNodeTM(time);
-            item.target->Rotate(time, axis, AngAxis(x * y * z), TRUE, TRUE, PIV_NONE, TRUE);
+            item.target->Rotate(time, axis, EulerDegreesToQuat(degrees.x, degrees.y, degrees.z), TRUE, TRUE,
+                                PIV_NONE, TRUE);
             check("rotate", before);
         }
     }
