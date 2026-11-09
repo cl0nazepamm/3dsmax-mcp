@@ -14,10 +14,10 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from maxmcp.helpers.material_tripback import PBR_RENDERER_REGISTRY
-from maxmcp.helpers.maxscript import safe_string
-from maxmcp.tools.material_detection import _renderer_from_material_class
-from maxmcp.tools._pbr_material_builder import (
+from maxmcp.tools.materials._material_tripback import PBR_RENDERER_REGISTRY
+from maxmcp.core.maxscript import safe_string
+from maxmcp.tools.materials._material_detection import _renderer_from_material_class
+from maxmcp.tools.materials._pbr_material_builder import (
     groups_need_uberbitmap_osl, pbr_helpers_preamble_lines,
     pbr_per_group_lines, pbr_renderer_setup_lines,
 )

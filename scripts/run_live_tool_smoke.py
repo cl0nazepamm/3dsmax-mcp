@@ -22,8 +22,8 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from maxmcp.max_client import MaxClient  # noqa: E402
-from maxmcp.tool_response import _json_or_raw  # noqa: E402
+from maxmcp.core.max_client import MaxClient  # noqa: E402
+from maxmcp.core.tool_response import _json_or_raw  # noqa: E402
 
 NATIVE_JSON = ROOT / "native" / "generated" / "tool_smoke_cases.json"
 FULL_JSON = ROOT / "native" / "generated" / "full_tool_smoke_cases.json"

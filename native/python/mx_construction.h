@@ -1,6 +1,6 @@
 // Parametric construction shared by curve models (mx_curves.cpp) and lofts
 // (mx_solids.cpp), as the curve_model and loft_mesh tools share
-// maxmcp/helpers/loft.py: named parameters, coordinate expressions over them,
+// maxmcp/tools/modeling/_loft.py: named parameters, coordinate expressions over them,
 // quad cages between matched sections, and the cage fingerprint both tools
 // record in AppData. Each follows that Python exactly, so a model made by
 // either side stays updatable from both.

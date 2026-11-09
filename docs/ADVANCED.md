@@ -100,7 +100,7 @@ Config file locations:
 
 ## How agents call tools
 
-MCP clients send every advertised tool definition with each model request. The server advertises five tools, about 2k Claude tokens: `run_python`, and `list_max_instances`, `select_max_instance`, `get_selected_max_instance` and `release_max_instance`, which choose the 3ds Max it talks to. The agent works by writing Python scripts against the `mx` API. Every other tool is a Python function in `maxmcp/tools`, called from a script as `mx.tools.<name>(**arguments)`; `mx.help("<name>")` prints its signature and manual, and `dir(mx.tools)` lists the names.
+MCP clients send every advertised tool definition with each model request. The server advertises five tools, about 2k Claude tokens: `run_python`, and `list_max_instances`, `select_max_instance`, `get_selected_max_instance` and `release_max_instance`, which choose the 3ds Max it talks to. The agent works by writing Python scripts against the `mx` API. Every other tool is a Python function in `maxmcp/tools`, called from a script as `mx.tools.<name>(**arguments)`. `mx.help()` lists the tools by group, `mx.help("<group>")` lists one group with signatures, `mx.find_tools("boolean subtract")` returns the manuals of the best matches, and `mx.help("<name>")` prints one tool's signature and manual.
 
 The `full`, `core` and `progressive` tool profiles of 1.x are gone, together with `MCP_TOOL_PROFILE`, `[mcp] tool_profile` and the `call_tool`, `list_toolsets` and `describe_toolset` tools. A setting left in `mcp_config.ini` or in a client's environment is ignored. To expose tools of your own, write your own MCP server around `maxmcp.mx`, which works from any Python process that can import `maxmcp`.
 

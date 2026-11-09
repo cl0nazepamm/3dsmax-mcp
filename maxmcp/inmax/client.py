@@ -8,8 +8,8 @@ import time
 from typing import Any, Callable, Optional
 from uuid import uuid4
 
-from .. import undo_scope
-from ..max_client import MaxBridgeError, MaxClient, MaxTargetMismatchError, _call_guard
+from ..core import undo_scope
+from ..core.max_client import MaxBridgeError, MaxClient, MaxTargetMismatchError, _call_guard
 from . import binding
 
 

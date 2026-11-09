@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT_PATH = ROOT / "native" / "generated" / "tool_smoke_cases.inc"
 
 sys.path.insert(0, str(ROOT))
-from scripts.gen_tool_registry import TOOLS_DIR, extract_tools  # noqa: E402
+from scripts.gen_tool_registry import extract_tools, module_of, tool_files  # noqa: E402
 
 SMOKE_TARGET = "MCP_SmokeTarget"
 SMOKE_SPAWN = "MCP_SmokeSpawn"
@@ -296,9 +296,7 @@ def input_for(name: str, schema: dict) -> dict:
 def collect_native_tools() -> list[dict]:
     tools: list[dict] = []
     seen: set[str] = set()
-    for path in sorted(TOOLS_DIR.glob("*.py")):
-        if path.name == "__init__.py":
-            continue
+    for path in tool_files():
         for t in extract_tools(path):
             if t["name"] in seen:
                 continue
@@ -306,7 +304,7 @@ def collect_native_tools() -> list[dict]:
             if not t["cmdType"].startswith("native:") and t["cmdType"] != "maxscript":
                 continue
             t = dict(t)
-            t["module"] = path.stem
+            t["module"] = module_of(path)
             tools.append(t)
     return sorted(tools, key=lambda x: x["name"])
 
@@ -317,9 +315,7 @@ def collect_all_mcp_tools() -> list[dict]:
 
     tools: list[dict] = []
     seen: set[str] = set()
-    for path in sorted(TOOLS_DIR.glob("*.py")):
-        if path.name == "__init__.py":
-            continue
+    for path in tool_files():
         source = path.read_text(encoding="utf-8")
         try:
             tree = ast.parse(source)
@@ -346,7 +342,7 @@ def collect_all_mcp_tools() -> list[dict]:
                 "name": node.name,
                 "cmdType": cmd_type,
                 "schema": schema,
-                "module": path.stem,
+                "module": module_of(path),
             })
     return sorted(tools, key=lambda x: x["name"])
 

@@ -69,7 +69,6 @@ packages = ["maxmcp"]
 "bundle/PackageContents.xml.in" = "maxmcp/bundle/PackageContents.xml.in"
 "skills/3dsmax-mcp-dev" = "maxmcp/skills/3dsmax-mcp-dev"
 "scripts/build_skill.py" = "maxmcp/scripts/build_skill.py"
-"scripts/render_signal_wait.ps1" = "maxmcp/scripts/render_signal_wait.ps1"
 
 [project.scripts]
 3dsmax-mcp = "maxmcp.server:main"

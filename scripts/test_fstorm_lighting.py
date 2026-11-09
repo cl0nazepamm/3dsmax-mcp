@@ -14,8 +14,8 @@ from unittest.mock import patch
 from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from maxmcp.helpers import lighting as l
-from maxmcp.helpers import fstorm_lighting as fs
+from maxmcp.tools.lighting import _lighting as l
+from maxmcp.tools.lighting import _fstorm_lighting as fs
 
 
 # Selected native PB2 descriptors captured on FStorm 2.0.0Z / Max 2027.2.

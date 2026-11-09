@@ -213,7 +213,7 @@ static std::string CreateHint(SClass_ID sid, const std::string& name) {
 
 // ── Provider enums ───────────────────────────────────────────────
 // Named values of int parameters whose plugins publish no enum, taken from the
-// providers' own scripts and UI (the same table as maxmcp/helpers/plugin_semantics.py).
+// providers' own scripts and UI (the same table as maxmcp/tools/inspection/_plugin_semantics.py).
 
 struct Choice { const char* name; int value; };
 

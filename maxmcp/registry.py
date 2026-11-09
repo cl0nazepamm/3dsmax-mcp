@@ -1,6 +1,8 @@
 """Every 3dsmax-mcp tool as a Python function, found by name and imported on first use.
 
-Tool modules in maxmcp/tools declare their tools with @mcp.tool(). MCP clients see only
+maxmcp/tools holds one folder per subject. In each, the modules without a leading
+underscore declare tools with @mcp.tool(), the underscore modules are their private
+helpers, and the docstring of __init__.py describes the group. MCP clients see only
 run_python and the instance routing tools; scripts call the rest as
 mx.tools.<name>(**arguments). The MCP server process and maxmcp.inmax inside 3ds Max
 each hold one ToolRegistry, so a call is validated and wrapped the same way in both.
@@ -10,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import re
 import threading
 from difflib import get_close_matches
 from functools import wraps
@@ -47,16 +50,36 @@ def _decorated_tool_name(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str | 
     return None
 
 
-def module_tool_names(path: Path) -> tuple[str, ...]:
-    """The @mcp.tool() names one source file declares, in order, without importing it."""
+def module_tools(path: Path) -> tuple[tuple[str, str], ...]:
+    """(name, docstring) of each @mcp.tool() function one source file declares, in order, without importing it."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    found: list[tuple[int, str]] = []
+    found: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             name = _decorated_tool_name(node)
             if name:
-                found.append((node.lineno, name))
-    return tuple(name for _, name in sorted(found))
+                found.append((node.lineno, name, ast.get_docstring(node) or ""))
+    return tuple((name, doc) for _, name, doc in sorted(found))
+
+
+def module_tool_names(path: Path) -> tuple[str, ...]:
+    """The @mcp.tool() names one source file declares, in order."""
+    return tuple(name for name, _ in module_tools(path))
+
+
+def summary_line(doc: str) -> str:
+    """A docstring's first non-empty line."""
+    return next((line.strip() for line in doc.splitlines() if line.strip()), "")
+
+
+_WORD = re.compile(r"[a-z0-9]+")
+_STOP_WORDS = frozenset("a an and as at by for from in into is it of on or the to with 3ds max tool tools".split())
+
+
+def _search_words(text: str) -> set[str]:
+    """Lowercase search terms with stop words dropped and a plural 's' trimmed."""
+    words = (word[:-1] if len(word) > 3 and word.endswith("s") else word for word in _WORD.findall(text.lower()))
+    return {word for word in words if word not in _STOP_WORDS}
 
 
 _TYPE_NAMES = {"string": "str", "integer": "int", "number": "float", "boolean": "bool", "null": "None"}
@@ -170,6 +193,8 @@ class ToolRegistry:
         self._tools_dir = tools_dir
         self._package = package
         self._index: dict[str, str] | None = None
+        self._docs: dict[str, str] = {}
+        self._groups: dict[str, tuple[str, tuple[str, ...]]] = {}
         self._wrapped: dict[str, Callable[..., dict[str, Any]]] = {}
         self._lock = threading.RLock()
 
@@ -191,19 +216,61 @@ class ToolRegistry:
 
     @property
     def index(self) -> dict[str, str]:
-        """Tool name -> the module that declares it, read from source."""
+        """Tool name -> the module that declares it ("modeling.booleans"), read from source."""
         with self._lock:
             if self._index is None:
                 index: dict[str, str] = {}
-                for path in sorted(self._tools_dir.glob("*.py")):
-                    if path.stem.startswith("_") or path.stem in self._skip:
+                for folder in sorted(self._tools_dir.iterdir()):
+                    init = folder / "__init__.py"
+                    if folder.name.startswith("_") or not init.is_file():
                         continue
-                    for name in module_tool_names(path):
-                        if name in index:
-                            raise RuntimeError(f"Tool {name!r} is declared by both {index[name]!r} and {path.stem!r}")
-                        index[name] = path.stem
+                    names: list[str] = []
+                    for path in sorted(folder.glob("*.py")):
+                        if path.stem.startswith("_") or path.stem in self._skip:
+                            continue
+                        for name, doc in module_tools(path):
+                            if name in index:
+                                raise RuntimeError(
+                                    f"Tool {name!r} is declared by both {index[name]!r} and {folder.name}.{path.stem}")
+                            index[name] = f"{folder.name}.{path.stem}"
+                            self._docs[name] = doc
+                            names.append(name)
+                    if names:
+                        description = ast.get_docstring(ast.parse(init.read_text(encoding="utf-8"))) or ""
+                        self._groups[folder.name] = (" ".join(description.split()), tuple(names))
                 self._index = index
             return self._index
+
+    def groups(self) -> dict[str, tuple[str, tuple[str, ...]]]:
+        """Group name -> (what the group covers, its tool names); one group per folder of maxmcp/tools."""
+        self.index
+        return self._groups
+
+    def summary(self, name: str) -> str:
+        """The first line of a tool's manual, read from source."""
+        self.index
+        return summary_line(self._docs.get(name, ""))
+
+    def search(self, query: str) -> list[str]:
+        """Tool names ranked by how well their name, manual and group match the words of `query`."""
+        terms = _search_words(query)
+        scored: list[tuple[int, str]] = []
+        for group, (description, names) in self.groups().items():
+            group_words = _search_words(f"{group.replace('_', ' ')} {description}")
+            for name in names:
+                name_words = _search_words(name.replace("_", " "))
+                doc_words = _search_words(self._docs[name])
+                score = 0
+                for term in terms:
+                    if term in name_words:
+                        score += 4
+                    elif len(term) >= 4 and any(
+                            word.startswith(term) or term.startswith(word) for word in name_words if len(word) >= 4):
+                        score += 2
+                    score += (term in doc_words) + (term in group_words)
+                if score:
+                    scored.append((-score, name))
+        return [name for _, name in sorted(scored)]
 
     def function(self, name: str) -> Callable[..., Any] | None:
         """The tool's own function, importing its module if this is its first use."""
@@ -220,14 +287,14 @@ class ToolRegistry:
                 fn = self.function(name)
                 if fn is None:
                     return None
-                from .tool_response import make_structured_tool
+                from .core.tool_response import make_structured_tool
 
                 self._wrapped[name] = make_structured_tool(
                     _validated(fn),
                     before_call=self.client.clear_last_response,
                     transport_provider=self.client.get_last_transport,
                     # The routing tools pick the target, so they take no expected_pid.
-                    pid_guard=self.index[name] != "routing",
+                    pid_guard=not self.index[name].endswith(".routing"),
                 )
             return self._wrapped[name]
 

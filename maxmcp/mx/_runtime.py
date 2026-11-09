@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import threading
 import time
+from difflib import get_close_matches
 from importlib import import_module
 from typing import Any, Callable
 
@@ -112,8 +113,18 @@ def _names() -> set[str]:
     return set(_source("names").names())
 
 
-def help(name: str) -> str:  # noqa: A001 - mirrors Python's help() for tools
-    """The full manual of one tool, with its Python signature; "sdk..." documents the sdk module."""
+def _tool_help(name: str) -> str:
+    signature, manual, _ = _describe(name)
+    return f"{name}{signature}\n\n{manual}"
+
+
+def help(name: str = "") -> str:  # noqa: A001 - mirrors Python's help() for tools
+    """What mx.tools offers, as text to print.
+
+    help() lists every tool by group. help("modeling") lists one group with each tool's
+    signature and summary. help("boolean_operation") is one tool's signature and full manual.
+    "sdk", "sdk.Node" and "sdk.Node.pos" document the sdk module inside 3ds Max.
+    """
     if name == "sdk" or name.startswith("sdk."):
         import sys
 
@@ -127,11 +138,44 @@ def help(name: str) -> str:  # noqa: A001 - mirrors Python's help() for tools
             return _reference.help_text(module, name)
         except LookupError as exc:
             raise MaxToolError(name, {"code": "NOT_FOUND", "message": str(exc)}) from None
-    described = _describe(name)
-    if described is None:
-        raise MaxToolError(name, {"code": "NOT_FOUND", "message": f"unknown tool {name!r}"})
-    signature, manual, _ = described
-    return f"{name}{signature}\n\n{manual}"
+    groups = _source("groups").groups()
+    if not name:
+        lines = ['mx.tools by group. mx.help("<group>") lists one, mx.help("<tool>") is a tool\'s manual, '
+                 'mx.find_tools("words") searches.']
+        for group, (description, names) in groups.items():
+            listed = [tool for tool in names if tool not in _BLOCKED]
+            lines.append(f"\n{group}: {description}\n  " + ", ".join(listed))
+        return "\n".join(lines)
+    if name in groups:
+        description, names = groups[name]
+        registry = _source("summary")
+        lines = [f"{name}: {description}"]
+        for tool in names:
+            if tool not in _BLOCKED:
+                lines.append(f"\n{tool}{_describe(tool)[0]}\n  {registry.summary(tool)}")
+        return "\n".join(lines)
+    if _describe(name) is None:
+        close = get_close_matches(name, sorted(_names() - _BLOCKED), n=3, cutoff=0.6)
+        raise MaxToolError(name, {"code": "NOT_FOUND", "message": (
+            f"unknown tool {name!r}." + (f" Did you mean {', '.join(close)}?" if close else "")
+            + " mx.help() lists every tool by group.")})
+    return _tool_help(name)
+
+
+def find_tools(query: str, limit: int = 3) -> str:
+    """Search the tools by what you need, e.g. "boolean subtract" or "spline knots".
+
+    Returns the signature and manual of the best matches, as text to print, and names the
+    other tools that matched.
+    """
+    ranked = [name for name in _source("search").search(query) if name not in _BLOCKED]
+    if not ranked:
+        return f'No tool matches {query!r}. Try other words; mx.help() lists every tool by group.'
+    limit = max(1, min(int(limit), 10))
+    text = ("\n\n" + "-" * 60 + "\n\n").join(_tool_help(name) for name in ranked[:limit])
+    if ranked[limit:]:
+        text += "\n\n" + "-" * 60 + "\n\nAlso matching: " + ", ".join(ranked[limit:limit + 10])
+    return text
 
 
 class _Tools:

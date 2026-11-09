@@ -11,7 +11,7 @@ single tool can: tool choice, cross-tool workflows, safety rules and MAXScript p
 ## Calling Tools
 
 - The server lists five tools: `run_python`, and four that choose the 3ds Max it talks to. Every other tool this guide names is a Python function: call it inside a `run_python` script as `mx.tools.<name>(**arguments)`, never as a top-level tool.
-- `mx.help("<name>")` prints a tool's signature and manual, and `dir(mx.tools)` lists the names. Pass Python values (numbers, lists, dicts), not strings of them. A wrong argument name or type raises `mx.MaxToolError` with `BAD_PARAM` and the signature, and nothing is sent to Max.
+- `mx.help()` lists every tool by group, `mx.help("<group>")` lists one group with signatures, `mx.find_tools("boolean subtract")` returns the manuals of the best matches, and `mx.help("<name>")` prints one tool's signature and manual. Pass Python values (numbers, lists, dicts), not strings of them. A wrong argument name or type raises `mx.MaxToolError` with `BAD_PARAM` and the signature, and nothing is sent to Max.
 
 ## Principles
 

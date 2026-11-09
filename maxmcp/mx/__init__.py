@@ -5,8 +5,9 @@
     print(block.bbox)
 
 Hand-made helpers live in the domain modules (objects, modeling, shading, view) and
-are re-exported here. Every tool is also callable as mx.tools.<name>(**arguments);
-mx.help(name) returns its manual and mx.maxscript(code) runs raw MAXScript.
+are re-exported here. Every tool is also callable as mx.tools.<name>(**arguments).
+mx.help() lists the tools by group, mx.find_tools("words") searches them, mx.help(name)
+returns one tool's manual and mx.maxscript(code) runs raw MAXScript.
 
 Inside 3ds Max, run_python also sets mx.sdk (and `sdk` in the script): the _mx scene
 object model bound from the 3ds Max SDK. mx.help("sdk") documents it.
@@ -17,10 +18,12 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
-from ._runtime import MaxToolError, Node, call, help, maxscript, ms_value, node_name, set_backend, tools
+from ._runtime import (MaxToolError, Node, call, find_tools, help, maxscript, ms_value, node_name, set_backend,
+                       tools)
 
 _DOMAINS = ("objects", "modeling", "shading", "view")
-_CORE = ["MaxToolError", "Node", "call", "help", "maxscript", "ms_value", "node_name", "set_backend", "tools"]
+_CORE = ["MaxToolError", "Node", "call", "find_tools", "help", "maxscript", "ms_value", "node_name", "set_backend",
+         "tools"]
 
 
 def __getattr__(name: str) -> Any:

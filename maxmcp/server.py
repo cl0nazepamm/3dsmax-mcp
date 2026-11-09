@@ -17,15 +17,16 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from .max_client import MaxClient
+from .core.max_client import MaxClient
+from .core.tool_response import make_structured_tool
 from .registry import ToolRegistry
-from .tool_response import make_structured_tool
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 _INSTRUCTIONS = (
     "Work in 3ds Max by writing run_python scripts against the mx API; it is the only operational tool. "
-    "mx.tools.<name>(**arguments) runs any of the ~180 3dsmax-mcp tools and mx.help(name) prints its manual."
+    "mx.tools.<name>(**arguments) runs any of the ~180 3dsmax-mcp tools. mx.help() lists them by group, "
+    "mx.find_tools('what you need') searches them, and mx.help(name) prints one tool's manual."
 )
 
 mcp = FastMCP("3dsmax-mcp", instructions=_INSTRUCTIONS)
@@ -36,8 +37,8 @@ registry = ToolRegistry(client, skip=("python_api",))
 if __name__ == "__main__" and __spec__ is not None:
     sys.modules.setdefault(__spec__.name, sys.modules[__name__])
 
-# The modules whose tools MCP clients see.
-_ADVERTISED_MODULES = ("routing", "python_api")
+# The modules of maxmcp/tools whose tools MCP clients see.
+_ADVERTISED_MODULES = ("system.routing", "system.python_api")
 _READ_ONLY_TOOLS = frozenset({"list_max_instances", "get_selected_max_instance"})
 
 
@@ -47,14 +48,14 @@ def _install_tool_decorator() -> None:
 
     def register(fn: Any, name: str | None = None) -> Any:
         registry.add(fn, name)
-        module = fn.__module__.rsplit(".", 1)[-1]
+        module = fn.__module__.partition(".tools.")[2]
         if module in _ADVERTISED_MODULES:
             wrapped = make_structured_tool(
                 fn,
                 before_call=client.clear_last_response,
                 transport_provider=client.get_last_transport,
                 # The routing tools pick the target, so they take no expected_pid.
-                pid_guard=module != "routing",
+                pid_guard=module != "system.routing",
             )
             read_only = (name or fn.__name__) in _READ_ONLY_TOOLS
             advertise(name=name, annotations=ToolAnnotations(readOnlyHint=True) if read_only else None)(wrapped)
@@ -72,7 +73,7 @@ _install_tool_decorator()
 for _module in _ADVERTISED_MODULES:
     import_module(f".tools.{_module}", package=__package__)
 # Its @mcp.resource() entries (plugin manifests and guides) exist once it is imported.
-import_module(".tools.plugins", package=__package__)
+import_module(".tools.inspection.plugins", package=__package__)
 
 
 SKILL_RESOURCE_URI = "resource://3dsmax-mcp/skill"
@@ -148,14 +149,14 @@ def max_assistant() -> str:
 
 
 def main():
-    from .parent_watchdog import start_parent_watchdog
+    from .core.parent_watchdog import start_parent_watchdog
 
     start_parent_watchdog()
     mcp.run(transport="stdio")
     # Client closed stdin: exit even if non-daemon threads linger, but never
     # while a diagnostics capture holds a Max thread suspended.
     try:
-        from .suspend_guard import release_all
+        from .core.suspend_guard import release_all
 
         release_all()
         for stream in (sys.stdout, sys.stderr):
