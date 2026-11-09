@@ -125,6 +125,12 @@ Node FindNode(nb::handle key) {
         Resolve(n);
         return n;
     }
+    // An mx.Node from the tool layer (or anything with handle and name):
+    // its handle when it has one, else its name.
+    if (!nb::isinstance<nb::str>(key) && nb::hasattr(key, "handle") && nb::hasattr(key, "name")) {
+        nb::object handle = key.attr("handle");
+        return FindNode(IsInteger(handle) ? handle : key.attr("name"));
+    }
     if (!nb::isinstance<nb::str>(key))
         throw BadParam("node() takes a name, a handle or a Node, not " + TypeNameOf(key));
     const std::string name = nb::cast<std::string>(key);

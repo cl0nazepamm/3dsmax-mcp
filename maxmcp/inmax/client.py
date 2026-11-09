@@ -7,7 +7,8 @@ import time
 from typing import Any, Callable, Optional
 from uuid import uuid4
 
-from ..max_client import MaxClient
+from .. import undo_scope
+from ..max_client import MaxBridgeError, MaxClient
 from . import binding
 
 
@@ -36,10 +37,18 @@ class InProcessClient(MaxClient):
         probe: bool = False,
         job_wait: float | None = None,
     ) -> dict[str, Any]:
+        if cmd_type == "native:max_dialogs":
+            # Dialogs are read and answered from outside Max's main thread, which
+            # a script running on that thread cannot provide.
+            raise MaxBridgeError(json.dumps({
+                "code": "BAD_PARAM", "type": "NativeError",
+                "message": "max_dialogs cannot run inside a run_python script that runs in 3ds Max; call it from "
+                           "run_python(where='server')"}), {"success": False})
         request_id = uuid4().hex
         started_at = time.perf_counter()
         self._reset_response()
         request = json.dumps({
+            **undo_scope.request_fields(command, cmd_type),
             **(request_fields or {}),
             "command": command,
             "type": cmd_type,

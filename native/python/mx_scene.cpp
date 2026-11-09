@@ -882,15 +882,16 @@ void BindScene(nb::module_& m) {
     m.def("undo", []() -> std::optional<std::string> {
         RequireMain();
         // Max ignores an undo while a hold is open, and the handler would then
-        // report an empty stack. run_python makes the whole script one step with
-        // SuperBegin, which Holding() does not report.
-        if (theHold.Holding() || theHold.GetSuperBeginDepth() > 0)
-            throw MaxError("undo() cannot run while an undo step is open, as it is for the rest of a run_python "
-                           "script; undo from a separate script or call");
+        // report an empty stack. A run_python script's own step is the
+        // exception: the bridge closes it around the undo (script_hold).
+        if (!ScriptStepActive() && (theHold.Holding() || theHold.GetSuperBeginDepth() > 0))
+            throw MaxError("undo() cannot run while another undo operation is open; finish or cancel it first");
         const json result = NativeJson("native:undo_last", json::object());
         if (!result.value("undone", false)) return std::nullopt;
         return result.value("entry", std::string());
-    }, "Undo the last scene operation; returns the undo entry's name ('' if unnamed), or None when nothing was undone.");
+    }, "Undo the last scene operation; returns the undo entry's name ('' if unnamed), or None when nothing was "
+       "undone. In a run_python script, what the script changed so far becomes its own undo step first, so undo() "
+       "undoes that, or the step before the script when it has changed nothing yet.");
 }
 
 } // namespace MX_ABI_TAG

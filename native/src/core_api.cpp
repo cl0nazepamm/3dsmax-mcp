@@ -1,5 +1,6 @@
 // The core's export: McpCoreApi over the command dispatcher. Every entry point
 // catches everything; no exception leaves the core.
+#include "mcp_bridge/script_hold.h"
 #include "mcp_bridge/core_api.h"
 #include "mcp_bridge/core_bridge.h"
 #include "mcp_bridge/command_dispatcher.h"
@@ -32,6 +33,12 @@ int Initialize(const McpHostApi* host, McpSink error) noexcept {
 int Shutdown(McpSink error) noexcept {
     if (NativeHandlers::SceneWatcherCallbackActive()) {
         McpWriteText(error, "a 3ds Max notification is running inside the native core; retry");
+        return 1;
+    }
+    // The script's open undo step lives in this module; a new core would not
+    // know to close it.
+    if (ScriptHold::Active()) {
+        McpWriteText(error, "a run_python script is running inside 3ds Max; reload after it finishes");
         return 1;
     }
     g_initialized = false;

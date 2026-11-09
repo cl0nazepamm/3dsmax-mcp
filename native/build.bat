@@ -78,6 +78,21 @@ if not exist "%BUNDLE_BIN%" mkdir "%BUNDLE_BIN%"
 copy /Y "%STAGED_GUP%" "%BUNDLE_BIN%\mcp_bridge_%MAX_VERSION%.gup" >nul
 if errorlevel 1 exit /b 1
 
+:: _mx (run_python's sdk) ships beside the bridge built with it, for the 3ds Max
+:: versions native\CMakeLists.txt records a Python version for.
+set "BUILT_MX_DIR=%BUILD_DIR%\Release\python"
+set "STAGED_MX_DIR=%OUT_DIR%\mx_%MAX_VERSION%"
+if exist "%BUILT_MX_DIR%\_mx.*.pyd" (
+    if exist "%STAGED_MX_DIR%" rmdir /S /Q "%STAGED_MX_DIR%"
+    mkdir "%STAGED_MX_DIR%"
+    copy /Y "%BUILT_MX_DIR%\_mx.*.pyd" "%STAGED_MX_DIR%\" >nul
+    if errorlevel 1 exit /b 1
+    if exist "%BUNDLE_BIN%\mx_%MAX_VERSION%" rmdir /S /Q "%BUNDLE_BIN%\mx_%MAX_VERSION%"
+    xcopy /I /Y /Q "%STAGED_MX_DIR%" "%BUNDLE_BIN%\mx_%MAX_VERSION%" >nul
+    if errorlevel 1 exit /b 1
+    echo Staged %STAGED_MX_DIR%
+)
+
 exit /b 0
 
 :fail

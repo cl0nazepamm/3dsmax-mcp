@@ -301,6 +301,13 @@ def stage_bundle(dest: Path, allow_hot_shell: bool = False) -> tuple[list[int], 
                 raise RuntimeError(f"{src} is a development bridge that loads its core from the build tree; "
                                    f"build the release bridge with native\\build.bat {year}")
             shutil.copy2(src, bin_dir / src.name)
+            # run_python's sdk (_mx), built with this bridge when its build made one.
+            mx_dir = src.parent / f"mx_{year}"
+            modules = sorted(mx_dir.glob("_mx.*.pyd")) if mx_dir.is_dir() else []
+            if modules:
+                (bin_dir / mx_dir.name).mkdir(exist_ok=True)
+                for module in modules:
+                    shutil.copy2(module, bin_dir / mx_dir.name / module.name)
             included.append(year)
         else:
             missing.append(year)

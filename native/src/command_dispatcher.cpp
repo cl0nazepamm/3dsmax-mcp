@@ -4,6 +4,7 @@
 #include "mcp_bridge/handler_helpers.h"
 #include "mcp_bridge/quiet_policy.h"
 #include "mcp_bridge/response_envelope.h"
+#include "mcp_bridge/script_hold.h"
 #include "mcp_bridge/transaction_policy.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -198,7 +199,7 @@ static std::string NormalizeNativeError(const std::string& message) {
 
 class NativeUndoTransaction {
 public:
-    explicit NativeUndoTransaction(const std::string& cmd_type)
+    explicit NativeUndoTransaction(const std::string& cmd_type, const std::string& label = "")
         : active_(false) {
         // Never append MCP writes to another operation's global undo hold.
         // Reject before invoke() so its restore records and scene stay untouched.
@@ -210,8 +211,8 @@ public:
                 {"retryable", true}
             }.dump());
         }
-        std::wstring label = L"MCP " + HandlerHelpers::Utf8ToWide(cmd_type);
-        label_ = MSTR(label.c_str());
+        std::wstring text = HandlerHelpers::Utf8ToWide(label.empty() ? "MCP " + cmd_type : label);
+        label_ = MSTR(text.c_str());
         theHold.Begin();
         active_ = true;
     }
@@ -238,6 +239,22 @@ private:
     bool active_;
     MSTR label_;
 };
+
+// MAXScript that a scene-changing tool sends with an "undo" label (the
+// tool's own script runs without a hold, so Max could not undo it, and a
+// failed run_python script could not roll it back). Refused like a native
+// write while another undo operation is open; a MAXScript error cancels it.
+static std::string HandleMaxScript(const std::string& command, bool quiet);
+static std::string HandleMaxScriptUndoable(const std::string& command, bool quiet, const std::string& label) {
+    return McpHost::RunOnMainThread([&]() -> std::string {
+        NativeUndoTransaction tx("maxscript", label);
+        std::string result = HandleMaxScript(command, quiet);
+        const std::string sentinel = HandlerHelpers::MaxScriptErrorSentinel();
+        if (result.compare(0, sentinel.size(), sentinel) == 0) tx.Cancel();
+        else tx.Accept();
+        return result;
+    });
+}
 
 // RAII guard — enables direct mode on construction and restores the previous
 // mode on destruction, so a nested Dispatch never clears its caller's mode.
@@ -405,9 +422,20 @@ static std::string HandleMaxScript(
         if (fpv.type == TYPE_BOOL) {
             return fpv.i ? "true" : "false";
         }
+        // Point3, color, matrix, array, node...: print the value as MAXScript
+        // shows it ("[10,20,0]"), not "OK". Printed from the FPValue itself;
+        // the command is never evaluated again.
+        if (fpv.type != TYPE_VOID) {
+            try {
+                ScopedMaxScriptEvaluationContext context;
+                if (Value* value = InterfaceFunction::FPValue_to_val(fpv)) {
+                    StringStream* text = new StringStream(0);
+                    value->sprin1(text);
+                    return WideToUtf8(text->to_string());
+                }
+            } catch (...) {}
+        }
 
-        // Do not re-evaluate the command just to stringify the result.
-        // That doubled work on non-trivial MAXScript paths.
         return "OK";
     });
 }
@@ -447,10 +475,15 @@ std::string CommandDispatcher::Dispatch(
     DirectModeGuard dmg(direct);
 
     try {
+        // A run_python script's own call steps out of the script's open undo
+        // step for its duration (script_hold.h).
+        ScriptHold::Step scriptStep(client_session_id, cmd_type, command);
         auto invoke = [&]() -> std::string {
         std::string result;
 
-        if (cmd_type == "native:plugin_inspect") {
+        if (cmd_type == "native:script_hold") {
+            result = ScriptHold::Handle(command);
+        } else if (cmd_type == "native:plugin_inspect") {
             result = NativeHandlers::PluginInspect(command, gup);
         } else if (cmd_type == "native:plugin_patch") {
             result = NativeHandlers::PluginPatch(command, gup);
@@ -468,7 +501,11 @@ std::string CommandDispatcher::Dispatch(
             bool overridden = false;
             const bool quiet = QuietPolicy::ResolveQuiet(command, explicitQuiet, &overridden);
             if (overridden) tl_quiet_override = "file_command";
-            result = HandleMaxScript(command, quiet);
+            const std::string undoLabel = req.contains("undo") && (req["undo"].is_string)()
+                ? req["undo"].get<std::string>() : std::string();
+            // Never around a file command: replacing the scene inside a hold is unsafe.
+            result = undoLabel.empty() || QuietPolicy::MentionsSceneFileCommand(command)
+                ? HandleMaxScript(command, quiet) : HandleMaxScriptUndoable(command, quiet, undoLabel);
         // Native handlers
         } else if (cmd_type == "native:scene_info") {
             result = NativeHandlers::SceneInfo(command, gup);

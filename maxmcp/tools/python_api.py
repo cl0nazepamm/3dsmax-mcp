@@ -58,17 +58,27 @@ def _run_in_server(code: str, timeout_s: float) -> dict[str, Any]:
 def _launcher(code: str, timeout_s: float) -> str:
     """MAXScript that runs the script through maxmcp.inmax inside Max and returns its JSON reply.
 
-    No hold may be open around the script: the runner groups its tool calls with
-    theHold.SuperBegin, and inside a hold every tool call refuses with USER_BUSY. So no
-    `undo on`, and no python.Execute either, which runs its code inside a hold of its own;
-    builtins.exec called through python.import opens none.
+    No hold may be open around the script: the runner opens the script's own undo step
+    (script_hold), which refuses while another hold is open. So no `undo on`, and no
+    python.Execute either, which runs its code inside a hold of its own; builtins.exec
+    called through python.import opens none.
+
+    Max keeps imported modules for the session, so maxmcp is imported anew when its
+    source changed since the last script (a development checkout, or an upgrade).
     """
     root = str(Path(__file__).resolve().parents[2])
+    package = str(Path(__file__).resolve().parents[1])
     site = sysconfig.get_paths()["purelib"]
     source = (
-        "import sys\n"
+        "import os, sys\n"
         f"for _path in ({root!r}, {site!r}):\n"
         "    if _path not in sys.path: sys.path.append(_path)\n"
+        f"_stamp = max((os.path.getmtime(os.path.join(_d, _f)) for _d, _, _fs in os.walk({package!r}) "
+        "for _f in _fs if _f.endswith('.py')), default=0)\n"
+        "if getattr(sys, '_maxmcp_stamp', None) != _stamp:\n"
+        "    for _name in [n for n in sys.modules if n == 'maxmcp' or n.startswith('maxmcp.')]:\n"
+        "        del sys.modules[_name]\n"
+        "    sys._maxmcp_stamp = _stamp\n"
         "import maxmcp.inmax.runner as _runner\n"
         f"_runner.launch({code!r}, {float(timeout_s)!r}, {tuple(sys.version_info[:2])!r})\n"
     )
@@ -124,11 +134,20 @@ def run_python(code: str, timeout_s: float = 300, where: str = "auto") -> dict:
     (x, y, z).
 
     Where it runs (`ran_in` in the reply): inside 3ds Max when the bridge allows Python
-    (safe_mode off) and Max's Python matches the server's. There `rt` (pymxs.runtime) and
-    pymxs are in scope too, and the script's tool calls are ONE undo step, rolled back
-    entirely if the script raises. Otherwise in the MCP server: imports limited to mx and the
-    standard math/json/re family, each tool call its own undo step. where="max" or "server"
-    forces one.
+    (safe_mode off) and Max's Python matches the server's. There `sdk`, `rt` (pymxs.runtime)
+    and pymxs are in scope too, and everything the script changes (tool calls, sdk and rt
+    edits) is ONE undo step, rolled back entirely if the script raises. An undo inside the
+    script (mx.tools.undo_last(), sdk.undo()) first commits what it changed so far as its own
+    step. Otherwise in the MCP server: imports limited to mx and the standard math/json/re
+    family, each tool call its own undo step. where="max" or "server" forces one.
+
+    sdk (inside Max; also mx.sdk): the scene object model bound straight from the 3ds Max SDK,
+      calls in microseconds. sdk.node("Ball"), sdk.nodes("Wall*"), sdk.create("Sphere", "Ball",
+      pos=(0, 0, 10), radius=10), node.pos / .rot (degrees) / .scale settable, node.params.radius = 12,
+      node.add_modifier("Bend", angle=30), node.modifiers, node.material = sdk.material("PhysicalMaterial",
+      "Red", base_color=(1, 0, 0)), with sdk.at(10): ..., with sdk.animate(): ..., node.bbox,
+      sdk.contacts(nodes). mx.help("sdk") lists it all, mx.help("sdk.Node") one class. sdk nodes and
+      mx.Node are separate types; each side accepts the other's nodes.
 
     Objects (return mx.Node): mx.box(name, width, length, height, pos=(x,y,z), pos_mode="ground"|"center"),
       mx.sphere(name, radius, pos, pos_mode), mx.cylinder(name, radius, height, pos, pos_mode),

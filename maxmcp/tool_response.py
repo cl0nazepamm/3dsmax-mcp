@@ -16,6 +16,7 @@ from typing import Annotated, Any, Callable, get_type_hints
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from . import undo_scope
 from .max_client import expect_pid
 
 from .helpers.error_hints import (
@@ -632,7 +633,7 @@ def make_structured_tool(
         expected_pid = kwargs.pop(EXPECTED_PID_PARAM, None) if pid_guard else None
         script = _script_from_call(tool_name, args, kwargs)
         try:
-            with expect_pid(expected_pid):
+            with expect_pid(expected_pid), undo_scope.tool_scope(tool_name):
                 raw = fn(*args, **kwargs)
             elapsed_ms = (time.perf_counter() - started_at) * 1000.0
             transport = transport_provider() if transport_provider else None

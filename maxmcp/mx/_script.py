@@ -28,6 +28,11 @@ def plain(value: Any, depth: int = 0) -> Any:
         return value
     if isinstance(value, Node):
         return {"name": value.name, "handle": value.handle}
+    if type(value).__module__ == "_mx" and type(value).__name__ == "Node":
+        try:
+            return {"name": value.name, "handle": value.handle}
+        except Exception:  # noqa: BLE001 - a deleted sdk node
+            return repr(value)
     if isinstance(value, dict):
         return {str(k): plain(v, depth + 1) for k, v in value.items()}
     if isinstance(value, (list, tuple, set, frozenset)):

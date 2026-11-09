@@ -55,3 +55,6 @@ bundle/Contents/scripts/
 dev.bat
 native/dev.bat
 native/deploy.bat
+
+# _mx staged beside the bundled bridges (native/build.bat)
+bundle/Contents/bin/mx_*/

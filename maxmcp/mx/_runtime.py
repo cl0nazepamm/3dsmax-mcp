@@ -78,8 +78,11 @@ def end_run() -> None:
     _local.run = None
 
 
-def call(tool: str, **arguments: Any) -> Any:
-    """Run one tool by name and return its result; raise MaxToolError on failure."""
+def call(tool: str, /, **arguments: Any) -> Any:
+    """Run one tool by name and return its result; raise MaxToolError on failure.
+
+    `tool` is positional-only, so a tool may take an argument named `tool` (invoke_tool).
+    """
     if tool in _BLOCKED:
         raise MaxToolError(tool, {"code": "BAD_PARAM", "message": f"{tool} cannot be called from mx"})
     run = getattr(_local, "run", None)
@@ -141,7 +144,20 @@ def _names() -> set[str]:
 
 
 def help(name: str) -> str:  # noqa: A001 - mirrors Python's help() for tools
-    """The full manual of one tool, with its Python signature."""
+    """The full manual of one tool, with its Python signature; "sdk..." documents the sdk module."""
+    if name == "sdk" or name.startswith("sdk."):
+        import sys
+
+        from . import _reference
+
+        module = sys.modules.get("_mx")
+        if module is None:
+            raise MaxToolError(name, {"code": "NOT_FOUND", "message": (
+                "sdk is available only in run_python scripts that run inside 3ds Max (ran_in: max)")})
+        try:
+            return _reference.help_text(module, name)
+        except LookupError as exc:
+            raise MaxToolError(name, {"code": "NOT_FOUND", "message": str(exc)}) from None
     described = _describe(name)
     if described is None:
         raise MaxToolError(name, {"code": "NOT_FOUND", "message": f"unknown tool {name!r}"})
@@ -281,5 +297,8 @@ def ms_value(value: Any) -> str:
 
 
 def node_name(target: "Node | str") -> str:
-    """The name of a Node or a name string, for tools that target by name."""
-    return target.name if isinstance(target, Node) else str(target)
+    """The name of a Node, an sdk node or a name string, for tools that target by name."""
+    if isinstance(target, str):
+        return target
+    name = getattr(target, "name", None)
+    return name if isinstance(name, str) else str(target)

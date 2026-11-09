@@ -100,6 +100,40 @@ json NativeJson(const std::string& type, const json& args) {
     return parsed;
 }
 
+// ── A run_python script's undo step ──────────────────────────────
+
+bool ScriptStepActive() {
+    try {
+        return NativeJson("native:script_hold", {{"action", "status"}}).value("active", false);
+    } catch (const MaxError&) {
+        return false;  // a bridge without script_hold opens no step
+    }
+}
+
+SceneReplace::SceneReplace(const char* call) {
+    try {
+        broke = NativeJson("native:script_hold", {{"action", "break"}}).value("active", false);
+    } catch (const MaxError&) {
+        broke = false;
+    }
+    if (theHold.Holding()) {
+        if (broke) {
+            try { NativeJson("native:script_hold", {{"action", "resume"}}); } catch (...) {}
+            broke = false;
+        }
+        throw MaxError(std::string("3ds Max has an open undo operation; finish or cancel it, then call ") + call +
+                       " again");
+    }
+}
+
+SceneReplace::~SceneReplace() {
+    if (!broke) return;
+    try {
+        NativeJson("native:script_hold", {{"action", "resume"}});
+    } catch (...) {
+    }
+}
+
 // ── JSON <-> Python ──────────────────────────────────────────────
 
 nb::object ToPython(const json& value) {

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Iterator, Optional
 from uuid import uuid4
 
+from . import undo_scope
 from .process_health import describe as describe_process
 from .process_health import diagnose_process, process_gone, process_start_time, quick_hung_check
 from .process_health import list_processes
@@ -1147,6 +1148,7 @@ class MaxClient:
         self._reset_response()
 
         request = json.dumps({
+            **undo_scope.request_fields(command, cmd_type),
             **(request_fields or {}),
             "command": command,
             "type": cmd_type,

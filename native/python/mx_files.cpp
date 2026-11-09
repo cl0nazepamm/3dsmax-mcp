@@ -205,13 +205,6 @@ static nb::dict SceneInfo() {
     return out;
 }
 
-// Replacing the scene inside an open undo operation would pull the scene out
-// from under whoever owns that operation.
-static void RequireNoUndoOperation(const char* call) {
-    if (theHold.Holding())
-        throw MaxError(std::string("3ds Max has an open undo operation; finish or cancel it, then call ") + call + " again");
-}
-
 struct FileStamp {
     ULONGLONG written = 0;
     ULONGLONG size = 0;
@@ -283,7 +276,9 @@ static void HoldScene() {
 
 static void FetchScene() {
     RequireMain();
-    RequireNoUndoOperation("fetch()");
+    // Replacing the scene inside an open undo operation would pull the scene
+    // out from under whoever owns that operation (SceneReplace).
+    SceneReplace replace("fetch()");
     const std::optional<Held>& held = LastHold();
     if (!held)
         throw MaxError("nothing to fetch: fetch() restores only what hold() held in this 3ds Max session; call hold() first");
@@ -304,7 +299,7 @@ static void FetchScene() {
 
 static void ResetScene() {
     RequireMain();
-    RequireNoUndoOperation("reset()");
+    SceneReplace replace("reset()");
     const std::wstring file = SceneFileW();
     if (IsSaveRequired())
         throw MaxError(file.empty()

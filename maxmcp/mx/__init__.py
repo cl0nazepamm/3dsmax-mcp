@@ -7,6 +7,9 @@
 Hand-made helpers live in the domain modules (objects, modeling, shading, view) and
 are re-exported here. Every tool is also callable as mx.tools.<name>(**arguments);
 mx.help(name) returns its manual and mx.maxscript(code) runs raw MAXScript.
+
+Inside 3ds Max, run_python also sets mx.sdk (and `sdk` in the script): the _mx scene
+object model bound from the 3ds Max SDK. mx.help("sdk") documents it.
 """
 
 from __future__ import annotations

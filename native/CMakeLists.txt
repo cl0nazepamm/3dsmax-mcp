@@ -107,6 +107,7 @@ set(MCP_CORE_SOURCES
     src/core_api.cpp
     src/core_bridge.cpp
     src/command_dispatcher.cpp
+    src/script_hold.cpp
     src/handlers/scene_handlers.cpp
     src/handlers/scene_patch_handlers.cpp
     src/handlers/scene_qa_handlers.cpp
@@ -282,12 +283,19 @@ endif()
 # The agent-facing Python API, bound from the SDK with nanobind (vendored in
 # third_party/nanobind). It loads into 3ds Max's embedded Python, so it is built
 # against that Python's minor version. Python_ROOT_DIR picks the CPython whose
-# headers and import library are used.
-option(MCP_MX_PYTHON "Build the _mx Python module" OFF)
+# headers and import library are used. It is built by default for each 3ds Max
+# whose Python version is recorded here; build.bat ships it beside the bridge
+# (native/bin/mx_<version>/), where run_python finds it as `sdk`.
+set(MCP_MX_PYTHON_2027 3.13)
+set(MCP_MX_PYTHON_VERSION "${MCP_MX_PYTHON_${MAX_VERSION}}")
+if(MCP_MX_PYTHON_VERSION)
+    set(MCP_MX_PYTHON_DEFAULT ON)
+else()
+    set(MCP_MX_PYTHON_DEFAULT OFF)
+endif()
+option(MCP_MX_PYTHON "Build the _mx Python module" ${MCP_MX_PYTHON_DEFAULT})
 option(MCP_MX_DEV_RELOAD "Tag _mx's binding types per build, so a rebuilt module loads beside the old one (dev only)" OFF)
 if(MCP_MX_PYTHON)
-    set(MCP_MX_PYTHON_2027 3.13)
-    set(MCP_MX_PYTHON_VERSION "${MCP_MX_PYTHON_${MAX_VERSION}}")
     if(NOT MCP_MX_PYTHON_VERSION)
         message(FATAL_ERROR "_mx: no Python version recorded for 3ds Max ${MAX_VERSION}")
     endif()

@@ -260,6 +260,19 @@ void SetNodeMaterial(const Node& n, std::optional<MaterialRef> material);
 // and return its parsed reply. A handler error becomes the matching _mx
 // error. Heavy operations reuse their existing handler this way.
 nlohmann::json NativeJson(const std::string& type, const nlohmann::json& args);
+// A run_python script's undo step is open (the bridge's script_hold).
+bool ScriptStepActive();
+// Around a scene reset or fetch: closes a run_python script's undo step
+// (committing what the script did so far) and opens a new one after, since
+// replacing the scene inside an open undo step is unsafe. Outside a script,
+// any open undo operation refuses with MaxError naming `call`.
+struct SceneReplace {
+    explicit SceneReplace(const char* call);
+    ~SceneReplace();
+    SceneReplace(const SceneReplace&) = delete;
+    SceneReplace& operator=(const SceneReplace&) = delete;
+    bool broke = false;
+};
 nb::object ToPython(const nlohmann::json& value);
 // dict/list/tuple/str/number/bool/None, and Node as its handle.
 nlohmann::json FromPython(nb::handle value);
