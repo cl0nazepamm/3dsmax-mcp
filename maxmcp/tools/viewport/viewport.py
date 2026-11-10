@@ -449,7 +449,7 @@ def capture_viewport(
     windows. Minimized/hidden agent panels still refuse capture; no view is activated.
 
     Use when: quick visual proof after a scene change.
-    Not when: the user asked for a full render (render_scene) or a multi-angle grid
+    Not when: the user asked for a full render (render_setup) or a multi-angle grid
     (capture_multi_view).
     """
     max_width = max(0, int(max_width))

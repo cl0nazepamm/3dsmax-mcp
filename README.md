@@ -241,18 +241,19 @@ Call these from a `run_python` script as `mx.tools.<name>(...)`.
 
 MCP resources: `resource://3dsmax-mcp/plugins/{name}/manifest|guide|recipes|gotchas`
 
-### Lighting
+### Lighting and rendering
 
 | Tool | Description |
 |------|-------------|
-| `lighting_capabilities` | Installed renderer routes, emitter shapes, units and color policy |
-| `create_lights` | Semantic lights and environment graphs in one verified native transaction |
-| `inspect_lights` | Decode actual light settings and linked emission maps |
-| `edit_lights` | Guarded color, output, size, enable and shadow edits |
+| `render_setup` | Lights, sun, HDRI environment, camera, render settings and the render itself, in one call that is the same on every renderer |
 
-Providers cover Corona, V-Ray, Octane and native photometric emitters. Query capabilities
-for the current renderer: shapes, units and environment routes differ. HDRI maps
-and existing procedural skies use the provider's dome or environment binding.
+A script names what it wants in neutral terms (`{"kind": "sphere", "radius": 4,
+"intensity": 800, "unit": "lm"}`, `sun={"elevation": 40, "azimuth": 220}`) and the active
+renderer's preset turns that into its own classes and parameters. Presets ship for Octane,
+FStorm, V-Ray, Corona, Scanline and ART as JSON files in `maxmcp/assets/renderers`; a file
+dropped into `%LOCALAPPDATA%\3dsmax-mcp\renderers` adds a renderer without code. Everything
+a call creates or changes is one undo step verified by readback, a name that exists is
+updated in place, and a render comes back as an image with the reply.
 
 ### Controllers & animation
 
@@ -294,7 +295,6 @@ and existing procedural skies use the provider's dome or environment binding.
 | `capture_viewport` | Capture the agent or user viewport as an image |
 | `capture_multi_view` | Capture several views into one image, with agent-view restoration |
 | `capture_screen` | Capture visible desktop pixels or crop to the V-Ray frame buffer |
-| `render_scene` | Render the current view |
 | `render_automations` | Arm/poll completion signals, request cancellation or capture a progressive render before cancelling |
 
 ### External `.max` files

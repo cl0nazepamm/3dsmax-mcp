@@ -148,7 +148,7 @@ SKIP_TOOL_NAMES = {
     "reload_native_core",
     "script_controller",  # Python validation and shared MAXScript transaction.
     "plugin_patch",
-    "lighting_capabilities", "create_lights", "inspect_lights", "edit_lights",
+    "render_setup",  # Compiles renderer presets in Python into plugin_patch plans.
     "curve_model",
     "inspect_curve",
     "edit_curve",

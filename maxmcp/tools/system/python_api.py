@@ -143,11 +143,13 @@ def run_python(code: str, timeout_s: float = 300, where: str = "auto") -> dict:
 
     sdk (inside Max; also mx.sdk): the scene object model bound straight from the 3ds Max SDK,
       calls in microseconds. sdk.node("Ball"), sdk.nodes("Wall*"), sdk.create("Sphere", "Ball",
-      pos=(0, 0, 10), radius=10), node.pos / .rot (degrees) / .scale settable, node.params.radius = 12,
+      pos=(0, 0, 10), radius=10), node.pos / .rot (degrees) / .scale / .transform settable,
+      node.look_at(point), node.params.radius = 12,
       node.add_modifier("Bend", angle=30), node.modifiers, node.material = sdk.material("PhysicalMaterial",
       "Red", base_color=(1, 0, 0)), with sdk.at(10): ..., with sdk.animate(): ..., node.bbox,
-      sdk.contacts(nodes). mx.help("sdk") lists it all, mx.help("sdk.Node") one class. sdk nodes and
-      mx.Node are separate types; each side accepts the other's nodes.
+      sdk.contacts(nodes). mx.help("sdk") is its index, mx.help("sdk.Node") one class. sdk nodes and
+      mx.Node are separate types; each side accepts the other's nodes. In pymxs a node is
+      rt.getAnimByHandle(node.handle).
 
     Objects (return mx.Node): mx.box(name, width, length, height, pos=(x,y,z), pos_mode="ground"|"center"),
       mx.sphere(name, radius, pos, pos_mode), mx.cylinder(name, radius, height, pos, pos_mode),
@@ -164,18 +166,26 @@ def run_python(code: str, timeout_s: float = 300, where: str = "auto") -> dict:
       closed=False), mx.curve(definition, name, action="create"|"preview"), mx.loft(sections, name),
       mx.qa(target) -> {"counts": {...}, ...}, mx.contacts(names, against).
     Shading: mx.material(targets, material_class="PhysicalMaterial", material_name, params),
-      mx.share_material(targets, source), mx.set_material(target, property, value),
-      mx.area_light(name, width, height, at, aim_at, intensity, unit), mx.point_light(name, at, intensity, unit),
-      mx.sun(name, direction, intensity, unit), mx.lights([LightSpec dicts]), mx.light_capabilities(),
-      mx.inspect_lights(targets). Lights need intensity; mx.light_capabilities() gives the units
-      (photometric: "cd").
+      mx.share_material(targets, source), mx.set_material(target, property, value).
+    Light and render, the same call on every renderer (Octane, FStorm, V-Ray, Corona, Scanline, ART):
+      mx.render_setup() tells what the current renderer offers and what the scene has.
+      mx.render_setup(renderer="octane", quality="draft", sun={"elevation": 40, "azimuth": 220},
+      lights=[{"name": "Lamp", "kind": "sphere", "radius": 4, "position": (0, 0, 150), "intensity": 800,
+      "unit": "lm", "kelvin": 2700}], environment={"path": "sky.exr"}, camera={"name": "Cam",
+      "position": (300, -400, 150), "aim_at": (0, 0, 100), "fov": 55}, render={"camera": "Cam",
+      "size": (1280, 720)}) creates or updates each thing by name in one step and returns the
+      rendered image with the reply. Light kinds: rectangle, disk, sphere, cylinder, point. Never
+      build renderer-specific light, sun or camera classes by hand; mx.help("render_setup") is the manual.
     View: mx.capture(views=["front", "three_quarter"], shading="clay", edges=True) returns the image file,
       mx.open_viewport(), mx.frame(*targets), mx.orbit(yaw, pitch), mx.look(eye, target), mx.viewport_capture().
+      mx.show(path_or_capture) returns an image with the reply, so you see it without reading the file.
     Any tool: mx.tools.<tool_name>(**arguments) returns that tool's result. mx.help() lists every tool by
       group, mx.find_tools("boolean subtract") returns the manuals of the best matches and mx.help("tool_name")
       one tool's manual. Raw MAXScript: mx.maxscript(code). Property values may be numbers, bools or (x, y, z).
 
-    print() output and a variable named `result` are returned, with the list of tool calls made.
+    print() output and a variable named `result` are returned, with the list of tool calls made
+    and, in `warnings`, what 3ds Max said beside a call's result (an open dialog, a call that
+    went to another Max, a script that ran with its prompts shown).
     Do not render unless the user asks.
     """
     if where not in {"auto", "max", "server"}:

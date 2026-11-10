@@ -7,6 +7,7 @@ namespace NativeHandlers {
     std::string PluginInspect(const std::string& params, MCPBridgeGUP* gup);
     std::string PluginPatch(const std::string& params, MCPBridgeGUP* gup);
     std::string LightingContext(const std::string& params, MCPBridgeGUP* gup);
+    std::string AssignRenderer(const std::string& params, MCPBridgeGUP* gup);
     // Scene reads
     std::string SceneInfo(const std::string& params, MCPBridgeGUP* gup);
     std::string Selection(const std::string& params, MCPBridgeGUP* gup);

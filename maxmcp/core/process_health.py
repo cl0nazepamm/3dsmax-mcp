@@ -61,6 +61,10 @@ if _IS_WINDOWS:
     _user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
     _user32.GetWindowRect.restype = wintypes.BOOL
     _user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    _user32.IsIconic.restype = wintypes.BOOL
+    _user32.IsIconic.argtypes = [wintypes.HWND]
+    _user32.GetForegroundWindow.restype = wintypes.HWND
+    _user32.GetForegroundWindow.argtypes = []
 
     class _PROCESSENTRY32W(ctypes.Structure):
         _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
@@ -332,6 +336,61 @@ def list_windows(pid: int) -> list[dict[str, Any]]:
     except Exception:
         return []
     return found
+
+
+def main_windows(pids: Any) -> dict[int, dict[str, Any]]:
+    """The main window of each process in `pids`: {pid: {title, minimized, foreground, z}}.
+
+    A process's main window is its first visible, unowned, titled top-level window whose
+    title names 3ds Max (any such window when none does). EnumWindows walks front to back,
+    so `z` ranks the processes by which window is nearer the front (0 is the frontmost).
+    A process with no such window (still starting, or windowless) is left out.
+    Sends no message, so a hung Max cannot block it. {} on error.
+    """
+    wanted = {int(pid) for pid in pids if _valid_pid(pid)}
+    if not _IS_WINDOWS or not wanted:
+        return {}
+    named: dict[int, Any] = {}
+    other: dict[int, Any] = {}
+    order: list[Any] = []
+
+    def _callback(hwnd: Any, _lparam: Any) -> bool:
+        try:
+            owner = wintypes.DWORD()
+            _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+            pid = int(owner.value)
+            if pid not in wanted or pid in named:
+                return True
+            if not _user32.IsWindowVisible(hwnd) or _user32.GetWindow(hwnd, _GW_OWNER):
+                return True
+            title = _window_title(hwnd)
+            if not title:
+                return True
+            order.append(hwnd)
+            if "3ds max" in title.casefold():
+                named[pid] = hwnd
+            else:
+                other.setdefault(pid, hwnd)
+        except Exception:
+            pass
+        return True
+
+    try:
+        _user32.EnumWindows(_WNDENUMPROC(_callback), 0)
+        front = wintypes.DWORD()
+        foreground = _user32.GetForegroundWindow()
+        if foreground:
+            _user32.GetWindowThreadProcessId(foreground, ctypes.byref(front))
+        found = {}
+        chosen = {**other, **named}
+        ranked = sorted(chosen, key=lambda pid: order.index(chosen[pid]))
+        for z, pid in enumerate(ranked):
+            hwnd = chosen[pid]
+            found[pid] = {"title": _window_title(hwnd), "minimized": bool(_user32.IsIconic(hwnd)),
+                          "foreground": int(front.value) == pid, "z": z}
+        return found
+    except Exception:
+        return {}
 
 
 def list_processes(image_names: tuple[str, ...] = ("3dsmax.exe",)) -> list[dict[str, Any]]:

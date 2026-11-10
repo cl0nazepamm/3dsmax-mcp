@@ -105,6 +105,59 @@ static void SetScale(const Node& n, nb::handle value) {
     sc->SetValue(Now(), &s, 1, CTRL_ABSOLUTE);
 }
 
+// The world matrix as four rows: the node's X, Y and Z axes, then its position.
+static nb::object GetTransform(const Node& n) {
+    const Matrix3 tm = Resolve(n)->GetNodeTM(Now());
+    return nb::make_tuple(FromPoint3(tm.GetRow(0)), FromPoint3(tm.GetRow(1)), FromPoint3(tm.GetRow(2)),
+                          FromPoint3(tm.GetRow(3)));
+}
+
+// A controller that owns part of the transform (look-at, path, script) keeps
+// its part; saying so beats a silent no-op.
+static void ApplyTM(INode* node, const Matrix3& wanted, const char* what) {
+    const TimeValue t = Now();
+    node->SetNodeTM(t, wanted);
+    const Matrix3 actual = node->GetNodeTM(t);
+    for (int r = 0; r < 4; ++r) {
+        const Point3 d = actual.GetRow(r) - wanted.GetRow(r);
+        const float tolerance = 1e-3f * std::max(1.0f, Length(wanted.GetRow(r)));
+        if (Length(d) > tolerance)
+            throw MaxError(std::string(what) + ": a controller on '" + NodeName(node) +
+                           "' drives its transform, so the value did not apply");
+    }
+}
+
+static void SetTransform(const Node& n, nb::handle value) {
+    INode* node = Resolve(n);
+    if (!nb::isinstance<nb::sequence>(value) || nb::len(value) != 4)
+        throw BadParam("transform is four rows of (x, y, z): the X, Y and Z axes, then the position");
+    Matrix3 tm(TRUE);
+    for (int r = 0; r < 4; ++r) tm.SetRow(r, ToPoint3(value[r], "transform row"));
+    ApplyTM(node, tm, "transform");
+}
+
+// Turn the node so its -Z axis (the way lights and cameras look) points at a
+// world point; position and scale stay.
+static void LookAt(const Node& n, nb::handle target, nb::handle up) {
+    INode* node = Resolve(n);
+    const Matrix3 now = node->GetNodeTM(Now());
+    const Point3 from = now.GetTrans();
+    Point3 back = from - ToPoint3(target, "target");  // +Z points away from the target
+    if (Length(back) < 1e-6f) throw BadParam("look_at: the target is the node's own position");
+    back = Normalize(back);
+    Point3 hint = up.is_none() ? (std::fabs(back.z) > 0.999f ? Point3(0, 1, 0) : Point3(0, 0, 1)) : ToPoint3(up, "up");
+    Point3 x = CrossProd(hint, back);
+    if (Length(x) < 1e-6f) throw BadParam("look_at: up is parallel to the direction");
+    x = Normalize(x);
+    const Point3 y = Normalize(CrossProd(back, x));
+    Matrix3 tm(TRUE);
+    tm.SetRow(0, x * Length(now.GetRow(0)));
+    tm.SetRow(1, y * Length(now.GetRow(1)));
+    tm.SetRow(2, back * Length(now.GetRow(2)));
+    tm.SetRow(3, from);
+    ApplyTM(node, tm, "look_at");
+}
+
 // World bounding box of the evaluated geometry, or None for nodes without any.
 static nb::object BBox(const Node& n) {
     INode* node = Resolve(n);
@@ -203,7 +256,8 @@ Track MakeTransformTrack(const Node& n, const std::string& path);
 
 void BindNodes(nb::module_& m) {
     nb::class_<Node>(m, "Node", "A scene node, held by handle; NotFound once deleted.")
-        .def_prop_ro("handle", [](const Node& n) { return (unsigned long long)n.handle; })
+        .def_prop_ro("handle", [](const Node& n) { return (unsigned long long)n.handle; },
+            "The node's animatable handle. In pymxs: rt.getAnimByHandle(node.handle), not maxOps.getNodeByHandle.")
         .def_prop_rw("name",
             [](const Node& n) { return NodeName(Resolve(n)); },
             [](const Node& n, const std::string& name) { Resolve(n)->SetName(Utf8ToWide(name).c_str()); })
@@ -213,6 +267,12 @@ void BindNodes(nb::module_& m) {
         .def_prop_rw("rot", &GetRot, &SetRot,
             "Rotation track as Euler degrees (x, y, z), relative to the parent; keeps winding past 360.")
         .def_prop_rw("scale", &GetScale, &SetScale, "Scale track (x, y, z), or one number for all axes.")
+        .def_prop_rw("transform", &GetTransform, &SetTransform,
+            "World matrix as four rows of (x, y, z): the node's X, Y and Z axes, then its position. Setting it "
+            "raises when a controller keeps part of the transform.")
+        .def("look_at", &LookAt, "target"_a, "up"_a = nb::none(),
+            "Turn the node so its -Z axis, the way cameras and lights look, points at a world point: "
+            "cam.look_at((0, 0, 100)). Position and scale stay; up defaults to world Z.")
         .def_prop_ro("bbox", &BBox, "World bounding box ((min), (max)) of the evaluated geometry, or None.")
         .def_prop_ro("mesh_counts", &MeshCounts, "(vertices, faces) of the evaluated, triangulated mesh, or None.")
         .def_prop_ro("params", [](const Node& n) { Resolve(n); return Params{n.handle, 0}; },

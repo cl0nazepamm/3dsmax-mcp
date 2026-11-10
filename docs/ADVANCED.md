@@ -128,7 +128,8 @@ through the bridge in-process, and `inmax.run_script(code)` runs a script as one
 ```python
 blk = mx.box("Block", width=100, length=60, height=40, pos=(900, 0, 0))
 mx.boolean(blk, operation="subtract", cutters=[{"name": "Hole", "shape": "cylinder", "size": [30, 30, 60], "pos": [900, 0, 20]}])
-key = mx.area_light("Key", width=50, height=50, at=(900, -80, 150), aim_at=blk.center, intensity=1000, unit="cd")
+mx.render_setup(lights=[{"name": "Key", "kind": "rectangle", "width": 50, "height": 50, "position": (900, -80, 150),
+                         "aim_at": blk.center, "intensity": 1000, "unit": "cd"}])
 result = {"bbox": blk.bbox, "faces": mx.qa(blk)["counts"]["triangles"]}
 ```
 
@@ -180,7 +181,7 @@ Safe mode is an **accident preventer**, not a sandbox. It is a case-insensitive 
 
 What it does **not** cover:
 
-- Native handlers run unfiltered: `delete_objects`, `manage_scene`, `render_scene`, `merge_from_file`, `write_osl_shader`, viewport capture (disk writes), etc.
+- Native handlers run unfiltered: `delete_objects`, `manage_scene`, `render_setup`, `merge_from_file`, `write_osl_shader`, viewport capture (disk writes), etc.
 - The named pipe uses default ACLs — any process running as your user can connect on a typical dev machine.
 
 ### Quiet mode and the save prompt

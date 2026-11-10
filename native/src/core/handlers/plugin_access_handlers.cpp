@@ -8,6 +8,9 @@ std::string NativeHandlers::PluginInspect(const std::string& params,MCPBridgeGUP
 std::string NativeHandlers::PluginPatch(const std::string& params,MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([params]() { return PluginAccess::Apply(nlohmann::json::parse(params)).dump(); });
 }
+std::string NativeHandlers::AssignRenderer(const std::string& params,MCPBridgeGUP* gup) {
+    return gup->GetExecutor().ExecuteSync([params]() { return PluginAccess::AssignRenderer(nlohmann::json::parse(params)).dump(); });
+}
 std::string NativeHandlers::LightingContext(const std::string&,MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([]() { return PluginAccess::Context().dump(); });
 }

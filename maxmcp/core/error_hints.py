@@ -85,7 +85,7 @@ MAXSCRIPT_SUGGESTION_RULES: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] 
     ),
     (
         re.compile(r"\brender\s*\(|\bmax\s+quick\s+render\b", re.IGNORECASE),
-        ("render_scene",),
+        ("render_setup",),
     ),
     (
         re.compile(

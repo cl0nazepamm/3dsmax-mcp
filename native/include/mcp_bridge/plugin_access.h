@@ -13,4 +13,6 @@ json DescribeInterface(FPInterface* interfaceValue);
 json Inspect(const json& request);
 json Context();
 json Apply(const json& request);
+// Make the class in request.class_ref the production renderer. Not undoable, as in Max itself.
+json AssignRenderer(const json& request);
 }

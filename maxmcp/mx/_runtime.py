@@ -59,11 +59,16 @@ def _source(method: str) -> Any:
 
 
 class Run:
-    """One script run on this thread: its deadline, call trace, and whether a call is in flight."""
+    """One script run on this thread: its deadline, call trace, warnings, and whether a call is in flight."""
 
     def __init__(self, deadline: float | None):
         self.deadline = deadline
         self.trace: list[dict[str, Any]] = []
+        # What the bridge said beside a call's result (an open dialog, a retargeted Max, a
+        # script that ran with prompts shown). A script sees only results, so the run keeps these.
+        self.warnings: list[Any] = []
+        # Image files to hand back with the reply (renders, captures), so they need no second call.
+        self.images: list[str] = []
         self.in_call = False
 
 
@@ -75,6 +80,29 @@ def begin_run(deadline: float | None = None) -> Run:
 
 def end_run() -> None:
     _local.run = None
+
+
+IMAGE_LIMIT = 4
+
+
+def show(image: Any) -> bool:
+    """Return an image file with this script's reply, so you see it without reading the file.
+
+    image: a path, or a result dict with a `file` (a capture or a render). At most four
+    images per script are returned; False when this one is not (no script is running, the
+    limit is reached, or it is not a path). render_setup shows its renders by itself.
+    """
+    path = image.get("file") if isinstance(image, dict) else image
+    run = getattr(_local, "run", None)
+    if run is None or not isinstance(path, (str, bytes)) and not hasattr(path, "__fspath__"):
+        return False
+    text = str(path)
+    if text in run.images:
+        return True
+    if len(run.images) >= IMAGE_LIMIT:
+        return False
+    run.images.append(text)
+    return True
 
 
 def call(tool: str, /, **arguments: Any) -> Any:
@@ -99,6 +127,10 @@ def call(tool: str, /, **arguments: Any) -> Any:
     if run is not None:
         run.trace.append({"tool": tool, "ok": bool(envelope.get("ok")),
                           "ms": round((time.perf_counter() - started) * 1000)})
+        for warning in envelope.get("warnings") or ():
+            entry = f"{tool}: {warning}" if isinstance(warning, str) else {"tool": tool, "warning": warning}
+            if entry not in run.warnings:
+                run.warnings.append(entry)
     if not envelope.get("ok"):
         raise MaxToolError(tool, envelope.get("error"), envelope.get("hint"))
     return envelope.get("result")

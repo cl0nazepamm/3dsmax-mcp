@@ -210,7 +210,7 @@ Base URL、API Key 和模型名：
 
 > 截个视口图看看，没问题的话渲染一张 1920×1080 的图。
 
-`capture_viewport` 先出快速预览（智能体能"看到"结果并据此调整），确认后 `render_scene` 正式渲染。
+`capture_viewport` 先出快速预览（智能体能"看到"结果并据此调整），确认后 `render_setup(render=...)` 正式渲染。
 
 > **渲染器说明**：国内建筑可视化多用 V-Ray / Corona。当前对 Octane 的材质连线支持最完整，
 > V-Ray / Corona 的深度支持正在推进中——如果你在用，欢迎提 issue 告诉我们你的具体需求。

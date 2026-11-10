@@ -12,13 +12,15 @@ from __future__ import annotations
 
 import ast
 import inspect
+import json
 import re
 import threading
+import types
 from difflib import get_close_matches
 from functools import wraps
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Annotated, Any, Callable, Iterable, Literal, Union, get_args, get_origin, get_type_hints
 
 TOOLS_DIR = Path(__file__).resolve().parent / "tools"
 
@@ -149,18 +151,49 @@ def signature_text(fn: Callable[..., Any]) -> str:
     return "\n".join(lines)
 
 
+def _takes_text(hint: Any) -> bool:
+    """Whether a parameter of this type can be meant as a string."""
+    if hint is Any or hint is str:
+        return True
+    origin = get_origin(hint)
+    if origin is Annotated:
+        return _takes_text(get_args(hint)[0])
+    if origin in (Union, types.UnionType):
+        return any(_takes_text(arg) for arg in get_args(hint))
+    if origin is Literal:
+        return any(isinstance(arg, str) for arg in get_args(hint))
+    return False
+
+
 def _validated(fn: Callable[..., Any]) -> Callable[..., Any]:
-    """fn with its arguments checked against its signature; a mistake is answered with the signature."""
+    """fn with its arguments checked against its signature; a mistake is answered with the signature.
+
+    A list or dict written as JSON text is accepted for a parameter that takes no string, as
+    FastMCP accepted it when the tools were called directly.
+    """
     from pydantic import ValidationError, validate_call
 
     checked = validate_call(fn, config={"arbitrary_types_allowed": True})
+    try:
+        hints = get_type_hints(fn)
+    except Exception:  # noqa: BLE001 - an annotation that does not resolve only loses the JSON-text courtesy
+        hints = {}
+    no_text = frozenset(name for name, hint in hints.items() if name != "return" and not _takes_text(hint))
 
     @wraps(fn)
     def call(*args: Any, **kwargs: Any) -> Any:
+        for name in no_text.intersection(kwargs):
+            if isinstance(kwargs[name], str):
+                try:
+                    parsed = json.loads(kwargs[name])
+                except ValueError:
+                    continue
+                if isinstance(parsed, (list, dict)):
+                    kwargs[name] = parsed
         try:
             return checked(*args, **kwargs)
         except ValidationError as exc:
-            if exc.title != fn.__name__:  # raised inside the tool, not by its arguments
+            if exc.title not in (fn.__name__, fn.__qualname__):  # raised inside the tool, not by its arguments
                 raise
             problems = "; ".join(
                 f"{'.'.join(map(str, error['loc'])) or 'arguments'}: {error['msg']}" for error in exc.errors())

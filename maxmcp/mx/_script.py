@@ -18,6 +18,7 @@ from ._runtime import MaxToolError, Node
 
 OUTPUT_LIMIT = 20_000
 TRACE_LIMIT = 100
+WARNING_LIMIT = 20
 
 
 def plain(value: Any, depth: int = 0) -> Any:
@@ -107,6 +108,10 @@ def execute(
         summary: dict[str, Any] = {"output": output, "calls": run.trace[:TRACE_LIMIT]}
         if len(run.trace) > TRACE_LIMIT:
             summary["calls_total"] = len(run.trace)
+        if run.warnings:
+            summary["warnings"] = run.warnings[:WARNING_LIMIT]
+        if run.images:
+            summary["images"] = list(run.images)
         return summary
 
     try:

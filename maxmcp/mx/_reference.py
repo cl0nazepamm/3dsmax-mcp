@@ -114,12 +114,39 @@ def reference(module: Any, title: str = "sdk") -> str:
     return "\n".join(out).rstrip() + "\n"
 
 
+def _brief(text: str, limit: int = 84) -> str:
+    """The first sentence of a description, cut at a word when it is longer than `limit`."""
+    first = text.strip().split("\n\n")[0].replace("\n", " ")
+    sentence = first.split(". ")[0].rstrip(".")
+    if len(sentence) <= limit:
+        return sentence
+    return sentence[:limit].rsplit(" ", 1)[0].rstrip(",;:") + "..."
+
+
+def _index(module: Any) -> str:
+    """What sdk has, one short line each: enough to pick a name, which mx.help then explains."""
+    lines = [(module.__doc__ or "").strip(), "",
+             "One line per name. mx.help('sdk.<name>') gives a function's signature and manual or a class's "
+             "members, mx.help('sdk.<Class>.<member>') one member, mx.help('sdk.*') every signature.", ""]
+    names = _public(sorted(dir(module)))
+    for title, kind in (("Functions", "function"), ("Classes", "class"), ("Errors", "exception")):
+        lines.append(title)
+        for name in names:
+            value = getattr(module, name)
+            if _kind(value) != kind:
+                continue
+            text = _split(value.__doc__)[1] if kind == "function" else (value.__doc__ or "")
+            lines.append(f"  {name}: {_brief(text)}")
+    return "\n".join(lines)
+
+
 def help_text(module: Any, path: str) -> str:
-    """mx.help("sdk"), mx.help("sdk.create"), mx.help("sdk.Node"), mx.help("sdk.Node.pos")."""
+    """mx.help("sdk"), mx.help("sdk.*"), mx.help("sdk.create"), mx.help("sdk.Node"), mx.help("sdk.Node.pos")."""
     parts = path.split(".")[1:]
     if not parts:
-        lines = [(module.__doc__ or "").strip(), "",
-                 "mx.help('sdk.<name>') shows one function or class; mx.help('sdk.<Class>.<member>') one member.", ""]
+        return _index(module)
+    if parts == ["*"]:
+        lines = [(module.__doc__ or "").strip(), ""]
         for name in _public(sorted(dir(module))):
             value = getattr(module, name)
             kind = _kind(value)

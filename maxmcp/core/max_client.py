@@ -14,7 +14,7 @@ from uuid import uuid4
 from . import undo_scope
 from .process_health import describe as describe_process
 from .process_health import diagnose_process, process_gone, process_start_time, quick_hung_check
-from .process_health import list_processes
+from .process_health import list_processes, main_windows
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -651,7 +651,34 @@ class MaxClient:
             claimed = 0
         if active and self._probe_pipe_available(active["pipe"]) and (not live or claimed >= live[0]["updated"]):
             return self._target(active["pipe"], "claim")
-        return self._target(live[0]["pipe"] if live else DEFAULT_PIPE_NAME, "default")
+        return self._target(self._front_first(live)[0]["pipe"] if live else DEFAULT_PIPE_NAME, "default")
+
+    def _instance_pid(self, item: dict[str, Any]) -> int | None:
+        pid = item.get("pid")
+        return pid if type(pid) is int and pid > 0 else self._pid_for_pipe(item["pipe"])
+
+    def _front_first(self, live: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """`live` with the Max the user can see first, each entry carrying its `window`.
+
+        A shown window beats a minimized one, and among shown windows the one nearer the
+        front wins: the default target is the Max on screen, not whichever started last.
+        An instance whose window cannot be found sorts between the two groups, in the
+        order given (most recently registered first).
+        """
+        windows = main_windows(self._instance_pid(item) for item in live) if len(live) > 1 else {}
+        if not windows:
+            return live
+
+        def rank(entry: tuple[int, dict[str, Any]]) -> tuple[int, int]:
+            index, item = entry
+            window = windows.get(self._instance_pid(item))
+            if window is None:
+                return (1, index)
+            return (2 if window["minimized"] else 0, window["z"])
+
+        ranked = [item for _, item in sorted(enumerate(live), key=rank)]
+        return [{**item, "window": {k: v for k, v in windows[self._instance_pid(item)].items() if k != "z"}}
+                if self._instance_pid(item) in windows else item for item in ranked]
 
     def _resolve_pipe_name(self) -> str:
         target = self._bound_target
@@ -699,7 +726,12 @@ class MaxClient:
     def list_max_instances(self) -> dict[str, Any]:
         with self._instance_lock():
             default = self._default_target()
-            instances = self._live_instances()
+            live = self._live_instances()
+            instances = self._front_first(live)
+            if len(live) == 1:  # one instance needs no ranking, but its window state is still worth reading
+                window = main_windows([self._instance_pid(live[0])]).get(self._instance_pid(live[0]))
+                if window:
+                    instances = [{**live[0], "window": {k: v for k, v in window.items() if k != "z"}}]
             instances.sort(key=lambda item: item["pipe"] != default["target_pipe"])
             return {"instances": [{**item, "default": item["pipe"] == default["target_pipe"],
                                    "selected": bool(self._bound_target and item["pipe"] == self._bound_target["target_pipe"])}

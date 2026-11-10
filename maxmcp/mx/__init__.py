@@ -19,11 +19,11 @@ from importlib import import_module
 from typing import Any
 
 from ._runtime import (MaxToolError, Node, call, find_tools, help, maxscript, ms_value, node_name, set_backend,
-                       tools)
+                       show, tools)
 
 _DOMAINS = ("objects", "modeling", "shading", "view")
 _CORE = ["MaxToolError", "Node", "call", "find_tools", "help", "maxscript", "ms_value", "node_name", "set_backend",
-         "tools"]
+         "show", "tools"]
 
 
 def __getattr__(name: str) -> Any:

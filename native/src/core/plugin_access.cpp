@@ -159,6 +159,21 @@ Animatable* ResolveOwner(const json& ref) {
     return obj->FindBaseObject();
 }
 struct Binding { IParamBlock2* block; ParamID id; const ParamDef* def; Animatable* owner; };
+// The owner's PB2 blocks. A plugin that does not implement NumParamBlocks
+// (Octane's renderer, Sun Positioner) still holds its blocks as references.
+std::vector<IParamBlock2*> Blocks(Animatable* owner) {
+    std::vector<IParamBlock2*> blocks;
+    if(!owner) return blocks;
+    for(int i=0;i<owner->NumParamBlocks();++i) if(auto* pb=owner->GetParamBlock(i)) blocks.push_back(pb);
+    if(!blocks.empty()) return blocks;
+    if(auto* maker=dynamic_cast<ReferenceMaker*>(owner)) for(int i=0;i<maker->NumRefs();++i) {
+        auto* ref=maker->GetReference(i);
+        if(!ref||ref->SuperClassID()!=PARAMETER_BLOCK2_CLASS_ID) continue;
+        auto* pb=static_cast<IParamBlock2*>(ref);
+        if(std::find(blocks.begin(),blocks.end(),pb)==blocks.end()) blocks.push_back(pb);
+    }
+    return blocks;
+}
 void ValidatePropertyRef(const json& ref) {
     if(!ref.is_object() || ref.value("route","pb2")!="pb2") Fail("BAD_PROPERTY_REF","Expected a PB2 property reference.");
     for(const auto* key:{"block_id","param_id"}) {
@@ -170,8 +185,8 @@ Binding ResolveProperty(Animatable* owner, const json& ref) {
     ValidatePropertyRef(ref);
     if (!ref.is_object() || ref.value("route", "pb2") != "pb2") Fail("UNSUPPORTED_PROPERTY", "This edit route supports typed PB2 properties only.");
     const int blockID = ref.at("block_id").get<int>(); const int id = ref.at("param_id").get<int>();
-    for (int i = 0; i < owner->NumParamBlocks(); ++i) {
-        auto* pb = owner->GetParamBlock(i); if (!pb || pb->ID() != blockID) continue;
+    for (auto* pb : Blocks(owner)) {
+        if (pb->ID() != blockID) continue;
         auto* desc = pb->GetDesc();
         if (desc && desc->IDtoIndex((ParamID)id) >= 0) return {pb, (ParamID)id, &desc->GetParamDef((ParamID)id), owner};
     }
@@ -218,10 +233,10 @@ json Read(const Binding& b, TimeValue t) {
 json Schema(ClassDesc* cd, Animatable* owner=nullptr) {
     json out={{"identity",Identity(cd)}, {"properties",json::array()}, {"interfaces",json::array()}, {"schema_version",2}};
     auto* cd2=dynamic_cast<ClassDesc2*>(cd); size_t count=0;
-    const int blocks=owner?owner->NumParamBlocks():(cd2?cd2->NumParamBlockDescs():0);
+    const auto live=Blocks(owner);
+    const int blocks=owner?(int)live.size():(cd2?cd2->NumParamBlockDescs():0);
     for (int i=0;i<blocks;++i) {
-        auto* pb=owner?owner->GetParamBlock(i):nullptr;
-        auto* desc=owner?(pb?pb->GetDesc():nullptr):cd2->GetParamBlockDesc(i); if(!desc) continue;
+        auto* desc=owner?live[i]->GetDesc():cd2->GetParamBlockDesc(i); if(!desc) continue;
         for(int j=0;j<desc->count && count<MaxProperties;++j,++count) out["properties"].push_back(DescribeParameter(desc,desc->GetParamDef(desc->IndextoID(j))));
     }
     if(cd2) for(int i=0;i<cd2->NumInterfaces() && i<128;++i) {
@@ -423,6 +438,48 @@ void Validate(const ParamDef& pd,const json& value) {
     } else ValidateElement(pd,value);
 }
 using Created=std::map<std::string,Animatable*>;
+// Classes whose instances live in the scene as a node with a world matrix.
+bool NodeClass(SClass_ID sid) { return sid==LIGHT_CLASS_ID||sid==CAMERA_CLASS_ID; }
+size_t CountNodes(INode* node) {
+    size_t count=1;
+    for(int i=0;node&&i<node->NumberOfChildren();++i) count+=CountNodes(node->GetChildNode(i));
+    return count;
+}
+void CheckMatrix(const json& matrix) {
+    if(!matrix.is_array()||matrix.size()!=4) Fail("BAD_PLAN","Expected a four-row world matrix.");
+    for(const auto& row:matrix) { if(!row.is_array()||row.size()!=3) Fail("BAD_PLAN","Invalid matrix row."); for(const auto& x:row) if(!x.is_number()||!std::isfinite(x.get<double>())) Fail("BAD_PLAN","Matrix must be finite."); }
+}
+// A placement is a full world matrix, or a position alone for a node whose
+// rotation something else owns (a look-at controller, a light aimed by where it stands).
+void CheckPlacement(const json& item) {
+    if(item.contains("matrix")==item.contains("position")) Fail("BAD_PLAN","A placement is a matrix or a position.");
+    if(item.contains("matrix")) { CheckMatrix(item["matrix"]); return; }
+    const auto& point=item["position"];
+    if(!point.is_array()||point.size()!=3) Fail("BAD_PLAN","A position is three numbers.");
+    for(const auto& x:point) if(!x.is_number()||!std::isfinite(x.get<double>())) Fail("BAD_PLAN","A position must be finite.");
+}
+Matrix3 ToMatrix(const json& matrix) {
+    Matrix3 tm(TRUE);
+    for(int r=0;r<4;++r) tm.SetRow(r,Point3(matrix[r][0].get<float>(),matrix[r][1].get<float>(),matrix[r][2].get<float>()));
+    return tm;
+}
+json MatrixJson(const Matrix3& tm) {
+    json rows=json::array();
+    for(int r=0;r<4;++r) { const auto v=tm.GetRow(r); rows.push_back({v.x,v.y,v.z}); }
+    return rows;
+}
+void Place(INode* node,const json& placement,TimeValue t) {
+    if(placement.contains("matrix")) { node->SetNodeTM(t,ToMatrix(placement["matrix"])); return; }
+    auto tm=node->GetNodeTM(t); const auto& p=placement["position"];
+    tm.SetTrans(Point3(p[0].get<float>(),p[1].get<float>(),p[2].get<float>()));
+    node->SetNodeTM(t,tm);
+}
+// Whether a node's matrix rows are what its placement asked for.
+bool Placed(const json& actual,const json& placement) {
+    if(placement.contains("matrix")) return Equal(actual,placement["matrix"]);
+    if(placement.contains("position")) return Equal(actual[3],placement["position"]);
+    return true;
+}
 Animatable* ResolvePlanOwner(const json& ref,const Created& created) {
     if(ref.is_object()&&ref.contains("created")) {
         auto it=created.find(ref.at("created").get<std::string>()); if(it==created.end()) Fail("BAD_PLAN","Unknown created resource."); return it->second;
@@ -441,8 +498,11 @@ void SetElement(const Binding& b,const json& value,TimeValue t,int index,const C
     else if(RefType(type)) {
         auto* target=value.is_null()?nullptr:dynamic_cast<ReferenceTarget*>(ResolvePlanOwner(value,created));
         if(!value.is_null()&&!target) Fail("BAD_REFERENCE","Expected a ReferenceTarget.");
-        if(target && (b.def->flags&P_HAS_CLASS_ID) && target->ClassID()!=b.def->class_ID) Fail("BAD_REFERENCE","Reference class does not match the validator.");
-        if(target && (b.def->flags&P_HAS_SCLASS_ID) && target->SuperClassID()!=b.def->sclass_ID) Fail("BAD_REFERENCE","Reference superclass does not match the validator.");
+        // A node parameter's class restriction names the node's object (a sky's sun object is a Sun Positioner).
+        Animatable* checked=target;
+        if(type==TYPE_INODE&&target&&target->SuperClassID()==BASENODE_CLASS_ID) { auto* object=static_cast<INode*>(target)->GetObjectRef(); checked=object?object->FindBaseObject():nullptr; }
+        if(checked && (b.def->flags&P_HAS_CLASS_ID) && checked->ClassID()!=b.def->class_ID) Fail("BAD_REFERENCE","Reference class does not match the validator.");
+        if(checked && (b.def->flags&P_HAS_SCLASS_ID) && checked->SuperClassID()!=b.def->sclass_ID) Fail("BAD_REFERENCE","Reference superclass does not match the validator.");
         if(type==TYPE_TEXMAP) { if(target&&target->SuperClassID()!=TEXMAP_CLASS_ID) Fail("BAD_REFERENCE","Expected a texture map."); ok=b.block->SetValue(b.id,t,static_cast<Texmap*>(target),index); }
         else if(type==TYPE_MTL) { if(target&&target->SuperClassID()!=MATERIAL_CLASS_ID) Fail("BAD_REFERENCE","Expected a material."); ok=b.block->SetValue(b.id,t,static_cast<Mtl*>(target),index); }
         else if(type==TYPE_INODE) { if(target&&target->SuperClassID()!=BASENODE_CLASS_ID) Fail("BAD_REFERENCE","Expected a scene node."); ok=b.block->SetValue(b.id,t,static_cast<INode*>(target),index); }
@@ -506,14 +566,41 @@ const ParamDef& ClassParameter(ClassDesc* cd,const json& ref) {
 }
 }
 
+json AssignRenderer(const json& p) {
+    if(theHold.Holding()) Fail("USER_BUSY","3ds Max has an open undo operation; no changes were made.");
+    if(GetCOREInterface8()->IsRenderActive()) Fail("RENDER_BUSY","A production render is active; no changes were made.");
+    auto* cd=Descriptor(p.at("class_ref"));
+    if(cd->SuperClassID()!=RENDERER_CLASS_ID) Fail("BAD_CLASS_REF","Expected a renderer class.");
+    auto* ip=GetCOREInterface(); auto* current=ip->GetRenderer(RS_Production);
+    if(current&&current->ClassID()==cd->ClassID()) return {{"status","unchanged"},{"context",Context()}};
+    auto* renderer=static_cast<Renderer*>(ip->CreateInstance(RENDERER_CLASS_ID,cd->ClassID()));
+    if(!renderer) Fail("CREATE_FAILED","Plugin did not construct a renderer.");
+    ip->AssignRenderer(RS_Production,renderer);
+    auto* now=ip->GetRenderer(RS_Production);
+    if(!now||now->ClassID()!=cd->ClassID()) Fail("VERIFY_MISMATCH","The production renderer did not change.");
+    McpHost::SceneJournal::AppendSynthetic("assign_renderer",{{"renderer",Identity(cd)["name"]}});
+    return {{"status","assigned"},{"context",Context()}};
+}
+
 json Apply(const json& p) {
     if(p.value("version",1)!=1) Fail("BAD_PLAN","Unsupported edit plan version.");
     if(theHold.Holding()) Fail("USER_BUSY","3ds Max has an open undo operation; no changes were made.");
     auto* ip=GetCOREInterface(); const auto t=ip->GetTime();
     if(GetCOREInterface8()->IsRenderActive()) Fail("RENDER_BUSY","A production render is active; no changes were made.");
     if(p.contains("expected_context")&&!p["expected_context"].is_null()&&p["expected_context"]!=Context()["context_token"]) Fail("STALE_CONTEXT","Renderer, units or environment binding changed.");
-    const auto creates=p.value("creates",json::array()),edits=p.value("edits",json::array());
-    if(!creates.is_array()||!edits.is_array()||creates.size()>128||edits.size()>512||creates.empty()&&edits.empty()&&!p.contains("environment")) Fail("BAD_PLAN","Expected a bounded, nonempty edit plan.");
+    const auto creates=p.value("creates",json::array()),edits=p.value("edits",json::array()),transforms=p.value("transforms",json::array());
+    if(!creates.is_array()||!edits.is_array()||!transforms.is_array()||creates.size()>128||edits.size()>512||transforms.size()>128||
+        creates.empty()&&edits.empty()&&transforms.empty()&&!p.contains("environment")) Fail("BAD_PLAN","Expected a bounded, nonempty edit plan.");
+    // Nodes that already exist and get a new world matrix in the same hold.
+    struct Moved { INode* node; Matrix3 before; json placement; };
+    std::vector<Moved> moved;
+    for(const auto& item:transforms) {
+        if(!item.is_object()||!item.contains("node")) Fail("BAD_PLAN","A transform needs a node reference.");
+        CheckPlacement(item);
+        auto* node=NodeRefs::Resolve(item["node"]);
+        for(const auto& other:moved) if(other.node==node) Fail("BAD_PLAN","A node can be moved only once per batch.");
+        moved.push_back({node,node->GetNodeTM(t),item});
+    }
     const auto guards=p.value("guards",json::array());
     if(!guards.is_array()||guards.size()>128) Fail("BAD_PLAN","Expected at most 128 dependency guards.");
     for(const auto& guard:guards) {
@@ -526,11 +613,10 @@ json Apply(const json& p) {
     for(const auto& item:creates) {
         const auto id=item.at("id").get<std::string>(); if(id.empty()||classes.count(id)) Fail("BAD_PLAN","Created IDs must be nonempty and unique.");
         auto* cd=Descriptor(item.at("class_ref")); const auto sid=cd->SuperClassID();
-        if(sid!=LIGHT_CLASS_ID&&sid!=TEXMAP_CLASS_ID&&sid!=MATERIAL_CLASS_ID) Fail("BAD_CLASS_REF","Construction is limited to light, map and material classes.");
+        if(!NodeClass(sid)&&sid!=TEXMAP_CLASS_ID&&sid!=MATERIAL_CLASS_ID) Fail("BAD_CLASS_REF","Construction is limited to light, camera, map and material classes.");
         if(item.contains("expected_schema")&&item["expected_schema"]!=Schema(cd)["schema_token"]) Fail("STALE_SCHEMA","Creation schema changed.");
-        const auto name=item.value("name",""); if(sid==LIGHT_CLASS_ID&&!name.empty()&&(!names.insert(name).second||!CollectNodesByName(name).empty())) Fail("NAME_COLLISION","Light name already exists: "+name);
-        if(item.contains("matrix")) { if(sid!=LIGHT_CLASS_ID||!item["matrix"].is_array()||item["matrix"].size()!=4) Fail("BAD_PLAN","Only lights accept a four-row world matrix.");
-            for(const auto& row:item["matrix"]) { if(!row.is_array()||row.size()!=3) Fail("BAD_PLAN","Invalid matrix row."); for(const auto& x:row) if(!x.is_number()||!std::isfinite(x.get<double>())) Fail("BAD_PLAN","Matrix must be finite."); } }
+        const auto name=item.value("name",""); if(NodeClass(sid)&&!name.empty()&&(!names.insert(name).second||!CollectNodesByName(name).empty())) Fail("NAME_COLLISION","Node name already exists: "+name);
+        if(item.contains("matrix")||item.contains("position")) { if(!NodeClass(sid)) Fail("BAD_PLAN","Only lights and cameras are placed."); CheckPlacement(item); }
         classes[id]=cd;
     }
     Created created; std::map<std::string,INode*> nodes; std::vector<AnimHandle> nodeHandles;
@@ -562,6 +648,9 @@ json Apply(const json& p) {
         if(ip->GetEnvironmentMap()&&!p["environment"].value("replace_existing",false)) Fail("ENVIRONMENT_EXISTS","Replacing an existing environment requires replace_existing.");
     }
     std::vector<std::unique_ptr<Pin>> pins; json proofs=json::array();
+    // A plugin may add helper nodes of its own while its object is built (a
+    // camera's target); a rollback that leaves one behind is not a clean one.
+    const size_t nodesBefore=CountNodes(ip->GetRootNode());
     theHold.Begin(); bool committed=false;
     try {
         for(const auto& item:creates) {
@@ -572,16 +661,21 @@ json Apply(const json& p) {
             if(!value) Fail("CREATE_FAILED","Plugin did not construct an instance.");
             pins.push_back(std::make_unique<Pin>(value)); created[id]=value;
             if(value->SuperClassID()!=cd->SuperClassID()||value->ClassID()!=cd->ClassID()) Fail("CREATE_FAILED","Constructed instance does not match its descriptor.");
-            if(cd->SuperClassID()==LIGHT_CLASS_ID) {
-                auto* node=madeNode?madeNode:ip->CreateObjectNode(static_cast<Object*>(value)); if(!node) Fail("CREATE_FAILED","Failed to create a light node."); nodes[id]=node; nodeHandles.push_back(Animatable::GetHandleByAnim(node));
+            if(NodeClass(cd->SuperClassID())) {
+                auto* node=madeNode?madeNode:ip->CreateObjectNode(static_cast<Object*>(value)); if(!node) Fail("CREATE_FAILED","Failed to create a scene node."); nodes[id]=node; nodeHandles.push_back(Animatable::GetHandleByAnim(node));
+                // {"created": "<id>:node"} is the scene node, for a parameter that takes one (a sky's sun object).
+                created[id+":node"]=node;
                 const auto name=item.value("name",""); if(!name.empty()) { auto w=Utf8ToWide(name); node->SetName(w.c_str()); }
-                if(item.contains("matrix")) { Matrix3 tm(TRUE); for(int r=0;r<4;++r) tm.SetRow(r,Point3(item["matrix"][r][0].get<float>(),item["matrix"][r][1].get<float>(),item["matrix"][r][2].get<float>())); node->SetNodeTM(t,tm); }
             }
         }
         for(const auto& item:planned) {
             auto* owner=item.existing?item.existing:ResolvePlanOwner(item.edit["owner_ref"],created);
             auto b=ResolveProperty(owner,item.edit["property_ref"]); Set(b,item.edit["value"],t,created);
         }
+        // Placement comes after the parameters: a mode switch (a light's
+        // targeted flag) may reset the node's transform when it is written.
+        for(const auto& item:creates) if(item.contains("matrix")||item.contains("position")) Place(nodes.at(item["id"].get<std::string>()),item,t);
+        for(const auto& item:moved) Place(item.node,item.placement,t);
         if(p.contains("environment")) {
             const auto env=p["environment"]; auto* value=ResolvePlanOwner(env.at("owner_ref"),created);
             if(value->SuperClassID()!=TEXMAP_CLASS_ID) Fail("BAD_REFERENCE","Environment must reference a texture map.");
@@ -596,12 +690,20 @@ json Apply(const json& p) {
             proofs.push_back({{"owner_ref",OwnerRef(owner)},{"property_ref",item.edit["property_ref"]},{"before",item.before},{"actual",actual},{"matched",true}});
         }
         json resources=json::array();
-        for(const auto& entry:created) { json resource={{"id",entry.first},{"owner_ref",OwnerRef(entry.second)}};
+        for(const auto& entry:created) { if(entry.first.size()>5&&entry.first.compare(entry.first.size()-5,5,":node")==0) continue;
+            json resource={{"id",entry.first},{"owner_ref",OwnerRef(entry.second)}};
             if(nodes.count(entry.first)) { auto* node=nodes[entry.first]; resource["node_ref"]={{"handle",NodeHandle(node)},{"name",WideToUtf8(node->GetName())}}; json tm=json::array(); for(int r=0;r<4;++r) { auto v=node->GetNodeTM(t).GetRow(r); tm.push_back({v.x,v.y,v.z}); } resource["matrix"]=tm;
-                for(const auto& spec:creates) if(spec["id"]==entry.first&&spec.contains("matrix")&&!Equal(tm,spec["matrix"])) Fail("VERIFY_MISMATCH","Light world transform differs from its requested matrix."); }
+                for(const auto& spec:creates) if(spec["id"]==entry.first&&!Placed(tm,spec)) Fail("VERIFY_MISMATCH","The node's world transform differs from the requested placement.",{{"expected",spec.contains("matrix")?spec["matrix"]:spec.value("position",json())},{"actual",tm}}); }
             resources.push_back(resource);
         }
-        json result={{"status","applied"},{"resources",resources},{"properties",proofs},{"verification","typed_readback_matched"},{"transaction","one_native_hold"},{"context",Context()}};
+        json placed=json::array();
+        for(const auto& item:moved) {
+            const auto actual=MatrixJson(item.node->GetNodeTM(t));
+            // A look-at, path or script controller keeps its part of the transform.
+            if(!Placed(actual,item.placement)) Fail("TRANSFORM_IGNORED","A controller on '"+WideToUtf8(item.node->GetName())+"' drives its transform; the requested placement did not apply.",{{"expected",item.placement},{"actual",actual}});
+            placed.push_back({{"node_ref",{{"handle",NodeHandle(item.node)},{"name",WideToUtf8(item.node->GetName())}}},{"matrix",actual}});
+        }
+        json result={{"status","applied"},{"resources",resources},{"properties",proofs},{"transforms",placed},{"verification","typed_readback_matched"},{"transaction","one_native_hold"},{"context",Context()}};
         McpHost::DialogWatch::ThrowIfDismissed();
         theHold.Accept(_M("MCP Plugin Edit")); committed=true;
         McpHost::SceneJournal::AppendSynthetic("plugin_patch",{{"created",resources.size()},{"properties",proofs.size()}});
@@ -615,8 +717,15 @@ json Apply(const json& p) {
             for(const auto& item:planned) if(item.existing&&!Equal(Read(ResolveProperty(item.existing,item.edit["property_ref"]),t),item.before)) restored=false;
             if(ip->GetEnvironmentMap()!=previousEnv.GetReference(0)||ip->GetUseEnvironmentMap()!=previousOn) restored=false;
             for(auto handle:nodeHandles) if(Animatable::GetAnimByHandle(handle)) restored=false;
+            for(const auto& item:moved) if(!Equal(MatrixJson(item.node->GetNodeTM(t)),MatrixJson(item.before))) restored=false;
+            if(CountNodes(ip->GetRootNode())!=nodesBefore) restored=false;
         } catch(...) { restored=false; }
-        if(!restored) Fail("ROLLBACK_FAILED","The edit failed and complete restoration could not be verified. Inspect before retrying.");
+        if(!restored) {
+            // Keep why the edit failed: the caller has to fix that before retrying.
+            json cause=nullptr;
+            try { std::rethrow_exception(error); } catch(const std::exception& e) { cause=json::parse(e.what(),nullptr,false); if(cause.is_discarded()) cause=e.what(); } catch(...) {}
+            Fail("ROLLBACK_FAILED","The edit failed and complete restoration could not be verified (the scene may hold a leftover object). Inspect before retrying.",{{"cause",cause}});
+        }
         std::rethrow_exception(error);
     }
 }

@@ -32,7 +32,7 @@ PLUGIN_OVERLAYS: dict[str, dict[str, Any]] = {
         "workflow_tools": [
             "inspect_plugin_class", "inspect_plugin_instance", "get_material_slots",
             "inspect_material_network", "create_material_from_textures", "palette_laydown", "smart_import",
-            "lighting_capabilities", "create_lights", "inspect_lights", "edit_lights",
+            "render_setup",
         ],
         "recipes": [
             "Inspect the installed FStorm class and instance before writing version-sensitive properties; use schema_version=2 where PB2 coverage is available.",
@@ -40,12 +40,12 @@ PLUGIN_OVERLAYS: dict[str, dict[str, Any]] = {
             "For Multi/Sub-Object materials, traverse sub-materials and nested maps before inspecting diffuse_tex; deduplicate shared references.",
             "For FrontBack edits, snapshot the original inputs and their owner slots before rewiring. Resolve named inputs from live inspection and reject cycles; swap each shared FrontBack only once.",
             "FStorm 2.0.0Z exposes bitmap.FStormBitmap.reloadBitmap(). Inspect the published interface on other builds; use it instead of clearing filenames. FrontBack exposes texture1/texture2 and texture1_on/texture2_on.",
-            "Use lighting_capabilities(renderer='fstorm'), then create_lights for rectangle/disk/sphere area lights with native renderer power and RGB/Kelvin color. Rectangle dimensions are full extents; disk/sphere use radius.",
-            "Create a directional sun with fstorm.solar (hour/month/latitude/north_direction), without orientation. Inspect and use edit_lights with the returned light_token for guarded power/color/size/visibility or partial solar changes.",
+            "Use render_setup for lights, sun and render settings: rectangle/disk/sphere area lights take FStorm's own power (unit 'renderer') and RGB or Kelvin color. Rectangle dimensions are full extents; disk/sphere use radius.",
+            "Create the sun with render_setup(sun={'hour': ..., 'month': ..., 'latitude': ..., 'north': ...}), without a direction. Call it again with the same name to change power, color, size, visibility or part of the solar position.",
         ],
         "gotchas": [
             "Untargeted FStormSunLight uses hour, month, latitude and north_direction. Its node transform alone does not establish the solar emission direction. Solar edits refuse targeted suns and preserve target ownership.",
-            "Sun RGB selects the legacy sun model; physical sun color comes from its solar model. FStormSunLight supplies sun only: create_lights does not add FStormSky or change the environment. IES and texture-color creation have no typed route yet.",
+            "Sun RGB selects the legacy sun model; physical sun color comes from its solar model. FStormSunLight supplies sun only: render_setup does not add FStormSky or change the environment. IES and texture-color creation have no typed route yet.",
             "Create an empty FStormBitmap without assigning an empty filename. A filename-poke reload workaround is unverified; never clear paths as an automatic reload operation.",
             "Do not assume FrontBack slot indices or connect a wrapper to itself. Preserve shared maps and undefined inputs.",
             "FStorm output uses native renderer power. No photometric conversion, renderer switching or owned FStorm preview startup is provided. Capture an open FStorm RT window with capture_screen(enabled=true, target=\"fstorm_vfb\"), optionally cropped; requires the updated native bridge.",

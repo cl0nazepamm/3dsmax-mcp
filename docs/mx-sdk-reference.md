@@ -1,8 +1,8 @@
 # sdk (_mx) reference
 
-3ds Max for agents, bound from the SDK: the scene's nodes, parameters, modifiers, materials and animation, and modeling, lighting, viewport, file and plugin work on them.
+3ds Max for agents, bound from the SDK: the scene's nodes, parameters, modifiers, materials and animation, and modeling, viewport, file and plugin work on them. Lights, cameras and renders are mx.render_setup, the same on every renderer.
 
-Build `b20261109192948`, 3ds Max SDK 2027.
+Build `b20261110083842`, 3ds Max SDK 2027.
 
 ## Functions
 
@@ -90,10 +90,6 @@ Delete a node or a list of nodes; an empty list deletes nothing.
 
 Atmospherics then render effects, or one kind: effects('atmospheric').
 
-### `environment_light(*, intensity: float, unit: str, hdri: str | None = None, map: object | None = None, rotation: float = 0.0, color_space: str | None = None, replace: bool = False, renderer: str | None = None) -> _mx.Light`
-
-Light the scene from an HDRI (.exr/.hdr) or an existing map handle: environment_light(intensity=1, unit='renderer', hdri='C:/sky.exr'). replace=True rebinds an occupied environment slot.
-
 ### `fetch() -> None`
 
 Restore what hold() held (Edit > Fetch), dropping the changes since; refuses a hold made elsewhere or for another scene.
@@ -141,18 +137,6 @@ Layer by name, ignoring case; no name: the current layer. layer('Walls', create=
 ### `layers() -> list[_mx.Layer]`
 
 Every layer, in the layer manager's order.
-
-### `light(kind: str, *, intensity: float, unit: str, name: str = '', shape: str | None = None, width: float | None = None, height: float | None = None, radius: float | None = None, length: float | None = None, pos: object | None = None, aim_at: object | None = None, direction: object | None = None, up: object | None = None, kelvin: float | None = None, color: object | None = None, enabled: bool = True, cast_shadows: bool = True, body: str | None = None, solar: object | None = None, renderer: str | None = None) -> _mx.Light`
-
-Create a light for the renderer's provider in one undo step: light('area', intensity=1500, unit='lm', shape='rectangle', width=120, height=60, pos=(0, -200, 250), aim_at=(0, 0, 50), kelvin=4500). Kinds, shapes and units: light_capabilities(); default color 6500 K.
-
-### `light_capabilities(renderer: str | None = None) -> dict`
-
-What the current (or named) renderer's lighting provider supports: kinds, shapes, units, colors, notes.
-
-### `lights() -> list[_mx.Light]`
-
-Every light node, plus the environment map when a provider decodes it.
 
 ### `loft_mesh(name: str, sections: object, parameters: object | None = None, *, profile_closed: bool = True, close_path: bool = False, caps: bool = False, reverse: bool = False) -> _mx.Node`
 
@@ -537,27 +521,6 @@ A scene layer: layer.add(nodes), layer.hidden = True, layer.parent = 'Building'.
 - `.vertex_ticks` (bool, settable): Show vertices as ticks.
 - `.xray` (bool, settable): See-through display.
 
-### Light
-
-A light through its renderer's verified provider: light.intensity = (1500, 'lm'), light.kelvin = 4500. Lists: mx.lights(); a node's: node.light.
-
-- `.cast_shadows` (bool | None, settable): Shadow casting; Corona lights and FStorm suns always cast shadows.
-- `.color` (object, settable): RGB color (0-1, scene-linear) when color_mode is 'rgb', else None; setting it switches to RGB.
-- `.color_mode` (object, settable): 'rgb', 'kelvin', 'texmap', 'realistic' (CoronaSun) or 'physical' (FStorm sun); set only 'realistic' or 'physical'.
-- `.enabled` (bool, settable): Whether the light is on (for an environment map: whether it is the active environment).
-- `.height` (object, settable): Area size in scene units (rectangle width/height are full extents, disk/sphere/cylinder radius, cylinder length); None when the shape has no such size.
-- `.info() -> dict`: Everything decoded about the light, with provider extras and any unreadable parts, as a dict.
-- `.intensity` (tuple, settable): (value, unit), set with an explicit unit: light.intensity = (1500, 'lm'). Units per renderer: mx.light_capabilities().
-- `.kelvin` (object, settable): Color temperature (500-30000 K) when color_mode is 'kelvin', else None; setting it switches to Kelvin.
-- `.kind` (object): 'area', 'point', 'directional' or 'environment'; None when undecoded.
-- `.length` (object, settable): Area size in scene units (rectangle width/height are full extents, disk/sphere/cylinder radius, cylinder length); None when the shape has no such size.
-- `.node` (_mx.Node | None): The light's node, or None for an environment map.
-- `.params` (_mx.Params): Every parameter of the light (or environment map), for what the semantic properties do not cover.
-- `.provider` (object): 'photometric', 'vray', 'octane', 'corona' or 'fstorm'; None when no verified provider decodes this class.
-- `.radius` (object, settable): Area size in scene units (rectangle width/height are full extents, disk/sphere/cylinder radius, cylinder length); None when the shape has no such size.
-- `.shape` (object): Area shape: 'rectangle', 'disk', 'sphere', 'cylinder' (V-Ray also 'mesh'); None otherwise.
-- `.width` (object, settable): Area size in scene units (rectangle width/height are full extents, disk/sphere/cylinder radius, cylinder length); None when the shape has no such size.
-
 ### LoftMesh
 
 A parametric quad loft's definition, stored on its node; node.loft_mesh.update(width=20) rebuilds the cage.
@@ -639,15 +602,15 @@ A scene node, held by handle; NotFound once deleted.
 - `.faces() -> list`: Triangles of the evaluated mesh as 1-based vertex IDs into verts(): mx.create_mesh('Copy', n.verts(), n.faces()) copies it.
 - `.get_verts(indices: collections.abc.Sequence[int] | None = None, *, bbox: object | None = None, near: object | None = None, radius: float = 0.0, convert: bool = False) -> dict`: World positions of the Editable Poly base's vertices as {index: (x, y, z)}, 1-based; filter by indices, bbox=((min), (max)) and near=(x, y, z) with radius. c...
 - `.group` (_mx.Group | None): The group this node is in, or None.
-- `.handle` (int)
+- `.handle` (int): The node's animatable handle. In pymxs: rt.getAnimByHandle(node.handle), not maxOps.getNodeByHandle.
 - `.hidden` (bool, settable)
 - `.inspect() -> dict`: Report: classes, transform, hierarchy, visibility and render flags, wirecolor, instances (self included), mesh, bbox, modifiers, material and the plugin file...
 - `.instances` (list[_mx.Node]): Nodes sharing this node's object (instances and references), itself included: instanced when len > 1.
 - `.interface(name: str) -> _mx.Interface`: A mixin interface of the node by name: node.interface('INodeBakeProperties').
 - `.interfaces` (list[_mx.Interface]): Mixin interfaces of the node itself.
 - `.layer` (_mx.Layer, settable): The node's layer; assign a Layer or a layer name to move it: node.layer = 'Walls'.
-- `.light` (_mx.Light | None): The node's Light (lights only), or None: node.light.intensity.
 - `.loft_mesh` (_mx.LoftMesh | None): The node's parametric loft definition (LoftMesh), or None.
+- `.look_at(target: object, up: object | None = None) -> None`: Turn the node so its -Z axis, the way cameras and lights look, points at a world point: cam.look_at((0, 0, 100)). Position and scale stay; up defaults to wor...
 - `.material` (_mx.Material | None, settable): The node's material, or None.
 - `.mesh_counts` (object): (vertices, faces) of the evaluated, triangulated mesh, or None.
 - `.mesh_qa(limit: int = 12, area_epsilon: float = 0.0) -> dict`: Topology report of the evaluated mesh: boundary, non-manifold and winding-conflict edges, degenerate and duplicate triangles, isolated vertices and edge-conn...
@@ -668,6 +631,7 @@ A scene node, held by handle; NotFound once deleted.
 - `.splines` (list[_mx.Spline]): The splines of an editable spline base (SplineShape or Line).
 - `.track(path: str) -> _mx.Track`: Transform track: 'pos', 'pos.x'..'pos.z', 'rot.x'..'rot.z' (degrees), 'scale'.
 - `.tracks(filter: str | None = None, depth: int = 6) -> list[_mx.Track]`: Every animatable track under the node as sub-anim path tracks, filtered by a substring of the path or controller class: node.tracks('radius').
+- `.transform` (object, settable): World matrix as four rows of (x, y, z): the node's X, Y and Z axes, then its position. Setting it raises when a controller keeps part of the transform.
 - `.verts(world: bool = True) -> list`: Vertex positions of the evaluated, triangulated mesh (after modifiers), world space unless world=False; its IDs are not the cage's.
 - `.wires(depth: int = 8) -> list[dict]`: The node's wired tracks: [{track, controller, driven, driver, two_way, links: [{param, node, expression}]}].
 
@@ -852,5 +816,5 @@ A viewport, resolved on every call: the user's active view, or the AGENT VIEWPOR
 
 ## Values
 
-- `BUILD` = 'b20261109192948'
+- `BUILD` = 'b20261110083842'
 - `MAX_VERSION` = 2027

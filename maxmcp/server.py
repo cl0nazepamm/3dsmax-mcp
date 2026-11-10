@@ -56,6 +56,8 @@ def _install_tool_decorator() -> None:
                 transport_provider=client.get_last_transport,
                 # The routing tools pick the target, so they take no expected_pid.
                 pid_guard=module != "system.routing",
+                # A script's renders and captures come back as images beside its reply.
+                show_images=module == "system.python_api",
             )
             read_only = (name or fn.__name__) in _READ_ONLY_TOOLS
             advertise(name=name, annotations=ToolAnnotations(readOnlyHint=True) if read_only else None)(wrapped)

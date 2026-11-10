@@ -489,6 +489,8 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::PluginPatch(command, gup);
         } else if (cmd_type == "native:lighting_context") {
             result = NativeHandlers::LightingContext(command, gup);
+        } else if (cmd_type == "native:assign_renderer") {
+            result = NativeHandlers::AssignRenderer(command, gup);
         } else if (cmd_type == "maxscript") {
             if (command.empty()) {
                 throw std::runtime_error("Empty MAXScript command");

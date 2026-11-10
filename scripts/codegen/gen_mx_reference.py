@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
+import os
 import sys
 from pathlib import Path
 
@@ -31,15 +31,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--pid", help="3ds Max process id, when several run")
     args = parser.parse_args()
-    command = [sys.executable, str(ROOT / "scripts" / "dev" / "mcpcall.py")]
     if args.pid:
-        command += ["--pid", args.pid]
-    command += ["run_python", json.dumps({"code": CODE.format(out=str(OUT)), "where": "max"})]
-    done = subprocess.run(command, capture_output=True, text=True, cwd=ROOT)
-    print(done.stdout)
-    if done.returncode != 0:
-        print(done.stderr, file=sys.stderr)
-        return done.returncode
+        os.environ.pop("MCP_MAX_PIPE", None)
+        os.environ["MCP_MAX_PID"] = args.pid
+    # run_python is the one tool scripts cannot call through mx, so it is called as a function.
+    sys.path.insert(0, str(ROOT))
+    from maxmcp import server  # noqa: F401 - loading the server registers the tools
+    from maxmcp.tools.system.python_api import run_python
+
+    reply = run_python(CODE.format(out=str(OUT)), where="max")
+    print(json.dumps(reply, indent=2))
+    if reply.get("status") == "error" or "result" not in reply:
+        return 1
     print(f"wrote {OUT}")
     return 0
 

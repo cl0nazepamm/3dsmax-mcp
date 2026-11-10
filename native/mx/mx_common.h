@@ -321,7 +321,7 @@ void BindFiles(nb::module_& m);        // mx_files.cpp
 void BindMesh(nb::module_& m);         // mx_mesh.cpp
 void BindSolids(nb::module_& m);       // mx_solids.cpp
 void BindCurves(nb::module_& m);       // mx_curves.cpp
-void BindLighting(nb::module_& m);     // mx_lighting.cpp
+void BindRendering(nb::module_& m);    // mx_render.cpp
 void BindPlugins(nb::module_& m);      // mx_plugins.cpp
 
 } // namespace MX_ABI_TAG

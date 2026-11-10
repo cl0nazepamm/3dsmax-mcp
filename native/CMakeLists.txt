@@ -325,7 +325,7 @@ if(MCP_MX_PYTHON)
         mx/mx_mesh.cpp
         mx/mx_solids.cpp
         mx/mx_curves.cpp
-        mx/mx_lighting.cpp
+        mx/mx_render.cpp
         mx/mx_plugins.cpp)
     mcp_bridge_apply_settings(_mx)
     target_link_libraries(_mx PRIVATE psapi.lib)

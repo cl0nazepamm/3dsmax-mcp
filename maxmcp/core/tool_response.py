@@ -584,18 +584,68 @@ def _add_target_warning(envelope: dict[str, Any], transport: dict[str, Any] | No
     return envelope
 
 
+IMAGE_MAX_EDGE = 1280  # pixels; a render or capture shown to the model costs tokens by its area
+IMAGE_LIMIT = 4
+
+
+def _image_block(path: str) -> Any | None:
+    """An image file as MCP image content, downsized to IMAGE_MAX_EDGE; None when it cannot be read."""
+    try:
+        from io import BytesIO
+
+        from mcp.types import ImageContent
+        from PIL import Image
+
+        with Image.open(path) as image:
+            image = image.convert("RGB")
+            image.thumbnail((IMAGE_MAX_EDGE, IMAGE_MAX_EDGE))
+            buffer = BytesIO()
+            image.save(buffer, format="JPEG", quality=85)
+        return ImageContent(type="image", data=b64encode(buffer.getvalue()).decode("ascii"), mimeType="image/jpeg")
+    except Exception:  # noqa: BLE001 - an EXR, a missing file: the reply still carries the path
+        return None
+
+
+def _with_images(envelope: dict[str, Any]) -> Any:
+    """The envelope, with the images a script asked to show (result.images) as image content.
+
+    A run_python script lists image files with mx.show (render_setup shows its renders
+    itself). They ride along as image blocks, so the model sees them without a second
+    call to read the file. Without images, or when none can be read, the envelope is
+    returned unchanged.
+    """
+    result = envelope.get("result")
+    error = envelope.get("error")
+    holder = result if isinstance(result, dict) else (error.get("details") if isinstance(error, dict) else None)
+    images = holder.get("images") if isinstance(holder, dict) else None
+    if not isinstance(images, list) or not images:
+        return envelope
+    blocks = [block for block in (_image_block(path) for path in images[:IMAGE_LIMIT] if isinstance(path, str))
+              if block is not None]
+    if not blocks:
+        return envelope
+    from mcp.types import CallToolResult, TextContent
+
+    return CallToolResult(content=[TextContent(type="text", text=json.dumps(envelope, ensure_ascii=False)), *blocks],
+                          structuredContent=envelope, isError=False)
+
+
 def make_structured_tool(
     fn: Callable[..., Any],
     *,
     transport_provider: Callable[[], dict[str, Any] | None] | None = None,
     before_call: Callable[[], None] | None = None,
     pid_guard: bool = False,
+    show_images: bool = False,
 ) -> Callable[..., dict[str, Any]]:
     """Return a wrapper that preserves input schema and advertises ToolEnvelope output.
 
     pid_guard adds an optional expected_pid argument: every bridge call the tool makes on
-    its thread is refused unless it reaches that Max.
+    its thread is refused unless it reaches that Max. show_images returns the images a
+    reply lists (result.images) as MCP image content beside the envelope; only a tool an
+    MCP client calls directly sets it.
     """
+    finish = _with_images if show_images else (lambda envelope: envelope)
 
     fn_signature: Signature = signature(fn)
     try:
@@ -637,13 +687,13 @@ def make_structured_tool(
                 raw = fn(*args, **kwargs)
             elapsed_ms = (time.perf_counter() - started_at) * 1000.0
             transport = transport_provider() if transport_provider else None
-            return _add_target_warning(_add_quiet_override_warning(_add_dialog_warning(envelope_result(
+            return finish(_add_target_warning(_add_quiet_override_warning(_add_dialog_warning(envelope_result(
                 raw,
                 elapsed_ms=elapsed_ms,
                 transport=transport,
                 tool_name=tool_name,
                 script=script,
-            ), transport, tool_name), transport), transport)
+            ), transport, tool_name), transport), transport))
         except Exception as exc:
             elapsed_ms = (time.perf_counter() - started_at) * 1000.0
             transport = transport_provider() if transport_provider else None

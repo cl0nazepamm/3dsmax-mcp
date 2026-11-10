@@ -2,6 +2,7 @@
 #include "mcp_bridge/handler_helpers.h"
 #include "mcp_bridge/core_bridge.h"
 #include "mcp_bridge/capture_region.h"
+#include "mcp_bridge/node_ref.h"
 
 #include <notify.h>
 #include <mutex>
@@ -21,12 +22,28 @@ std::string NativeHandlers::RenderScene(const std::string& params, MCPBridgeGUP*
         int width = p.value("width", 1920);
         int height = p.value("height", 1080);
         std::string outputPath = p.value("output_path", "");
+        if (width < 1 || height < 1 || width > 32768 || height > 32768)
+            throw std::runtime_error(StructuredErrorPayload("BAD_PARAM", "Render size must be 1..32768 pixels."));
 
         // Build MAXScript render command — the SDK render API is complex
         // and MAXScript's render() function handles all the boilerplate
         std::string script = "render outputWidth:" + std::to_string(width) +
                              " outputHeight:" + std::to_string(height) +
                              " vfb:true";
+
+        // Without a camera MAXScript renders the active viewport, which is
+        // whatever the user last clicked. A camera makes the frame repeatable.
+        INode* camera = nullptr;
+        if (p.contains("camera") && !p["camera"].is_null() && p["camera"] != "") {
+            camera = NodeRefs::Resolve(p["camera"]);
+            const ObjectState state = camera->EvalWorldState(GetCOREInterface()->GetTime());
+            if (!state.obj || state.obj->SuperClassID() != CAMERA_CLASS_ID)
+                throw std::runtime_error(StructuredErrorPayload("BAD_PARAM",
+                    "'" + WideToUtf8(camera->GetName()) + "' is not a camera. Pass a camera node, or no camera to render the active viewport."));
+            script += " camera:" + NodeScriptRef(camera);
+        }
+        if (p.contains("frame") && p["frame"].is_number())
+            script += " frame:" + std::to_string(p["frame"].get<int>());
 
         if (!outputPath.empty()) {
             script += " outputFile:\"" + JsonEscape(outputPath) + "\"";
@@ -38,6 +55,8 @@ std::string NativeHandlers::RenderScene(const std::string& params, MCPBridgeGUP*
         result["status"] = "rendered";
         result["width"] = width;
         result["height"] = height;
+        result["view"] = camera ? "camera" : "active_viewport";
+        if (camera) result["camera"] = NodeIdentityJson(camera);
         if (!outputPath.empty()) result["outputFile"] = outputPath;
         return result.dump();
     }, 300000); // 5 minute timeout for rendering

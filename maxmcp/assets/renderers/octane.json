@@ -1,0 +1,162 @@
+{
+  "preset": 1,
+  "id": "octane",
+  "label": "OctaneRender",
+  "renderers": [[2717442453, 1319335807]],
+  "verified": "Octane 2026.6 on 3ds Max 2027: analytic lights, DayLight, Universal Camera and the kernel settings created, edited and read back; the sun direction and the HDRI checked by render.",
+  "notes": [
+    "Area lights are analytic lights whose color and power live on a Black body emission map. Color is Kelvin only.",
+    "Power is in watts at the emission's efficiency (kept at 2.5 %, an incandescent lamp). lm is converted with that efficiency and reported as approximate.",
+    "sun is Octane's DayLight: the sun and its sky in one object. It shines toward the world origin from where it stands, so it is placed by elevation and azimuth (or direction), never rotated.",
+    "kernel_kernelType is left as it is: its integer values are not published. Set it by its own name in settings only when the user names the value.",
+    "camera is Octane's Universal Camera. Its exposure is a multiplier (1 by default); a sunlit exterior needs far less than an interior. The camera keeps a nonzero target_distance, without which Octane ignores the node's direction."
+  ],
+  "recipes": {
+    "_area": {
+      "objects": {
+        "light": {"class": [592523983, 1640440069], "super": "light"},
+        "emission": {"class": [249824500, 396179973], "super": "texmap"}
+      },
+      "set": {
+        "target_mode": false,
+        "normalize": true,
+        "emission": "@emission",
+        "emission.normalize": true,
+        "emission.surfaceBrightness": false,
+        "emission.keepInstancePower": true,
+        "emission.illumination": true,
+        "emission.efficiency or texture_input_type": 0,
+        "emission.efficiency or texture_value": 0.025
+      },
+      "aim": "-z",
+      "defaults": {"kelvin": 6500, "double_sided": false},
+      "fields": {
+        "enabled": "enabled",
+        "cast_shadows": "emission.castShadows",
+        "double_sided": "emission.doubleSided",
+        "kelvin": {"param": "emission.temperature", "min": 500, "max": 25000}
+      },
+      "intensity": {
+        "units": {"W": {"param": "emission.power"}},
+        "default": {"value": 100, "unit": "W"},
+        "approx": {
+          "lm": {
+            "unit": "W",
+            "factor": 0.058565,
+            "basis": "683 lm per radiant watt at the emission's 2.5 % efficiency; not checked against a photometric render"
+          }
+        }
+      }
+    },
+    "rectangle": {
+      "extends": "_area",
+      "match": {"analyticLightType": 0},
+      "set": {"analyticLightType": 0},
+      "oriented": true,
+      "requires": ["width", "height"],
+      "fields": {
+        "width": {"param": "quadAnalyticLightSize", "index": 0},
+        "height": {"param": "quadAnalyticLightSize", "index": 1}
+      }
+    },
+    "disk": {
+      "extends": "_area",
+      "match": {"analyticLightType": 1},
+      "set": {"analyticLightType": 1},
+      "oriented": true,
+      "requires": ["radius"],
+      "fields": {
+        "radius": {"param": "diskAnalyticLightSize", "index": "all", "scale": 2}
+      }
+    },
+    "sphere": {
+      "extends": "_area",
+      "match": {"analyticLightType": 3},
+      "set": {"analyticLightType": 3},
+      "requires": ["radius"],
+      "fields": {"radius": "sphereAnalyticLightRadius"}
+    },
+    "cylinder": {
+      "extends": "_area",
+      "match": {"analyticLightType": 4},
+      "set": {"analyticLightType": 4},
+      "oriented": true,
+      "requires": ["radius", "length"],
+      "fields": {"radius": "tubeAnalyticLightCapRadius", "length": "tubeAnalyticLightLength"}
+    },
+    "sun": {
+      "objects": {"light": {"class": [592523982, 1640440065], "super": "light"}},
+      "aim": "from_position",
+      "distance_m": 10,
+      "oriented": true,
+      "fields": {
+        "enabled": "Enabled",
+        "size": {"param": "Sun_Size", "min": 0.1, "max": 30},
+        "turbidity": {"param": "Turbidity", "min": 2, "max": 15},
+        "sky_intensity": {"param": "Power", "min": 0, "max": 1000}
+      },
+      "intensity": {
+        "units": {"renderer": {"param": "SunIntensity"}},
+        "default": {"value": 1, "unit": "renderer"}
+      }
+    },
+    "hdri": {
+      "objects": {
+        "env": {"class": [1197826109, 1274825817], "super": "texmap"},
+        "image": {"class": [1865767904, 1645758520], "super": "texmap"}
+      },
+      "set": {"texture_input_type": 2, "texture_tex": "@image", "image.gamma": 1.0},
+      "environment": "@env",
+      "requires": ["path"],
+      "fields": {
+        "path": {"param": "image.filename", "extensions": [".exr", ".hdr"]},
+        "rotation": {"param": "rotation", "index": 0, "scale": 0.0027777778}
+      },
+      "intensity": {
+        "units": {"renderer": {"param": "power"}},
+        "default": {"value": 1, "unit": "renderer"}
+      }
+    },
+    "camera": {
+      "objects": {"camera": {"class": [1571039275, 2083793839], "super": "camera"}},
+      "set": {"target_mode": false, "target_distance": 100.0},
+      "aim": "-z",
+      "oriented": true,
+      "defaults": {"fov": 50},
+      "fields": {
+        "fov": {"param": "fov", "min": 0.01, "max": 180},
+        "exposure": {"param": "Exposure", "min": 0},
+        "vertical_shift": {"param": "lensShift", "index": 1},
+        "horizontal_shift": {"param": "lensShift", "index": 0}
+      }
+    }
+  },
+  "settings": {
+    "samples": {"param": "kernel_maxSamples", "min": 1, "max": 256000},
+    "denoise": "viewcam_denoiser_enab"
+  },
+  "quality": {
+    "draft": {"samples": 100, "denoise": true},
+    "preview": {"samples": 400, "denoise": true},
+    "final": {"samples": 2000, "denoise": true}
+  },
+  "enums": [
+    {
+      "super": 48,
+      "class": [592523983, 1640440069],
+      "block": 0,
+      "id": 14768,
+      "param": "analyticLightType",
+      "values": {"rectangle": 0, "disk": 1, "sphere": 3, "cylinder": 4},
+      "evidence": "Octane 2026.3 Type combo item data (Quad=0, Disc=1, Sphere=3, Tube=4)"
+    },
+    {
+      "super": 3088,
+      "class": [1197826109, 1274825817],
+      "param": "texture_input_type",
+      "values": {"texture": 2},
+      "complete": false,
+      "evidence": "Octane 2026.6 on 3ds Max 2027: one test render per value. 2 lights the scene with the image; 0 and 1 give a flat white, 3 leaves it black"
+    }
+  ]
+}

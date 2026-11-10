@@ -1,0 +1,76 @@
+{
+  "preset": 1,
+  "id": "photometric",
+  "label": "3ds Max photometric lights",
+  "renderers": [],
+  "verified": "3ds Max 2027: creation, edit and typed readback of every shape through plugin_patch.",
+  "notes": [
+    "Intensity is stored in candelas. lm is converted through the emitter's shape and reported as converted.",
+    "There is no sun or hdri recipe here: Scanline takes no light from a Sun Positioner or its sky. ART has a sun of its own."
+  ],
+  "recipes": {
+    "_light": {
+      "set": {"useMultiplier": false, "intensityType": 1},
+      "aim": "-z",
+      "defaults": {"kelvin": 6500},
+      "fields": {
+        "enabled": "on",
+        "cast_shadows": "castShadows",
+        "kelvin": {
+          "param": "kelvin",
+          "with": {"useKelvin": true},
+          "min": 1000,
+          "max": 20000
+        },
+        "rgb": {"param": "rgb", "with": {"useKelvin": false}}
+      },
+      "intensity": {
+        "units": {"cd": {"param": "intensity"}},
+        "default": {"value": 1500, "unit": "cd"}
+      }
+    },
+    "point": {
+      "extends": "_light",
+      "objects": {"light": {"class": [842489804, 184704240], "super": "light"}}
+    },
+    "rectangle": {
+      "extends": "_light",
+      "objects": {"light": {"class": [911244690, 274340423], "super": "light"}},
+      "oriented": true,
+      "requires": ["width", "height"],
+      "fields": {"width": "light_width", "height": "light_length"}
+    },
+    "disk": {
+      "extends": "_light",
+      "objects": {"light": {"class": [1540123970, 206521102], "super": "light"}},
+      "oriented": true,
+      "requires": ["radius"],
+      "fields": {"radius": "light_radius"}
+    },
+    "sphere": {
+      "extends": "_light",
+      "objects": {"light": {"class": [2091464066, 448490290], "super": "light"}},
+      "requires": ["radius"],
+      "fields": {"radius": "light_radius"}
+    },
+    "cylinder": {
+      "extends": "_light",
+      "objects": {"light": {"class": [1190540515, 171080367], "super": "light"}},
+      "oriented": true,
+      "requires": ["radius", "length"],
+      "fields": {"radius": "light_radius", "length": "light_length"}
+    }
+  },
+  "settings": {},
+  "quality": {},
+  "enums": [
+    {
+      "super": 48,
+      "class": [670970524, 1903123237],
+      "param": "mode",
+      "values": {"manual": 0},
+      "complete": false,
+      "evidence": "3ds Max 2027: with mode 0, azimuth_deg 90 and altitude_deg 30 read back as manual_sun_position (34.64, 0, 20), a sun in the east 30 degrees up; writing either angle in mode 1 or 2 returns the mode to 0"
+    }
+  ]
+}

@@ -11,7 +11,13 @@ from ...server import client, mcp
 
 @mcp.tool()
 def list_max_instances() -> dict:
-    """List live Max instances in default order without selecting one."""
+    """List live Max instances in default order without selecting one.
+
+    `window` gives each instance's title (it names the open scene), `minimized` and
+    `foreground`. The default is the Max the user can see: a shown window before a
+    minimized one, then the one nearer the front. With several instances, check that the
+    default is the one the user is working in, or select_max_instance the right one.
+    """
     return client.list_max_instances()
 
 
