@@ -11,20 +11,27 @@ from ...core.maxscript import safe_string, node_by_name
 
 
 @mcp.tool()
-def inspect_object(name: str) -> str:
+def inspect_object(name: str = "", handle: int = 0) -> str:
     """Get a deep exploratory object summary (props, modifiers, material, instances).
 
-    Use when: you need a full dump of one named object before editing it.
+    Target by name, or by handle when several objects share the name.
+
+    Use when: you need a full dump of one object before editing it.
     Not when: listing/finding many nodes (query_scene) or a compact property snapshot
     (get_object_properties).
     """
     if client.native_available:
+        payload = _json.dumps({"handle": handle} if handle else {"name": name})
+        if handle:
+            # Only the native handler reads by handle; its errors are the answer.
+            return client.send_command(payload, cmd_type="native:inspect_object").get("result", "")
         try:
-            payload = _json.dumps({"name": name})
             response = client.send_command(payload, cmd_type="native:inspect_object")
             return response.get("result", "")
         except RuntimeError:
             pass
+    elif handle:
+        raise RuntimeError("inspect_object by handle needs the native bridge; pass the object's name")
 
     safe = safe_string(name)
     maxscript = f"""(

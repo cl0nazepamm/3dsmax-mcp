@@ -261,9 +261,13 @@ inline unsigned long long PayloadHandleValue(const json& payload, const std::str
     return 0ULL;
 }
 
+// The scene's node of that handle. A deleted node stays alive in the undo
+// buffer and its handle still resolves; it has no parent, and is not a node of
+// the scene any more.
 inline INode* FindNodeByHandle(unsigned long long handle) {
     if (handle == 0ULL) return nullptr;
-    return NodeEventNamespace::GetNodeByKey(static_cast<NodeEventNamespace::NodeKey>(handle));
+    INode* node = NodeEventNamespace::GetNodeByKey(static_cast<NodeEventNamespace::NodeKey>(handle));
+    return node && (node->GetParentNode() || node->IsRootNode()) ? node : nullptr;
 }
 
 inline std::string StructuredErrorPayload(

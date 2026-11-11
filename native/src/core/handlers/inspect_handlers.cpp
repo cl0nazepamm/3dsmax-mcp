@@ -156,17 +156,15 @@ static std::string SuperClassName(SClass_ID scid) {
 std::string NativeHandlers::InspectObject(const std::string& params, MCPBridgeGUP* gup) {
     return gup->GetExecutor().ExecuteSync([&params]() -> std::string {
         json p = json::parse(params, nullptr, false);
-        std::string name = p.value("name", "");
-        if (name.empty()) throw std::runtime_error("name is required");
-
-        INode* node = FindUniqueNodeByName(name);
-        if (!node) throw std::runtime_error("Object not found: " + name);
+        // By handle, or by a name only one object has.
+        INode* node = ResolveNodeFromPayload(p);
 
         Interface* ip = GetCOREInterface();
         TimeValue t = ip->GetTime();
 
         json result;
         result["name"] = WideToUtf8(node->GetName());
+        result["handle"] = NodeHandle(node);
 
         // Class info
         ObjectState os = node->EvalWorldState(t);
