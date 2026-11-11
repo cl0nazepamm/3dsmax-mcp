@@ -44,6 +44,8 @@ class ScriptStep:
         self.rt, self.label = rt, label
         self.legacy = False
         self.breaks = 0
+        # Why the bridge could not close the step, when 3ds Max failed inside it.
+        self.close_error = ""
 
     def __enter__(self) -> "ScriptStep":
         try:
@@ -63,6 +65,11 @@ class ScriptStep:
             return False
         try:
             self.breaks = int(_script_hold(action="end", commit=commit).get("breaks") or 0)
+        except RuntimeError as error:
+            # A failed rollback must not hide the script's own error; a failed commit is the error.
+            self.close_error = str(error)
+            if commit:
+                raise
         finally:
             # A reloaded core forgets the step: never leave Max holding.
             for _ in range(32):
@@ -108,7 +115,9 @@ def run_script(code: str, timeout_s: float = 300, label: str = UNDO_LABEL) -> di
         reply["note"] = note
     if reply.get("status") == "error":
         details = reply.setdefault("details", {})
-        details["rolled_back"] = True
+        details["rolled_back"] = not step.close_error
+        if step.close_error:
+            details["rollback_error"] = step.close_error
         if step.breaks:
             details["rolled_back_scope"] = (
                 f"only what the script changed after its last undo/reset/fetch; the {step.breaks} step(s) "

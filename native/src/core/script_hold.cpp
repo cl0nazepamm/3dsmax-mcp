@@ -66,6 +66,24 @@ bool CloseStep(bool commit) {
     return kept;
 }
 
+// After a close that threw: a restore object failed inside 3ds Max, which
+// leaves its hold suspended, mid-restore and a super level deep, so nothing
+// after it would be undoable. Nothing more is restored here. What is still
+// open is accepted, the undo history is dropped (its records may point at
+// freed objects) and an empty begin/cancel puts the hold's own state back.
+void Recover() {
+    const State s = S();
+    try {
+        for (int guard = 0; theHold.IsSuspended() && guard < 32; ++guard) theHold.Resume();
+        for (int guard = 0; theHold.Holding() && guard < 32; ++guard) theHold.Accept(s.label.c_str());
+        if (s.superOpen && theHold.GetSuperBeginDepth() > 0) theHold.SuperAccept(s.label.c_str());
+        GetCOREInterface()->FlushUndoBuffer();
+        theHold.Begin();
+        theHold.Cancel();
+    } catch (...) {
+    }
+}
+
 void Pause() {
     State& s = S();
     if (s.open && theHold.Holding()) theHold.Accept(s.label.c_str());
@@ -136,9 +154,21 @@ std::string Handle(const std::string& params) {
     if (action == "end") {
         if (!s.active) return json({{"active", false}, {"kept", false}, {"breaks", 0}, {"was_active", false}}).dump();
         const bool commit = p.value("commit", true);
-        const bool kept = CloseStep(commit);
         const int breaks = s.breaks;
+        bool kept = false;
+        bool failed = false;
+        try {
+            kept = CloseStep(commit);
+        } catch (...) {
+            // The step is over either way: left marked open, no script could start again.
+            failed = true;
+            Recover();
+        }
         s = State{};
+        if (failed)
+            Fail("UNDO_STEP_FAILED", std::string("3ds Max failed while ") + (commit ? "committing" : "rolling back") +
+                 " the script's undo step. Part of what the script changed may remain, and the undo history was "
+                 "cleared; inspect the scene before continuing.");
         return json({{"active", false}, {"kept", kept}, {"breaks", breaks}, {"was_active", true}}).dump();
     }
     // _mx steps out around a scene reset or fetch it runs itself.
