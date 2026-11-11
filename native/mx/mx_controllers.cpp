@@ -19,6 +19,22 @@ using json = nlohmann::json;
 
 struct ControllerRef { AnimHandle ctrl = 0; };
 
+// Controller edits that 3ds Max would record piecemeal (a constraint's
+// AppendTarget opens a hold of its own). Outside a script's undo step nothing
+// is recorded, so no record outlives a controller _mx frees. Inside a step the
+// step records them like every other edit: left unrecorded there, a
+// replacement freed the old controller at once (3ds Max defers a delete only
+// while it is holding), earlier records of the step still pointed at it, and
+// rolling the script back crashed 3ds Max.
+struct Unrecorded {
+    std::optional<HoldSuspend> suspend;
+    Unrecorded() {
+        if (!ScriptStepActive()) suspend.emplace();
+    }
+    Unrecorded(const Unrecorded&) = delete;
+    Unrecorded& operator=(const Unrecorded&) = delete;
+};
+
 static Control* ResolveController(const ControllerRef& ref) {
     RequireMain();
     Animatable* anim = Animatable::GetAnimByHandle(ref.ctrl);
@@ -139,7 +155,7 @@ static void AddLayer(const ResolvedTrack& r, Control* layer) {
 
 static ControllerRef Assign(const Track& tr, nb::handle cls, bool layer, nb::kwargs params) {
     RequireMain();
-    HoldSuspend noUndo;  // see AddTarget
+    Unrecorded noUndo;
     const ResolvedTrack r = ResolveTrack(tr);
     const SClass_ID super = TrackSuper(r);
     Control* fresh = nullptr;
@@ -521,10 +537,7 @@ static void SetExpression(const ControllerRef& ref, const std::string& expressio
 
 static void AddTarget(const ControllerRef& ref, nb::handle target, std::optional<double> weight,
                       std::optional<double> frame, const std::optional<std::string>& name) {
-    // _mx keeps no undo records. Controllers open their own holds (a constraint's
-    // AppendTarget does), and a record they leave keeps a parameter block alive
-    // after _mx frees its controller: deleting a target then crashed Max.
-    HoldSuspend noUndo;
+    Unrecorded noUndo;
     Control* c = ResolveController(ref);
     const std::string cls = CtrlClass(c);
     if (IScriptCtrl* sc = ScriptOf(c)) {
@@ -883,7 +896,7 @@ static IParamWireMgr* WireManager() {
 static ControllerRef WireTrack(const Track& tr, const Track& driver, const std::string& expression,
                                const std::optional<std::string>& reverse) {
     RequireMain();
-    HoldSuspend noUndo;  // see AddTarget
+    Unrecorded noUndo;
     const ResolvedTrack driven = ResolveTrack(tr), from = ResolveTrack(driver);
     for (const ResolvedTrack* t : {&driven, &from})
         if (!t->parent || t->sub < 0) throw BadParam(t->label + " cannot be wired");
@@ -901,7 +914,7 @@ static ControllerRef WireTrack(const Track& tr, const Track& driver, const std::
 
 static void Unwire(const Track& tr) {
     RequireMain();
-    HoldSuspend noUndo;  // see AddTarget
+    Unrecorded noUndo;
     const ResolvedTrack r = ResolveTrack(tr);
     IBaseWireControl* wire = r.ctrl ? GetWireControlInterface(r.ctrl) : nullptr;
     if (!wire) throw BadParam(r.label + " is not wired");
