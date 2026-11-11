@@ -48,6 +48,8 @@ def load_arguments(text: str | None) -> dict[str, Any]:
 
 def load_registry() -> Any:
     """The server's tool registry, imported from this checkout's source."""
+    # The registry reaches every tool in any profile; script imports only the called tool's module.
+    os.environ["MCP_TOOL_PROFILE"] = "script"
     sys.path.insert(0, str(ROOT))
     from maxmcp import server
 

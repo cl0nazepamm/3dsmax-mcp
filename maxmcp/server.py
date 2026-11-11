@@ -1,9 +1,10 @@
 """The 3dsmax-mcp MCP server.
 
-MCP clients see five tools: run_python, which runs a script against the mx API, and the
-four that choose which 3ds Max the server talks to. Every other tool is a Python
-function in maxmcp/tools, declared with @mcp.tool() and called from scripts as
-mx.tools.<name>(**arguments).
+Every tool is a Python function in maxmcp/tools, declared with @mcp.tool() and called
+from scripts as mx.tools.<name>(**arguments). By default MCP clients list five of them:
+run_python, which runs a script against the mx API, and the four that choose which
+3ds Max the server talks to. The full, core and progressive tool profiles list more
+(maxmcp/profiles.py).
 """
 
 import logging
@@ -15,21 +16,17 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
-from mcp.types import ToolAnnotations
 
 from .core.max_client import MaxClient
 from .core.tool_response import make_structured_tool
+from .profiles import PROGRESSIVE_INSTRUCTIONS, ROUTING_MODULE, SCRIPT_MODULE, ToolProfile, tool_annotations
 from .registry import ToolRegistry
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-_INSTRUCTIONS = (
-    "Work in 3ds Max by writing run_python scripts against the mx API; it is the only operational tool. "
-    "mx.tools.<name>(**arguments) runs any of the ~180 3dsmax-mcp tools. mx.help() lists them by group, "
-    "mx.find_tools('what you need') searches them, and mx.help(name) prints one tool's manual."
-)
-
-mcp = FastMCP("3dsmax-mcp", instructions=_INSTRUCTIONS)
+# Which tools MCP clients list: MCP_TOOL_PROFILE, else the user's mcp_config.ini, else script.
+profile = ToolProfile.configured()
+mcp = FastMCP("3dsmax-mcp", instructions=profile.instructions())
 client = MaxClient()
 # Every tool function by name, for mx. run_python itself is not callable from a script.
 registry = ToolRegistry(client, skip=("python_api",))
@@ -37,30 +34,27 @@ registry = ToolRegistry(client, skip=("python_api",))
 if __name__ == "__main__" and __spec__ is not None:
     sys.modules.setdefault(__spec__.name, sys.modules[__name__])
 
-# The modules of maxmcp/tools whose tools MCP clients see.
-_ADVERTISED_MODULES = ("system.routing", "system.python_api")
-_READ_ONLY_TOOLS = frozenset({"list_max_instances", "get_selected_max_instance"})
-
 
 def _install_tool_decorator() -> None:
-    """Make @mcp.tool() add a function to the registry, and advertise it only from _ADVERTISED_MODULES."""
-    advertise = mcp.tool
+    """Make @mcp.tool() add a function to the registry, and list it for MCP clients when the profile does."""
+    list_tool = mcp.tool
 
     def register(fn: Any, name: str | None = None) -> Any:
         registry.add(fn, name)
         module = fn.__module__.partition(".tools.")[2]
-        if module in _ADVERTISED_MODULES:
+        tool_name = name or fn.__name__
+        if profile.lists(module, tool_name):
             wrapped = make_structured_tool(
                 fn,
                 before_call=client.clear_last_response,
                 transport_provider=client.get_last_transport,
                 # The routing tools pick the target, so they take no expected_pid.
-                pid_guard=module != "system.routing",
+                pid_guard=module != ROUTING_MODULE,
                 # A script's renders and captures come back as images beside its reply.
-                show_images=module == "system.python_api",
+                show_images=module == SCRIPT_MODULE,
             )
-            read_only = (name or fn.__name__) in _READ_ONLY_TOOLS
-            advertise(name=name, annotations=ToolAnnotations(readOnlyHint=True) if read_only else None)(wrapped)
+            list_tool(name=name, annotations=tool_annotations(tool_name))(wrapped)
+            profile.document(mcp._tool_manager.get_tool(tool_name), fn)
         return fn
 
     def tool(*args: Any, **kwargs: Any) -> Any:
@@ -72,10 +66,12 @@ def _install_tool_decorator() -> None:
 
 
 _install_tool_decorator()
-for _module in _ADVERTISED_MODULES:
+for _module in profile.startup_modules(registry):
     import_module(f".tools.{_module}", package=__package__)
 # Its @mcp.resource() entries (plugin manifests and guides) exist once it is imported.
 import_module(".tools.inspection.plugins", package=__package__)
+profile.add_own_tools(
+    mcp, registry, before_call=client.clear_last_response, transport_provider=client.get_last_transport)
 
 
 SKILL_RESOURCE_URI = "resource://3dsmax-mcp/skill"
@@ -117,14 +113,36 @@ def get_skill() -> str:
 @mcp.prompt()
 def max_assistant() -> str:
     """Default assistant instructions for MCP clients like Claude Desktop."""
+    if profile.scripted:
+        reach = (
+            f"{profile.instructions()}\n"
+            "The tool names in the rules below are not top-level MCP tools: call each one inside a run_python "
+            "script as mx.tools.<name>(**arguments).\n"
+        )
+        fallback, failed, explicit = "run_python is", "call", "scripts explicit about what they read and change"
+        replies = (
+            "run_python replies are structured objects: `{ok, result}` on success, `{ok, error}` on failure. A tool call that fails inside a script raises mx.MaxToolError (.code, .message, .hint) and ends the script unless the script catches it. Set MCP_TRIPBACK_MODE=full for elapsed_ms and full transport metadata.\n"
+            "If ok is false, read error.message and error.details (script line, tool, code, hint) before retrying or choosing a fallback.\n"
+        )
+    else:
+        reach = "For user requests about the live 3ds Max scene, call the MCP tool that matches the task directly.\n"
+        if profile.name == "progressive":
+            reach = (
+                "This server uses the progressive tool profile: instance routing tools, the most common "
+                "operational tools, and find_tools, list_toolsets, describe_toolset and call_tool are advertised.\n"
+                f"{PROGRESSIVE_INSTRUCTIONS}\n"
+            )
+        fallback, failed, explicit = "direct MCP tools are", "tool", "tool usage structured and explicit"
+        replies = (
+            "MCP tool replies are structured objects: `{ok, result}` on success, `{ok, error}` on failure, optional top-level `hint` (`message`, `suggested_tools`, `next`). Transport only when present on errors. Set MCP_TRIPBACK_MODE=full for elapsed_ms and full transport metadata.\n"
+            "If ok is false, read error.message and any hint.suggested_tools before retrying or choosing a fallback.\n"
+        )
     return (
         "You are a 3ds Max assistant connected via MCP.\n"
-        f"{_INSTRUCTIONS}\n"
-        "The tool names in the rules below are not top-level MCP tools: call each one inside a run_python "
-        "script as mx.tools.<name>(**arguments).\n"
-        "Do not inspect repository source files, run Python imports, or run repository tests for live scene requests unless the user explicitly asks for repo/debug/test work or run_python is unavailable.\n"
+        f"{reach}"
+        f"Do not inspect repository source files, run Python imports, or run repository tests for live scene requests unless the user explicitly asks for repo/debug/test work or {fallback} unavailable.\n"
         "Do not call get_bridge_status or get_session_context as a session preamble or before every task.\n"
-        "Use get_bridge_status only when a call fails with a connection/transport error and you need to diagnose the bridge.\n"
+        f"Use get_bridge_status only when a {failed} fails with a connection/transport error and you need to diagnose the bridge.\n"
         "Use query_scene(action=overview|filter|class|property|selection|delta) for scene reads.\n"
         "Use get_session_context only when the user explicitly wants bridge + capabilities + scene + selection in one call.\n"
         "Use inspect_track_view to browse an object's animation/controller hierarchy before targeting a specific param_path.\n"
@@ -140,11 +158,10 @@ def max_assistant() -> str:
         "Prefer dedicated tools over raw MAXScript when available.\n"
         "Inspect objects/properties before edits when you do not already have the needed data.\n"
         "After any meaningful mutation, verify with query_scene(action=delta) or re-inspect.\n"
-        "Work in natural language with the user, but keep scripts explicit about what they read and change.\n"
+        f"Work in natural language with the user, but keep {explicit}.\n"
         "DO NOT render unless the user asks.\n"
         "Use capture_viewport for fast viewport context.\n"
-        "run_python replies are structured objects: `{ok, result}` on success, `{ok, error}` on failure. A tool call that fails inside a script raises mx.MaxToolError (.code, .message, .hint) and ends the script unless the script catches it. Set MCP_TRIPBACK_MODE=full for elapsed_ms and full transport metadata.\n"
-        "If ok is false, read error.message and error.details (script line, tool, code, hint) before retrying or choosing a fallback.\n"
+        f"{replies}"
         f"Reference resource: {SKILL_RESOURCE_URI}\n"
         "Load the reference resource only when you need detailed project rules or MAXScript examples.\n"
     )

@@ -10,7 +10,10 @@ single tool can: tool choice, cross-tool workflows, safety rules and MAXScript p
 
 ## Calling Tools
 
-- The server lists five tools: `run_python`, and four that choose the 3ds Max it talks to. Every other tool this guide names is a Python function: call it inside a `run_python` script as `mx.tools.<name>(**arguments)`, never as a top-level tool.
+- By default the server lists five tools: `run_python`, and four that choose the 3ds Max it talks to. Every other tool this guide names is a Python function: call it inside a `run_python` script as `mx.tools.<name>(**arguments)`, never as a top-level tool.
+- Some installs list more tools. Go by your tool list: a tool this guide names can be called directly when it is listed, and from a script either way. Never call an unlisted name as a top-level tool.
+  - **Full/core:** most tools are listed, the common ones in full and the others as a summary line plus a Python-style signature such as `(name:str='', move:list[float]=None)`. Pass those argument names with JSON values (numbers and arrays, not strings). Call `tool_help(name)` for a tool's full manual before relying on options its signature does not explain.
+  - **Progressive:** the common tools are listed with `find_tools`, `list_toolsets`, `describe_toolset` and `call_tool`. Find another tool with `find_tools(query=...)`, which returns the best matches with their exact schemas, then run it with `call_tool(name=..., arguments=...)`. `list_toolsets` and `describe_toolset(toolset=..., tools=[...])` browse the groups.
 - `mx.help()` lists every tool by group, `mx.help("<group>")` lists one group with signatures, `mx.find_tools("boolean subtract")` returns the manuals of the best matches, and `mx.help("<name>")` prints one tool's signature and manual. Pass Python values (numbers, lists, dicts), not strings of them. A wrong argument name or type raises `mx.MaxToolError` with `BAD_PARAM` and the signature, and nothing is sent to Max.
 
 ## Principles
@@ -24,7 +27,7 @@ single tool can: tool choice, cross-tool workflows, safety rules and MAXScript p
 - Verify meaningful edits with `query_scene(action="delta")`, re-inspection or a capture.
 - Keep mutating calls sequential. Concurrent writes interleave undo transactions: a crash, then persistent corruption such as phantom successes and wrong handles.
 - Multiple Max instances: the first native connection stays bound to that Max and never silently switches while it runs. The default is the Max the user can see (a shown window before a minimized one, then the one nearer the front). `list_max_instances` gives each instance's `window` (title with the scene name, `minimized`, `foreground`): with more than one instance, check that you are in the one the user is working in before building. Use `select_max_instance(pid)`, `get_selected_max_instance` and `release_max_instance`. `MCP_MAX_PIPE` or `MCP_MAX_PID` pins the startup target (the pipe takes precedence); release also clears it.
-  - **Shared selection:** the selection belongs to the MCP server process, so sessions that share one server share it, and one session's select moves the others. Pass `expected_pid` (`run_python` and every `mx.tools` call take it) to any call that must reach one particular Max. A mismatch returns `TARGET_MISMATCH` with nothing sent. `selection_generation` in each reply's transport changes on every select, release or re-resolve.
+  - **Shared selection:** the selection belongs to the MCP server process, so sessions that share one server share it, and one session's select moves the others. Pass `expected_pid` (`run_python`, every `mx.tools` call and every other listed tool take it) to any call that must reach one particular Max. A mismatch returns `TARGET_MISMATCH` with nothing sent. `selection_generation` in each reply's transport changes on every select, release or re-resolve.
   - **Default target after a restart:** a target the server picked by itself (`target_source` "default" or "claim") follows its Max's restart (the Max that started after it stopped answering), and the reply warns. A Max that was already open belongs to another session and is never taken over: until the restart is up, calls fail with retryable `TARGET_UNAVAILABLE` and nothing is sent; `select_max_instance` it to work there. Several new instances: `AMBIGUOUS`, select one. A claimed instance wins. Explicit and environment targets never move; they fail until you select or release.
 
 ## Tool Choice
@@ -102,7 +105,7 @@ single tool can: tool choice, cross-tool workflows, safety rules and MAXScript p
 
 ## Results and Errors
 
-- A `run_python` reply is a `ToolEnvelope` dict (`ok`/`result`/`error`), not a JSON string. Inside a script, `mx.tools.<name>(...)` returns the tool's result and raises `mx.MaxToolError` (`.code`, `.message`, `.hint`) on failure. Tool-authored hints win over automatic ones; `hint.suggested_tools` may list alternatives.
+- A reply to `run_python`, or to any tool called directly, is a `ToolEnvelope` dict (`ok`/`result`/`error`/`hint`), not a JSON string. Inside a script, `mx.tools.<name>(...)` returns the tool's result and raises `mx.MaxToolError` (`.code`, `.message`, `.hint`) on failure. Tool-authored hints win over automatic ones; `hint.suggested_tools` may list alternatives.
 - Classify raw structured errors by `error`, `code` or `status=error|failed`, never by `message` alone.
 - `status: "partial"` means only part of the request applied. Read `warnings` and the skipped items (`notFound`, `ambiguous`, `ignored`) before continuing.
 - `AMBIGUOUS`: several objects share the name. Retry with a candidate's `handle` where the tool takes one; otherwise rename them first (`set_object_property(handle=..., property="name")`). Never guess which object was meant.

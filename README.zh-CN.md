@@ -249,12 +249,35 @@ Base URL、API Key 和模型名：
 
 ## 智能体如何调用工具
 
-MCP 客户端每次请求都会把公开的工具定义发给模型，所以服务器只公开 5 个工具（约 2k token）：`run_python`，以及用来选择
+MCP 客户端每次请求都会把公开的工具定义发给模型，所以服务器默认只公开 5 个工具（约 2k token）：`run_python`，以及用来选择
 目标 3ds Max 的 4 个实例路由工具。智能体用 `mx` API 编写 Python 脚本完成工作：`mx.tools.<工具名>(...)` 调用其余任意工具，
 `mx.help("<工具名>")` 输出该工具的签名和说明。在 3ds Max 内部运行的脚本是一个撤销步骤，脚本出错会整体回滚。
 
-1.x 的 `full`、`core`、`progressive` 工具配置已移除，`MCP_TOOL_PROFILE` 和 `mcp_config.ini` 中的 `tool_profile`
-不再起作用，留在配置里的旧值会被忽略。不同模型的分词方式不同，token 数会有差异。
+### 工具配置（Tool Profile）
+
+上面的默认方式是 **script** 配置。安装程序也可以选择 1.x 的配置，把工具直接公开给客户端；无论哪种配置，脚本都能调用全部工具。
+
+| 配置 | 客户端看到的工具 | 每次请求的工具定义（Claude token，约） |
+|------|------------------|----------------------------------------|
+| **script（默认）** | `run_python` 和 4 个实例路由工具 | 约 2k |
+| **progressive** | 实例路由工具、14 个常用工具和 `run_python`，以及 `find_tools`、`list_toolsets`、`describe_toolset`、`call_tool` | 约 7k |
+| **core** | 场景、物体、材质、修改器、控制器、视口、文件、插件、灯光与渲染设置等日常工具 | 约 19k |
+| **full** | 全部工具：core 之外还有 tyFlow、MCG、Forest Pack、RailClone、Data Channel、Pulze、特效、状态集、参数关联、渲染自动化 | 约 28k |
+
+安装程序会询问工具配置并写入 `mcp_config.ini` 的 `[mcp] tool_profile`；更新时保留已安装的配置。也可以只对某次启动设置环境变量：
+
+```powershell
+$env:MCP_TOOL_PROFILE = "progressive"
+```
+
+progressive 模式下先用直接公开的工具；其他需求用 `find_tools(query)` 查找，它会返回最匹配的工具及其参数，
+再用 `call_tool(name, arguments)` 调用。参数错误时，错误提示会附带该工具的签名。`tools/list` 在查找后保持不变。
+Windows 安装向导无人值守安装可传入 `/TOOLPROFILE=progressive`，`3dsmax-mcp-install` 可传入 `--tool-profile progressive`。
+
+full、core 和 progressive 的工具说明方式由 `[mcp] tool_docs`（或 `MCP_TOOL_DOCS`）决定：默认 `hybrid`，14 个常用工具保留完整说明和
+JSON Schema，其余工具只显示一行摘要和 Python 风格签名，`tool_help(name)` 可返回任意工具的完整说明；`signature` 全部使用签名，
+最省上下文；`complete` 为全部完整 JSON Schema（约 75k token）。签名工具严格校验参数名，未知参数会被拒绝。
+不同模型的分词方式不同，token 数会有差异。
 
 ---
 

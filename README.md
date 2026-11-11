@@ -29,17 +29,25 @@ Automate everything!
 ## Quick start
 
 1. Close 3ds Max and fully exit your AI clients.
-2. Run `3dsmax-mcp-1.7.8-Setup.exe` and select your clients.
+2. Run `3dsmax-mcp-1.7.8-Setup.exe`, select your clients and a tool profile.
 3. Open 3ds Max and restart your AI client.
 
 The installer includes Python, dependencies, native bridges and agent skills.
 To update, close Max and your clients, then run the new installer.
 
 **How the agent works.** AI clients send the tool definitions with every request to the model,
-so the server lists only five tools, about 2k tokens: `run_python`, and four that pick which
-3ds Max to talk to. The agent writes Python scripts against the `mx` API. `mx.tools.<name>(...)`
+so by default the server lists only five tools, about 2k tokens: `run_python`, and four that pick
+which 3ds Max to talk to. The agent writes Python scripts against the `mx` API. `mx.tools.<name>(...)`
 calls any tool in the catalog below and `mx.help("<name>")` prints its manual. A script that
 runs inside 3ds Max is one undo step, rolled back if it fails.
+
+**Tool profile.** That default is the **Script** profile. The installer also offers the profiles
+of 1.x, which list the tools themselves: **Full** lists every tool, about 28k tokens, the common
+ones in full and the others as one-line Python-style signatures whose manuals `tool_help` returns
+on demand. **Progressive** lists the common tools and finds the rest with `find_tools`, about 7k
+tokens. **Core** lists the everyday tools, about 19k tokens. Scripts reach every tool in every
+profile. Counts are for Claude and vary by model. An update keeps the profile you have; run the
+installer again to switch, or pass `/TOOLPROFILE=full` for an unattended install.
 
 <details>
 <summary>Install from source</summary>
@@ -54,11 +62,12 @@ uv sync
 uv run python install.py
 ```
 
-To update, run `git pull`, `uv sync`, then `uv run python install.py` again.
+`install.py` asks for the tool profile; see above. To update, run `git pull`, `uv sync`, then
+`uv run python install.py` again.
 
 </details>
 
-See [Advanced configuration](docs/ADVANCED.md) for manual client setup and how scripts run.
+See [Advanced configuration](docs/ADVANCED.md) for manual client setup, tool profiles and how scripts run.
 
 
 ## Some ideas for you
@@ -116,7 +125,8 @@ Automate repetitive work with MAXScript, or build procedural geometry and modifi
 <details>
 <summary>Browse the full tool catalog</summary>
 
-Call these from a `run_python` script as `mx.tools.<name>(...)`.
+Call these from a `run_python` script as `mx.tools.<name>(...)`. The full, core and progressive
+profiles also list them to the client as tools.
 
 ### Bridge & session
 
@@ -410,6 +420,6 @@ The installer builds an agent skill from `skills/3dsmax-mcp-dev/SKILL.md` with t
 ## Further reading
 
 - **[Contributing](CONTRIBUTING.md)** — development, validation, and pull requests
-- **[Advanced configuration](docs/ADVANCED.md)** — architecture, safe mode, scripts, native builds
+- **[Advanced configuration](docs/ADVANCED.md)** — architecture, safe mode, tool profiles, scripts, native builds
 - **[CHANGELOG.md](docs/CHANGELOG.md)** — release history
 - **[LICENSE](LICENSE)**

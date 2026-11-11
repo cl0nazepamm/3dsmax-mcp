@@ -2,10 +2,11 @@
 
 maxmcp/tools holds one folder per subject. In each, the modules without a leading
 underscore declare tools with @mcp.tool(), the underscore modules are their private
-helpers, and the docstring of __init__.py describes the group. MCP clients see only
-run_python and the instance routing tools; scripts call the rest as
-mx.tools.<name>(**arguments). The MCP server process and maxmcp.inmax inside 3ds Max
-each hold one ToolRegistry, so a call is validated and wrapped the same way in both.
+helpers, and the docstring of __init__.py describes the group. Scripts call every tool as
+mx.tools.<name>(**arguments); which of them MCP clients also list is the tool profile's
+choice (maxmcp/profiles.py), by default run_python and the instance routing tools. The
+MCP server process and maxmcp.inmax inside 3ds Max each hold one ToolRegistry, so a call
+is validated and wrapped the same way in both.
 """
 
 from __future__ import annotations
