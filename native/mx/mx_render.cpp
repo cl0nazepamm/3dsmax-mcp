@@ -4,10 +4,11 @@
 // builds and reads them through the renderer presets (maxmcp/assets/renderers), the
 // one place that knows what each renderer calls them.
 //
-// mx.render() queues a production render that starts once the script that
+// render() queues a production render that starts once the script that
 // queued it returns (or at job.wait()). A done file outside Max records the
 // outcome, so render_automations(action='status') sees it as well.
 #include "mx_common.h"
+#include "mx_collection.h"
 
 #include "mcp_bridge/node_ref.h"
 
@@ -34,7 +35,11 @@ namespace fs = std::filesystem;
 
 static std::string Cls(Animatable* anim) { return HandlerHelpers::MaxScriptVisibleClassName(anim); }
 
-static nb::object MaybeText(const std::string& text) { return text.empty() ? nb::none() : nb::cast(text); }
+// The text, or nothing when it is empty.
+static std::optional<std::string> MaybeText(const std::string& text) {
+    if (text.empty()) return std::nullopt;
+    return text;
+}
 
 // ── Render jobs ──────────────────────────────────────────────────
 
@@ -169,7 +174,7 @@ static void RenderWhenFree(std::shared_ptr<RenderState> job, BridgeCall call) {
     const std::string tag = "mx-render-" + job->id;
     try {
         // A no-op queued on Max's main thread behind the script that called
-        // mx.render(): once it ran, that script has returned.
+        // render(): once it ran, that script has returned.
         SendUntilStarted(call, "maxscript", {{"code", "ok"}}, tag + "-after");
         {
             std::lock_guard<std::mutex> lock(job->mutex);
@@ -376,7 +381,7 @@ static std::string EffectRepr(const EffectRef& r) {
 
 static void BindRender(nb::module_& m) {
     nb::class_<RenderJob>(m, "RenderJob",
-        "A production render queued by mx.render(): job.wait() renders it now; else it starts when the script returns.")
+        "A production render queued by render(): job.wait() renders it now; else it starts when the script returns.")
         .def_prop_ro("id", [](const RenderJob& j) { return j.id; },
             "The job's ID, as render_automations(job_id=...) takes it.")
         .def_prop_ro("status", [](const RenderJob& j) { return WithJob(j, [](const RenderState& s) { return std::string(StatusName(s.phase)); }); },
@@ -385,8 +390,11 @@ static void BindRender(nb::module_& m) {
             return WithJob(j, [](const RenderState& s) { return s.phase == Phase::Done || s.phase == Phase::Failed || s.phase == Phase::Cancelled; });
         }, "True once the job ended (done, failed or cancelled).")
         .def_prop_ro("result", [](const RenderJob& j) {
-            return WithJob(j, [](const RenderState& s) { return s.phase == Phase::Done ? nb::object(ResultDict(s)) : nb::none(); });
-        }, "{'status', 'output', 'width', 'height', 'seconds'} once done, else None.")
+            return WithJob(j, [](const RenderState& s) -> std::optional<nb::dict> {
+                if (s.phase != Phase::Done) return std::nullopt;
+                return ResultDict(s);
+            });
+        }, "What wait() returns, {'status', 'output', 'width', 'height', 'seconds'}, once done, else None.")
         .def_prop_ro("error", [](const RenderJob& j) {
             return WithJob(j, [](const RenderState& s) { return MaybeText(s.error); });
         }, "Why the render failed, else None.")
@@ -403,13 +411,27 @@ static void BindRender(nb::module_& m) {
 
     m.def("render", &QueueRender, "width"_a = nb::none(), "height"_a = nb::none(), "output"_a = "",
           "Queue a production render of the active view at the time slider's frame; it starts when this script returns, "
-          "or now with .wait(): mx.render(output='C:/r/a.png').wait(). Size defaults to Render Setup's.");
-    m.def("render_jobs", [] {
+          "or now with .wait(): render(output='C:/r/a.png').wait(). Size defaults to Render Setup's.");
+    struct RenderJobCollection {};
+    auto matching = [](const std::optional<std::string>& pattern) {
         RequireMain();
         std::vector<RenderJob> out;
-        for (const auto& job : Jobs()) out.push_back(RenderJob{job->id});
+        for (const auto& job : Jobs())
+            if (!pattern || HandlerHelpers::WildcardMatch(job->id, *pattern)) out.push_back(RenderJob{job->id});
         return out;
-    }, "Render jobs queued in this Max session, oldest first.");
+    };
+    BindCollection<RenderJobCollection, RenderJob, std::string>(m, "render_jobs", "RenderJobs",
+        "The render jobs queued in this Max session, oldest first: render_jobs[job.id], render_jobs(). render() "
+        "queues one.",
+        [matching] { return matching(std::nullopt); },
+        [matching](const std::string& id) {
+            for (const RenderJob& job : matching(std::nullopt))
+                if (job.id == id) return job;
+            throw NotFound("no render job '" + id + "' in this Max session");
+        })
+        .def("__call__", [matching](const RenderJobCollection&, const std::optional<std::string>& pattern) {
+            return matching(pattern);
+        }, "pattern"_a = nb::none(), "Render jobs queued in this Max session, oldest first, or those a wildcard ID matches.");
 }
 
 static void BindEffects(nb::module_& m) {
@@ -437,8 +459,17 @@ static void BindEffects(nb::module_& m) {
         .def("__eq__", [](const EffectRef& a, nb::handle b) { return nb::isinstance<EffectRef>(b) && a.handle == nb::cast<EffectRef>(b).handle; }, nb::arg("other").none())
         .def("__hash__", [](const EffectRef& r) { return (Py_hash_t)r.handle; });
 
-    m.def("effects", &SceneEffects, "kind"_a = nb::none(),
-          "Atmospherics then render effects, or one kind: effects('atmospheric').");
+    struct EffectCollection {};
+    BindCollection<EffectCollection, EffectRef, std::string>(m, "effects", "Effects",
+        "The scene's atmospherics and render effects, atmospherics first. effects['Fog'] is one by its name in the "
+        "Environment or Effects list; effects('atmospheric') lists one kind. fx.delete() removes one.",
+        [] { return SceneEffects(std::nullopt); },
+        [](const std::string& name) {
+            return FindByName(SceneEffects(std::nullopt), name, "effect",
+                              [](const EffectRef& r) { return EffectName(ResolveEffect(r).fx); });
+        })
+        .def("__call__", [](const EffectCollection&, const std::optional<std::string>& kind) { return SceneEffects(kind); },
+             "kind"_a = nb::none(), "Atmospherics then render effects, or one kind: effects('atmospheric').");
 }
 
 void BindRendering(nb::module_& m) {

@@ -14,7 +14,8 @@ import traceback
 from typing import Any, Callable, ContextManager
 
 from . import _runtime
-from ._runtime import MaxToolError, Node
+from ._node import Node
+from ._runtime import MaxToolError
 
 OUTPUT_LIMIT = 20_000
 TRACE_LIMIT = 100

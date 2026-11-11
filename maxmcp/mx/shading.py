@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from ._runtime import Node, call, node_name
+from ._node import Node
+from ._runtime import call, node_handle, node_name
 
 __all__ = [
     "material",
@@ -16,13 +17,14 @@ __all__ = [
 ]
 
 def _names_handles(targets: Node | str | Iterable[Node | str]) -> tuple[list[str] | None, list[int] | None]:
-    if isinstance(targets, (Node, str)):
+    if isinstance(targets, str) or hasattr(targets, "handle"):
         targets = [targets]
     names: list[str] = []
     handles: list[int] = []
     for target in targets:
-        if isinstance(target, Node) and target.handle:
-            handles.append(target.handle)
+        handle = node_handle(target)
+        if handle:
+            handles.append(handle)
         else:
             names.append(node_name(target))
     return names or None, handles or None
@@ -34,9 +36,8 @@ def _typed(value: Any) -> Any:
 
 
 def _material_target(target: Node | str) -> dict[str, Any]:
-    if isinstance(target, Node) and target.handle:
-        return {"handle": target.handle}
-    return {"name": node_name(target)}
+    handle = node_handle(target)
+    return {"handle": handle} if handle else {"name": node_name(target)}
 
 
 def material(targets: Node | str | Iterable[Node | str], material_class: str = "", material_name: str = "",
@@ -56,8 +57,8 @@ def material(targets: Node | str | Iterable[Node | str], material_class: str = "
 def share_material(targets: Node | str | Iterable[Node | str], source: Node | str) -> Any:
     """Instance the source object's existing material onto targets (assign_material)."""
     names, handles = _names_handles(targets)
-    if isinstance(source, Node) and source.handle:
-        return call("assign_material", names=names, handles=handles, source_handle=source.handle)
+    if node_handle(source):
+        return call("assign_material", names=names, handles=handles, source_handle=node_handle(source))
     return call("assign_material", names=names, handles=handles, source_name=node_name(source))
 
 

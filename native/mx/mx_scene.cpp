@@ -8,6 +8,28 @@
 // the ones Node.class_name reports.
 #include "mx_common.h"
 
+// What the scene members take and give, named for their signatures. Each text
+// is read off the code that uses or makes the value.
+
+// A point in the change journal (SeqOf): a Mark from mark(), or the seq or
+// scene_seq it holds as a number.
+MX_ARG_TYPE(MarkArg, "_mx.Mark | int")
+// A node by reference (ResolveRef): a Node, a name, a '/Parent/Child' path, a
+// handle, or a dict of 'handle', 'name' and 'path' whose parts name one node.
+MX_ARG_TYPE(NodeRefArg, "_mx.Node | str | int | dict[str, str | int]")
+// patch()'s operations (PatchOp): a list or tuple of dicts, each with 'op',
+// 'target' and the fields of that op.
+MX_ARG_TYPE(PatchOpsArg, "collections.abc.Sequence[dict]")
+// The checks or repairs of scene_qa (Tokens): one name, or a list or tuple of names.
+MX_ARG_TYPE(QaNamesArg, "str | collections.abc.Sequence[str]")
+// What a journal event recorded besides its node (ToChange): the counts and
+// handles of a scene_patch, the counts of a plugin_patch, the renderer's name
+// of an assign_renderer; None for the node events 3ds Max reports.
+MX_RESULT_TYPE(ChangeDetails, "dict[str, int | str | list[int]] | None")
+// A field of a class_relationships() entry: its 'class' or 'superclass' name,
+// or 'accepts', the parameter names by the kind of reference they take.
+MX_RESULT_TYPE(ClassRelationField, "str | dict[str, list[str]]")
+
 #include "mcp_bridge/node_ref.h"
 
 #include <iInstanceMgr.h>
@@ -326,8 +348,8 @@ static SceneChange ToChange(const json& event) {
     return change;
 }
 
-static std::vector<SceneChange> Changes(nb::handle since) {
-    const unsigned long long from = SeqOf(since, false, "since");
+static std::vector<SceneChange> Changes(MarkArg since) {
+    const unsigned long long from = SeqOf(since.value, false, "since");
     const SceneMark now = CurrentMark();
     if (from > now.seq)
         throw BadParam("seq " + std::to_string(from) + " is ahead of the journal (now " + std::to_string(now.seq) +
@@ -377,8 +399,9 @@ static json PatchOp(nb::handle op, size_t index) {
     });
 }
 
-static nb::object Patch(nb::handle ops, nb::handle expected, bool dryRun, const std::string& label) {
+static nb::dict Patch(PatchOpsArg given, MarkArg expected, bool dryRun, const std::string& label) {
     RequireMain();
+    const nb::handle ops = given.value;
     if (!nb::isinstance<nb::list>(ops) && !nb::isinstance<nb::tuple>(ops))
         throw BadParam("patch takes a list of operations, not " + TypeNameOf(ops));
     json operations = json::array();
@@ -387,11 +410,12 @@ static nb::object Patch(nb::handle ops, nb::handle expected, bool dryRun, const 
     if (operations.empty()) throw BadParam("patch needs at least one operation");
     json args = {{"operations", operations}, {"dry_run", dryRun}, {"label", label}};
     if (!expected.is_none()) {
-        const unsigned long long seq = SeqOf(expected, true, "expected");
+        const unsigned long long seq = SeqOf(expected.value, true, "expected");
         CheckExpected(seq);
         args["expected_scene_seq"] = seq;
     }
-    return ToReport(NativeJson("native:scene_patch", args));
+    // The handler replies with an object, which ToReport gives as a dict.
+    return nb::borrow<nb::dict>(ToReport(NativeJson("native:scene_patch", args)));
 }
 
 static std::vector<Node> Rename(nb::dict renames) {
@@ -414,8 +438,8 @@ static std::vector<Node> Rename(nb::dict renames) {
 
 // ── Scene QA ─────────────────────────────────────────────────────
 
-static nb::object SceneQA(nb::handle checks, nb::handle nodes, nb::handle fix, bool dryRun, nb::handle expected,
-                          std::optional<double> farFromOrigin) {
+static nb::dict SceneQA(QaNamesArg checks, NodesOrNone nodes, QaNamesArg fix, bool dryRun, MarkArg expected,
+                        std::optional<double> farFromOrigin) {
     RequireMain();
     const bool fixing = !fix.is_none();
     json args = {{"action", fixing ? "fix" : "scan"}, {"dry_run", dryRun}, {"scope", nodes.is_none() ? "scene" : "targets"}};
@@ -442,11 +466,12 @@ static nb::object SceneQA(nb::handle checks, nb::handle nodes, nb::handle fix, b
     const bool apply = fixing && !dryRun;
     if (!expected.is_none()) {
         if (!apply) throw BadParam("expected guards a fix that applies; a scan or a dry run changes nothing");
-        const unsigned long long seq = SeqOf(expected, true, "expected");
+        const unsigned long long seq = SeqOf(expected.value, true, "expected");
         CheckExpected(seq);
         args["expected_scene_seq"] = seq;
     }
-    return ToReport(NativeJson(apply ? "native:scene_qa_fix" : "native:scene_qa_scan", args));
+    // The handler replies with an object, which ToReport gives as a dict.
+    return nb::borrow<nb::dict>(ToReport(NativeJson(apply ? "native:scene_qa_fix" : "native:scene_qa_scan", args)));
 }
 
 // ── Classes ──────────────────────────────────────────────────────
@@ -702,9 +727,9 @@ static void RequireLayer(const std::string& name) {
                        Suggest(filter.key, names));
 }
 
-static std::vector<Node> Find(const std::optional<std::string>& pattern, const std::optional<std::string>& cls,
-                              const std::optional<std::string>& layer, bool rootsOnly,
-                              const std::optional<std::string>& uses, nb::kwargs props) {
+std::vector<Node> FindNodes(const std::optional<std::string>& pattern, const std::optional<std::string>& cls,
+                            const std::optional<std::string>& layer, bool rootsOnly,
+                            const std::optional<std::string>& uses, nb::kwargs props) {
     RequireMain();
     const std::vector<INode*> all = AllNodes();
     // A class name without wildcards is looked up, so a typo fails instead of matching nothing.
@@ -782,11 +807,16 @@ static nb::dict Overview() {
     return out;
 }
 
-static nb::object ClassRelationships(const std::optional<std::string>& pattern, const std::optional<std::string>& superclass) {
+// One dict per class: {class, superclass, accepts: {kind: [parameter names]}}.
+using ClassRelations = nb::typed<nb::list, nb::typed<nb::dict, std::string, ClassRelationField>>;
+
+static ClassRelations ClassRelationships(const std::optional<std::string>& pattern, const std::optional<std::string>& superclass) {
     json args = {{"limit", 100000}};
     if (pattern) args["pattern"] = *pattern;
     if (superclass) args["superclass"] = Tokens(nb::str(superclass->c_str()), kRelationSupers, "superclass").front();
-    return ToReport(NativeJson("native:map_class_relationships", args).value("relationships", json::array()));
+    // An array of objects, which ToReport gives as a list of dicts.
+    return nb::borrow<nb::list>(
+        ToReport(NativeJson("native:map_class_relationships", args).value("relationships", json::array())));
 }
 
 static nb::dict ScenePatterns() {
@@ -829,7 +859,10 @@ void BindScene(nb::module_& m) {
         .def_ro("name", &SceneChange::name, "The node's name when it happened; '' for an event without a node.")
         .def_prop_ro("node", [](const SceneChange& change) { return change.node; },
             "The node the event is about, or None; a deleted node's raises NotFound when used.")
-        .def_ro("details", &SceneChange::details, "What else the event recorded, as a dict, or None.")
+        .def_prop_ro("details", [](const SceneChange& change) { return ChangeDetails{change.details}; },
+            "What else the event recorded, as a dict, or None: a 'scene_patch' event holds operation_count, "
+            "changed_count and handles, a 'plugin_patch' event created and properties (counts), an "
+            "'assign_renderer' event renderer.")
         .def("__repr__", [](const SceneChange& change) {
             const std::string name = change.name.empty() ? "" : " '" + change.name + "'";
             return "<Change " + std::to_string(change.seq) + " " + change.type + name + ">";
@@ -847,7 +880,7 @@ void BindScene(nb::module_& m) {
         "'seen' marks a target listed above, and other nodes are not expanded. "
         "Keys: {'class', 'superclass', 'name'?, 'index'?, 'references'?, 'ref_count'?, 'seen'?}.");
 
-    m.def("resolve", [](nb::handle ref) { return Wrap(ResolveRef(ref)); }, "ref"_a,
+    m.def("resolve", [](NodeRefArg ref) { return Wrap(ResolveRef(ref.value)); }, "ref"_a,
           "Node by '/Parent/Child' path, name, handle or Node, or by a {'handle', 'name', 'path'} dict whose "
           "parts must agree.");
     m.def("mark", &CurrentMark,
@@ -855,32 +888,38 @@ void BindScene(nb::module_& m) {
           "refuses to run if there were any.");
     m.def("changes", &Changes, "since"_a,
           "Persistent scene edits after a Mark (or its seq), oldest first; selection changes are left out.");
-    m.def("patch", &Patch, "ops"_a, "expected"_a = nb::none(), "dry_run"_a = false, "label"_a = "MCP Scene Patch",
+    m.def("patch", &Patch, "ops"_a, "expected"_a.none() = nb::none(), "dry_run"_a = false, "label"_a = "MCP Scene Patch",
           "Validate, then apply node edits as one undo step, all or nothing: patch([{'op': 'rename', 'target': n, "
           "'name': 'Wall'}, {'op': 'transform', 'target': 'Box001', 'move': (0, 0, 10)}]). Ops: rename (name); "
           "transform (relative move, rotate in degrees, scale; coordinate_system 'world' or 'local'); set_flags "
           "(hidden, frozen, renderable, cast_shadows, receive_shadows); set_parent (parent: a node or None, "
           "keep_transform). expected=mark() taken earlier (or its scene_seq) refuses a scene changed since; dry_run=True "
-          "validates only. Returns a report.");
+          "validates only. A target or parent is a node as resolve() takes it. The report's status is preflight (a dry "
+          "run), applied, noop, or partial when a transform controller ignored part of an edit (listed in ignored); "
+          "operations holds one entry per operation, touched the nodes, scene_seq and activity_seq the journal's "
+          "before and after. Keys: {'dry_run', 'status', 'scene_seq', 'activity_seq', 'journal', 'counts', "
+          "'operations', 'transaction', 'touched', 'warnings'?, 'ignored'?, 'journal_event_count'?, 'undo_label'?}.");
     m.def("rename", &Rename, "renames"_a,
           "Rename nodes as one undo step, all or nothing: rename({'Box001': 'Wall_A', node: 'Wall_B'}); "
           "refuses names that would be shared.");
-    m.def("scene_qa", &SceneQA, "checks"_a = nb::none(), "nodes"_a = nb::none(), "fix"_a = nb::none(),
-          "dry_run"_a = false, "expected"_a = nb::none(), "far_from_origin"_a = nb::none(),
+    m.def("scene_qa", &SceneQA, "checks"_a.none() = nb::none(), "nodes"_a.none() = nb::none(), "fix"_a.none() = nb::none(),
+          "dry_run"_a = false, "expected"_a.none() = nb::none(), "far_from_origin"_a = nb::none(),
           "Scan scene hygiene (names, transforms, hierarchy, groups, timeline; no mesh checks) or repair it: "
-          "scene_qa(fix=['name_collisions', 'empty_names']). nodes= limits the scope; expected= guards a fix as in patch().");
-    m.def("find", &Find, "pattern"_a = nb::none(), "cls"_a = nb::none(), "layer"_a = nb::none(),
-          "roots_only"_a = false, "uses"_a = nb::none(), "props"_a,
-          "Nodes matching every filter: find('Wall*', cls='Box', layer='Walls', uses='TurboSmooth', hidden=False, "
-          "height=50). Keywords compare node flags (hidden, frozen, renderable, cast_shadows, material, ...) or "
-          "base object parameters; numbers within 1e-4, text ignoring case.");
+          "scene_qa(fix=['name_collisions', 'empty_names']). checks and fix take one name or a list; nodes= limits "
+          "the scope; expected= guards a fix as in patch(). A scan reports summary and issues "
+          "[{'code', 'severity', 'message', 'node'?, 'details'?}]; a fix reports the scan before and what it planned "
+          "(dry_run=True) or applied, with the scan after. Keys: {'action', 'mesh_checks_included', 'scope'?, "
+          "'scene_seq'?, 'scanned_nodes'?, 'checks'?, 'summary'?, 'issues'?, 'truncated'?, 'timeline'?, 'dry_run'?, "
+          "'scene_seq_before'?, 'scene_seq_after'?, 'fixes'?, 'before'?, 'planned'?, 'applied_count'?, 'applied'?, "
+          "'after'?, 'status'?, 'warnings'?}.");
     m.def("overview", &Overview,
           "Scene summary: object, hidden, frozen and root counts, nodes per class, material and modifier counts, "
           "layers in use. class_counts, materials and modifiers are {name: count}. "
           "Keys: {'object_count', 'hidden_count', 'frozen_count', 'root_count', 'class_counts', 'materials', "
           "'modifiers', 'layers'}.");
     m.def("class_relationships", &ClassRelationships, "pattern"_a = nb::none(), "superclass"_a = nb::none(),
-          "Classes whose parameters take nodes, materials, texmaps or other references: "
+          "Classes whose parameters take nodes, materials, texmaps or other references: [{'class', 'superclass', "
+          "'accepts': {kind: [parameter names]}}], kind being node, material, texturemap, object or ref_target: "
           "class_relationships('*Scatter*', superclass='geometry').");
     m.def("scene_patterns", &ScenePatterns,
           "How the scene combines classes: classes, modifier stacks and material, modifier "

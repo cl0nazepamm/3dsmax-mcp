@@ -1187,7 +1187,9 @@ inline json DescribeDef(ClassDesc* cd, ParamBlockDesc2* desc, const ParamDef& de
         if (super && super->name) entry["takes"] = WideToUtf8(super->name->to_string());
     }
     if (def.flags & P_ANIMATABLE) entry["animatable"] = true;
-    if (def.flags & P_READ_ONLY) entry["read_only"] = true;
+    // Read-only by its own flag, or of a type that is neither read nor set here
+    // (a bitmap, ...): its value shows as null and a write is refused.
+    if ((def.flags & P_READ_ONLY) || std::string(TypeName(type)) == "other") entry["read_only"] = true;
     return entry;
 }
 

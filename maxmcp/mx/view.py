@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from ._runtime import Node, call, node_name
+from ._node import Node
+from ._runtime import call, node_name
 
 __all__ = [
     "capture",
@@ -30,7 +31,7 @@ def _plain(value: Any) -> Any:
 def _names(targets: Node | str | Sequence[Node | str] | None) -> list[str] | None:
     if targets is None:
         return None
-    if isinstance(targets, (str, Node)):
+    if isinstance(targets, str) or hasattr(targets, "handle"):
         targets = [targets]
     return [node_name(target) for target in targets]
 

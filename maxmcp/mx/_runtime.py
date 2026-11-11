@@ -1,4 +1,4 @@
-"""Core of the mx Python API: call any 3dsmax-mcp tool from Python, plus the Node handle.
+"""Core of the mx Python API: call any 3dsmax-mcp tool from Python (the node type is in _node).
 
 Every call goes through the same validation, guards, undo handling and readback as
 the MCP tools. Tool results come back as plain dicts and lists; failures raise
@@ -243,89 +243,6 @@ def maxscript(code: str) -> Any:
     return call("execute_maxscript", code=code)
 
 
-class Node:
-    """A scene node by name and handle. Methods call the guarded tools and refresh readback."""
-
-    __slots__ = ("name", "handle", "data")
-
-    def __init__(self, name: str, handle: int | None = None, data: dict[str, Any] | None = None):
-        self.name = name
-        self.handle = int(handle) if handle not in (None, "", 0) else None
-        self.data = data or {}
-
-    @classmethod
-    def from_result(cls, result: Any) -> "Node":
-        """Build from a tool result or entry that carries `name` and optionally `handle`."""
-        if isinstance(result, Node):
-            return result
-        if not isinstance(result, dict) or not result.get("name"):
-            raise ValueError(f"result has no node name: {result!r}")
-        return cls(str(result["name"]), result.get("handle"), result)
-
-    def __repr__(self) -> str:
-        return f"Node({self.name!r}, handle={self.handle})"
-
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, Node) and (self.handle, self.name) == (other.handle, other.name)
-
-    def __hash__(self) -> int:
-        return hash((self.handle, self.name))
-
-    def info(self) -> dict[str, Any]:
-        """inspect_object readback: class, bounding box, position, modifiers, material."""
-        self.data = call("inspect_object", name=self.name)
-        return self.data
-
-    @property
-    def bbox(self) -> tuple[list[float], list[float]]:
-        """World bounding box as (min, max)."""
-        box = self.info()["boundingBox"]
-        return box["min"], box["max"]
-
-    @property
-    def center(self) -> list[float]:
-        low, high = self.bbox
-        return [(a + b) / 2 for a, b in zip(low, high)]
-
-    @property
-    def size(self) -> list[float]:
-        low, high = self.bbox
-        return [b - a for a, b in zip(low, high)]
-
-    def _target(self) -> dict[str, Any]:
-        return {"handle": self.handle} if self.handle else {"name": self.name}
-
-    def move(self, x: float = 0, y: float = 0, z: float = 0, coordinate_system: str = "world") -> "Node":
-        """Move by an offset."""
-        call("transform_object", **self._target(), move=[x, y, z], coordinate_system=coordinate_system)
-        return self
-
-    def rotate(self, x: float = 0, y: float = 0, z: float = 0, coordinate_system: str = "world") -> "Node":
-        """Rotate by Euler degrees."""
-        call("transform_object", **self._target(), rotate=[x, y, z], coordinate_system=coordinate_system)
-        return self
-
-    def scale(self, x: float = 1, y: float = 1, z: float = 1, coordinate_system: str = "world") -> "Node":
-        """Scale by factors."""
-        call("transform_object", **self._target(), scale=[x, y, z], coordinate_system=coordinate_system)
-        return self
-
-    def set(self, property: str, value: Any) -> "Node":  # noqa: A002 - tool argument name
-        """Set one node property (name, wirecolor, renderable, ...); numbers, bools and tuples convert."""
-        target = {"handle": self.handle} if self.handle else {"name": self.name}
-        call("set_object_property", **target, property=property, value=ms_value(value))
-        if property == "name":
-            self.name = str(value)
-        return self
-
-    def delete(self) -> None:
-        """Delete this node."""
-        if self.handle:
-            call("delete_objects", handles=[self.handle])
-        else:
-            call("delete_objects", names=[self.name])
-
-
 def ms_value(value: Any) -> str:
     """A Python value as the MAXScript text the property tools take; strings pass unchanged."""
     if isinstance(value, str):
@@ -341,9 +258,15 @@ def ms_value(value: Any) -> str:
     raise TypeError(f"cannot convert {value!r} to a MAXScript value; pass the MAXScript text as a string")
 
 
-def node_name(target: "Node | str") -> str:
-    """The name of a Node, an sdk node or a name string, for tools that target by name."""
+def node_name(target: Any) -> str:
+    """The name of a node (mx.Node or sdk node) or a name string, for tools that target by name."""
     if isinstance(target, str):
         return target
     name = getattr(target, "name", None)
     return name if isinstance(name, str) else str(target)
+
+
+def node_handle(target: Any) -> int | None:
+    """The handle of a node (mx.Node or sdk node), for tools that take one; None for a name or a node without."""
+    handle = None if isinstance(target, str) else getattr(target, "handle", None)
+    return handle if isinstance(handle, int) and not isinstance(handle, bool) and handle else None

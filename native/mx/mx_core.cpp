@@ -132,7 +132,7 @@ Node FindNode(nb::handle key) {
         return FindNode(IsInteger(handle) ? handle : key.attr("name"));
     }
     if (!nb::isinstance<nb::str>(key))
-        throw BadParam("node() takes a name, a handle or a Node, not " + TypeNameOf(key));
+        throw BadParam("a node is given by name, by handle or as a Node, not as " + TypeNameOf(key));
     const std::string name = nb::cast<std::string>(key);
     const std::vector<INode*> matches = HandlerHelpers::CollectNodesByName(name);
     if (matches.empty()) {

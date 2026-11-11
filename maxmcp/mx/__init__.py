@@ -10,7 +10,9 @@ mx.help() lists the tools by group, mx.find_tools("words") searches them, mx.hel
 returns one tool's manual and mx.maxscript(code) runs raw MAXScript.
 
 Inside 3ds Max, run_python also sets mx.sdk (and `sdk` in the script): the _mx scene
-object model bound from the 3ds Max SDK. mx.help("sdk") documents it.
+object model bound from the 3ds Max SDK. mx.help("sdk") documents it. There the helpers
+return sdk nodes; outside 3ds Max they return mx.Node, which offers the same core members
+under the same names (mx/_node.py).
 """
 
 from __future__ import annotations
@@ -18,12 +20,13 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
-from ._runtime import (MaxToolError, Node, call, find_tools, help, maxscript, ms_value, node_name, set_backend,
-                       show, tools)
+from ._node import Box, Node, Point3
+from ._runtime import (MaxToolError, call, find_tools, help, maxscript, ms_value, node_handle, node_name,
+                       set_backend, show, tools)
 
 _DOMAINS = ("objects", "modeling", "shading", "view")
-_CORE = ["MaxToolError", "Node", "call", "find_tools", "help", "maxscript", "ms_value", "node_name", "set_backend",
-         "show", "tools"]
+_CORE = ["Box", "MaxToolError", "Node", "Point3", "call", "find_tools", "help", "maxscript", "ms_value",
+         "node_handle", "node_name", "set_backend", "show", "tools"]
 
 
 def __getattr__(name: str) -> Any:

@@ -29,14 +29,34 @@ def _public(names: list[str]) -> list[str]:
     return [name for name in names if not name.startswith("_")]
 
 
-def _kind(value: Any) -> str:
+# What every collection answers (native/mx/mx_collection.h): [key], get(key), `in`, len(),
+# iteration, and a call that lists by wildcard and the collection's own filters. new and
+# remove exist where the collection can create and delete.
+COLLECTION_MEMBERS = ("__getitem__", "get", "__contains__", "__iter__", "__len__", "__call__")
+
+
+def _is_collection(module: Any, value: Any) -> bool:
+    """An object of one of the module's own classes that sits in the module: nodes, layers, ..."""
+    return (not inspect.isclass(value) and not inspect.isroutine(value)
+            and getattr(type(value), "__module__", None) == getattr(module, "__name__", "")
+            and hasattr(type(value), "__getitem__"))
+
+
+def _kind(value: Any, module: Any = None) -> str:
     if inspect.isclass(value):
         return "exception" if issubclass(value, BaseException) else "class"
     if isinstance(value, property):
         return "property"
+    if module is not None and _is_collection(module, value):
+        return "collection"
     if callable(value):
         return "function"
     return "value"
+
+
+def _collection_classes(module: Any) -> set[type]:
+    return {type(getattr(module, name)) for name in _public(sorted(dir(module)))
+            if _is_collection(module, getattr(module, name))}
 
 
 def _summary(text: str) -> str:
@@ -70,6 +90,24 @@ def _property_line(cls: type, name: str, prop: property) -> str:
     return f"- `.{name}`" + (f" ({', '.join(details)})" if details else "") + (f": {doc}" if doc else "")
 
 
+_CALL = re.compile(r"^__call__\(self(, )?")
+_ITEM = re.compile(r"^__getitem__\(self, (.*)\)( -> .+)$")
+
+
+def _collection_lines(name: str, cls: type) -> list[str]:
+    """A collection's members: its call and [key] first, then what _member_lines gives."""
+    lines: list[str] = []
+    signatures, text = _split(getattr(vars(cls).get("__call__"), "__doc__", None))
+    if signatures:
+        lines.append(f"- `{name}{_CALL.sub('(', signatures[0])}`: {_summary(text)}")
+    signatures, _ = _split(getattr(vars(cls).get("__getitem__"), "__doc__", None))
+    if signatures:
+        key = _ITEM.sub(lambda match: f"[{match.group(1)}]{match.group(2)}", signatures[0])
+        lines.append(f"- `{name}{key}`: The item of that key; NotFound or Ambiguous otherwise. "
+                     f"`key in {name}`, `len({name})` and `for item in {name}` work as on a list.")
+    return lines + _member_lines(cls)
+
+
 def _member_lines(cls: type) -> list[str]:
     lines: list[str] = []
     for name in _public(sorted(vars(cls))):
@@ -96,17 +134,27 @@ def _function_block(name: str, fn: Any) -> list[str]:
 def reference(module: Any, title: str = "sdk") -> str:
     """The whole module as Markdown: functions, classes with their members, errors, values."""
     names = _public(sorted(dir(module)))
-    groups: dict[str, list[str]] = {"function": [], "class": [], "exception": [], "value": []}
+    groups: dict[str, list[str]] = {"collection": [], "function": [], "class": [], "exception": [], "value": []}
     for name in names:
-        groups[_kind(getattr(module, name))].append(name)
+        groups[_kind(getattr(module, name), module)].append(name)
+    hidden = _collection_classes(module)
     out = [f"# {title} reference", "", (module.__doc__ or "").strip(), "",
            f"Build `{getattr(module, 'BUILD', '?')}`, 3ds Max SDK {getattr(module, 'MAX_VERSION', '?')}.", ""]
+    out += ["## Collections", "",
+            "What the scene or 3ds Max has many of. Every collection answers the same way: `c[key]`, "
+            "`c.get(key)`, `key in c`, `len(c)`, iteration, and `c(pattern, ...)` to list by wildcard.", ""]
+    for name in groups["collection"]:
+        cls = type(getattr(module, name))
+        out += [f"### {name}", "", (cls.__doc__ or "").strip() or "(no description)", ""]
+        out += _collection_lines(name, cls) + [""]
     out += ["## Functions", ""]
     for name in groups["function"]:
         out += _function_block(name, getattr(module, name))
     out += ["## Classes", ""]
     for name in groups["class"]:
         cls = getattr(module, name)
+        if cls in hidden:
+            continue
         out += [f"### {name}", "", (cls.__doc__ or "").strip() or "(no description)", ""]
         out += _member_lines(cls) + [""]
     out += ["## Errors", ""]
@@ -131,13 +179,18 @@ def _index(module: Any) -> str:
              "One line per name. mx.help('sdk.<name>') gives a function's signature and manual or a class's "
              "members, mx.help('sdk.<Class>.<member>') one member, mx.help('sdk.*') every signature.", ""]
     names = _public(sorted(dir(module)))
-    for title, kind in (("Functions", "function"), ("Classes", "class"), ("Errors", "exception")):
+    hidden = _collection_classes(module)
+    for title, kind in (("Collections (c[key], c.get(key), key in c, len(c), iteration, c(pattern) to list)", "collection"),
+                        ("Functions", "function"), ("Classes", "class"), ("Errors", "exception")):
         lines.append(title)
         for name in names:
             value = getattr(module, name)
-            if _kind(value) != kind:
+            if _kind(value, module) != kind or value in hidden:
                 continue
-            text = _split(value.__doc__)[1] if kind == "function" else (value.__doc__ or "")
+            if kind == "collection":
+                text = type(value).__doc__ or ""
+            else:
+                text = _split(value.__doc__)[1] if kind == "function" else (value.__doc__ or "")
             lines.append(f"  {name}: {_brief(text)}")
     return "\n".join(lines)
 
@@ -149,13 +202,16 @@ def help_text(module: Any, path: str) -> str:
         return _index(module)
     if parts == ["*"]:
         lines = [(module.__doc__ or "").strip(), ""]
+        hidden = _collection_classes(module)
         for name in _public(sorted(dir(module))):
             value = getattr(module, name)
-            kind = _kind(value)
+            kind = _kind(value, module)
             if kind == "function":
                 signatures, text = _split(value.__doc__)
                 lines.append(f"{signatures[0] if signatures else name}: {_summary(text)}")
-            elif kind in ("class", "exception"):
+            elif kind == "collection":
+                lines.append(f"collection {name}: {_summary(type(value).__doc__ or '')}")
+            elif kind in ("class", "exception") and value not in hidden:
                 lines.append(f"{kind} {name}: {_summary(value.__doc__ or '')}")
         return "\n".join(lines)
     owner: Any = module
@@ -168,6 +224,9 @@ def help_text(module: Any, path: str) -> str:
                               + (f"; did you mean {where}.{close[0]}?" if close else f"; {where} has: {', '.join(names)}"))
         parent, owner = owner, getattr(owner, part)
     name = parts[-1]
+    if _is_collection(module, owner):
+        cls = type(owner)
+        return "\n".join([f"collection {name}: {(cls.__doc__ or '').strip()}", ""] + _collection_lines(name, cls))
     if inspect.isclass(owner):
         return "\n".join([f"class {name}: {(owner.__doc__ or '').strip()}", ""] + _member_lines(owner))
     member = vars(parent).get(name) if inspect.isclass(parent) else None
@@ -198,11 +257,16 @@ HOMONYMS = {
     "value": "Key.value is the key's own value; Track.value(frame) evaluates the track",
 }
 
-# Signatures with an annotation that says nothing about the value: `object`, or a bare
-# dict, list or tuple as a result. Value types and typed results replace them. The
-# number only goes down: check() fails when the module has more, and when it has
-# fewer until this is lowered to match.
-UNTYPED_BUDGET = 43
+# An annotation that says nothing about the value is not allowed: `object`, or a bare
+# dict, list or tuple as a result. The only exceptions are the values named here, which
+# have no fixed shape because they pass through whatever something outside _mx gives;
+# each entry says what that is. An entry whose signature has since been typed is itself
+# a finding.
+DYNAMIC: dict[str, str] = {
+    "native()": "the reply of whichever bridge handler is named",
+    "Interface.call()": "what the published function returns",
+    "Macro.run()": "what the macroscript evaluates to",
+}
 
 _OBJECT = re.compile(r"\bobject\b")
 _BARE_RESULTS = frozenset({"dict", "list", "tuple"})
@@ -250,24 +314,46 @@ def lint(module: Any) -> dict[str, list[str]]:
     doc: a function, class, property or method without a description.
     object: a plugin-object wrapper (a class with params) that lacks one of OBJECT_MEMBERS.
     shape: a name that is a property on one class and a method on another (HOMONYMS excepted).
-    untyped: a signature with an untyped annotation (see UNTYPED_BUDGET). A dict result whose
-        description names its keys (report_keys) is a report, not an untyped value.
+    collection: a collection that lacks one of COLLECTION_MEMBERS, or a function that does a
+        collection's work (a singular beside its plural: node() beside nodes).
+    node: a member the node outside 3ds Max has (mx/_node.py) that sdk.Node lacks, either way round.
+    untyped: a signature with an untyped annotation that DYNAMIC does not name. A dict result
+        whose description names its keys (report_keys) is a report, not an untyped value.
     """
-    found: dict[str, list[str]] = {"doc": [], "object": [], "shape": [], "untyped": []}
+    found: dict[str, list[str]] = {"doc": [], "object": [], "shape": [], "collection": [], "node": [], "untyped": []}
     shapes: dict[str, dict[str, list[str]]] = {}
 
     def note_untyped(where: str, why: str) -> None:
-        if why:
+        if why and where not in DYNAMIC:
             found["untyped"].append(f"{where}: {why}")
+        elif not why and where in DYNAMIC:
+            found["untyped"].append(f"{where}: is typed now; take it out of DYNAMIC")
 
-    for name in _public(sorted(dir(module))):
+    names = _public(sorted(dir(module)))
+    collections = [name for name in names if _is_collection(module, getattr(module, name))]
+    for name in names:
         value = getattr(module, name)
-        kind = _kind(value)
-        if kind == "function":
+        kind = _kind(value, module)
+        if kind == "collection":
+            cls = type(value)
+            missing = [member for member in COLLECTION_MEMBERS if not hasattr(cls, member)]
+            if missing:
+                found["collection"].append(f"{name}: lacks {', '.join(missing)}")
+            # The call is the collection's listing; its other members are linted with its class below.
+            signatures, text = _split(getattr(vars(cls).get("__call__"), "__doc__", None))
+            if not text:
+                found["doc"].append(f"{name}(): no description")
+            note_untyped(f"{name}()", _signature_untyped(signatures[0], text) if signatures else "")
+        elif kind == "function":
             signatures, text = _split(value.__doc__)
             if not text:
                 found["doc"].append(f"{name}(): no description")
             note_untyped(f"{name}()", _signature_untyped(signatures[0], text) if signatures else "")
+            # Lookup, listing and creation belong to the collection, never to a function beside it.
+            for plural in (name + "s", name + "es"):
+                if plural in collections:
+                    found["collection"].append(
+                        f"{name}(): {plural} is a collection; use {plural}[key], {plural}(...) or {plural}.new(...)")
         elif kind in ("class", "exception"):
             if not (value.__doc__ or "").strip():
                 found["doc"].append(f"{name}: no description")
@@ -294,6 +380,16 @@ def lint(module: Any) -> dict[str, list[str]]:
                 else:
                     continue
                 shapes.setdefault(member, {}).setdefault(shape, []).append(name)
+    # One node type: what the node outside 3ds Max offers (mx/_node.py), sdk.Node offers too,
+    # and the outside node offers nothing else.
+    sdk_node = getattr(module, "Node", None)
+    if inspect.isclass(sdk_node):
+        from . import _node
+
+        found["node"] += [f"Node: lacks {member}, which mx.Node has (NODE_MEMBERS)"
+                          for member in _node.NODE_MEMBERS if not hasattr(sdk_node, member)]
+        found["node"] += [f"mx.Node.{member}: not on sdk.Node; a script using it runs only outside 3ds Max"
+                          for member in _public(sorted(vars(_node.Node))) if not hasattr(sdk_node, member)]
     for member, by_shape in sorted(shapes.items()):
         if len(by_shape) > 1 and member not in HOMONYMS:
             found["shape"].append(f"{member}: a property on {', '.join(by_shape['property'])} and a method on "
@@ -304,14 +400,8 @@ def lint(module: Any) -> dict[str, list[str]]:
 def check(module: Any) -> list[str]:
     """What has to be fixed before the reference is written; [] when the module follows the conventions."""
     found = lint(module)
-    problems = [f"{rule}: {line}" for rule in ("doc", "object", "shape") for line in found[rule]]
-    untyped = len(found["untyped"])
-    if untyped > UNTYPED_BUDGET:
-        problems.append(f"untyped: {untyped} signatures have an untyped annotation, {untyped - UNTYPED_BUDGET} more "
-                        f"than UNTYPED_BUDGET allows; lint(module)['untyped'] lists them")
-    elif untyped < UNTYPED_BUDGET:
-        problems.append(f"untyped: down to {untyped}; lower UNTYPED_BUDGET in maxmcp/mx/_reference.py to match")
-    return problems
+    return [f"{rule}: {line}" for rule in ("doc", "object", "shape", "collection", "node", "untyped")
+            for line in found[rule]]
 
 
 def write(module: Any, path: str, title: str = "sdk") -> dict[str, Any]:

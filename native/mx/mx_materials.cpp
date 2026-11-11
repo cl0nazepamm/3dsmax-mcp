@@ -6,11 +6,23 @@
 // that nothing references once its last user lets go (clearing the slot that
 // held it, for one); it then raises NotFound.
 #include "mx_common.h"
+#include "mx_collection.h"
 
 // A list that holds materials and maps together.
 MX_RESULT_TYPE(MaterialOrMap, "_mx.Material | _mx.Texmap")
 // What a map slot holds: a map, None, or a list of them for a list parameter.
 MX_RESULT_TYPE(MapSlot, "_mx.Texmap | list[_mx.Texmap | None] | None")
+// Where replicate and remap_files send texture files (ReplicateArgs): {old path
+// or file name: new path}.
+MX_ARG_TYPE(PathMapArg, "dict[str, str]")
+// What an entry of remap_files holds (RemapFiles): 'map', the material or map
+// that reads the file (None when the graph does not name it), 'param', 'old'
+// and 'new' text, 'exists' a bool, and 'tiles' the count of a UDIM tile list.
+MX_RESULT_TYPE(RemapField, "_mx.Material | _mx.Texmap | str | int | bool | None")
+// What backup_material_library saved (BackupLibrary; the handler's SaveLibrary
+// builds each entry): {'source', 'path', 'count', 'saved', 'skipped', 'error'}
+// per library file.
+MX_RESULT_TYPE(LibraryBackups, "list[dict[str, str | int | bool]]")
 
 #include <filesystem>
 #include <fstream>
@@ -598,10 +610,11 @@ static json RunReplicate(json args) {
     return NativeJson("native:replicate_material", args);
 }
 
-static MaterialRef Replicate(const MaterialRef& r, const std::string& folder, nb::handle pathMap, const std::string& name,
-                             nb::handle nodes, bool allowMissing) {
+static MaterialRef Replicate(const MaterialRef& r, const std::string& folder, PathMapArg given, const std::string& name,
+                             NodesOrNone nodes, bool allowMissing) {
+    const nb::handle pathMap = given.value;
     Mtl* mtl = ResolveMaterial(r);
-    const std::vector<INode*> targets = nodes.is_none() ? std::vector<INode*>() : NodeList(nodes, "replicate");
+    const std::vector<INode*> targets = nodes.is_none() ? std::vector<INode*>() : NodeList(nodes.value, "replicate");
     json args = ReplicateArgs(mtl, HasRemap(folder, pathMap) ? "clone_and_remap" : "clone", folder, pathMap, allowMissing);
     // The handler assigns by name; its plan refuses a name several objects share.
     if (!targets.empty()) {
@@ -627,8 +640,13 @@ static MaterialRef Replicate(const MaterialRef& r, const std::string& folder, nb
     throw MaxError("3ds Max replicated " + Label(mtl) + " but did not report the copy");
 }
 
-static nb::list RemapFiles(const MaterialRef& r, const std::string& folder, nb::handle pathMap, bool allowMissing,
-                           bool preview) {
+// One dict per texture file that moves: {map, param, old, new, exists} planned,
+// {map, param, old, new} or {map, param, tiles} done.
+using RemappedFiles = nb::typed<nb::list, nb::typed<nb::dict, std::string, RemapField>>;
+
+static RemappedFiles RemapFiles(const MaterialRef& r, const std::string& folder, PathMapArg given, bool allowMissing,
+                                bool preview) {
+    const nb::handle pathMap = given.value;
     Mtl* mtl = ResolveMaterial(r);
     if (!HasRemap(folder, pathMap)) throw BadParam("remap_files needs texture_folder or path_map");
     json args = ReplicateArgs(mtl, "remap_in_place", folder, pathMap, allowMissing);
@@ -693,6 +711,34 @@ static std::vector<MaterialRef> SceneMaterials(const std::optional<std::string>&
     return out;
 }
 
+struct MaterialCollection {};
+struct TexmapCollection {};
+
+// Every map below a material or map: its own slots, and for a material those of
+// its sub-materials. `seen` keeps a map shared by several slots to one entry.
+static void CollectTexmaps(MtlBase* base, std::set<MtlBase*>& seen, std::vector<TexmapRef>& out) {
+    if (!base || !seen.insert(base).second) return;
+    if (base->SuperClassID() == TEXMAP_CLASS_ID) out.push_back(Wrap(static_cast<Texmap*>(base)));
+    for (int i = 0; i < base->NumSubTexmaps(); ++i) CollectTexmaps(base->GetSubTexmap(i), seen, out);
+    if (base->SuperClassID() == MATERIAL_CLASS_ID) {
+        Mtl* mtl = static_cast<Mtl*>(base);
+        for (int i = 0; i < mtl->NumSubMtls(); ++i) CollectTexmaps(mtl->GetSubMtl(i), seen, out);
+    }
+}
+
+static std::vector<TexmapRef> SceneTexmaps(const std::optional<std::string>& pattern) {
+    RequireMain();
+    std::set<MtlBase*> seen;
+    std::vector<TexmapRef> all;
+    for (const MaterialRef& material : SceneMaterials(std::nullopt)) CollectTexmaps(ResolveMaterial(material), seen, all);
+    CollectTexmaps(GetCOREInterface()->GetEnvironmentMap(), seen, all);
+    if (!pattern) return all;
+    std::vector<TexmapRef> out;
+    for (const TexmapRef& map : all)
+        if (HandlerHelpers::WildcardMatch(NameOf(ResolveTexmap(map)), *pattern)) out.push_back(map);
+    return out;
+}
+
 static nb::typed<nb::list, MaterialOrMap> LibraryMaterials() {
     RequireMain();
     nb::list out;
@@ -708,14 +754,14 @@ static nb::typed<nb::list, std::optional<MaterialOrMap>> MeditMaterials() {
     return out;
 }
 
-static nb::object BackupLibrary(const std::string& source, const std::string& folder, const std::string& path,
-                                const std::string& prefix) {
+static LibraryBackups BackupLibrary(const std::string& source, const std::string& folder, const std::string& path,
+                                    const std::string& prefix) {
     if (source != "all" && source != "current" && source != "medit" && source != "combined")
         throw BadParam("source must be 'all', 'current', 'medit' or 'combined', not '" + source + "'");
     if (!path.empty() && source == "all")
         throw BadParam("path names one file; pass source='current', 'medit' or 'combined' with it");
     const json args = {{"source", source}, {"backup_dir", folder}, {"file_path", path}, {"prefix", prefix}};
-    return ToPython(NativeJson("native:backup_material_library", args).value("saved", json::array()));
+    return LibraryBackups{ToPython(NativeJson("native:backup_material_library", args).value("saved", json::array()))};
 }
 
 // ── Binding ──────────────────────────────────────────────────────
@@ -786,34 +832,66 @@ void BindMaterials(nb::module_& m) {
             "Keys: {'tree', 'links', 'files', 'issues', 'complete', 'truncated'?}.")
         .def("replace_with", &ReplaceWith, "new"_a, "sub_materials"_a = true,
             "Put new wherever this material is: on nodes and in sub-material slots. Keys: {'nodes', 'slots', 'skipped'}.")
-        .def("replicate", &Replicate, "texture_folder"_a = "", "path_map"_a = nb::none(), "name"_a = "",
-            "nodes"_a = nb::none(), "allow_missing"_a = false,
-            "Copy the material, its texture files repointed to texture_folder or path_map {old: new}, onto nodes: mat.replicate('D:/tex/oak', name='Oak', nodes=['Table']).")
-        .def("remap_files", &RemapFiles, "texture_folder"_a = "", "path_map"_a = nb::none(), "allow_missing"_a = false,
+        .def("replicate", &Replicate, "texture_folder"_a = "", "path_map"_a.none() = nb::none(), "name"_a = "",
+            "nodes"_a.none() = nb::none(), "allow_missing"_a = false,
+            "Copy the material, its texture files repointed to texture_folder or path_map {old path or file name: new path}, "
+            "onto nodes, and return the copy: mat.replicate('D:/tex/oak', name='Oak', nodes=['Table']).")
+        .def("remap_files", &RemapFiles, "texture_folder"_a = "", "path_map"_a.none() = nb::none(), "allow_missing"_a = false,
             "preview"_a = false,
-            "Repoint texture files in place, by file name in texture_folder or by path_map {old: new}; returns the changes (preview=True only plans).")
+            "Repoint texture files in place, by file name in texture_folder or by path_map {old path or file name: new path}; "
+            "returns one {'map', 'param', 'old', 'new'} per changed file, {'map', 'param', 'tiles'} for a UDIM tile list. "
+            "preview=True only plans, and adds 'exists' to each.")
         .def("__repr__", [](const MaterialRef& r) { return Repr("Material", r.mtl, MATERIAL_CLASS_ID); })
         .def("__eq__", [](const MaterialRef& a, nb::handle b) {
             return nb::isinstance<MaterialRef>(b) && a.mtl == nb::cast<MaterialRef>(b).mtl;
         }, nb::arg("other").none())
         .def("__hash__", [](const MaterialRef& r) { return (Py_hash_t)r.mtl; });
 
-    m.def("material", &CreateMaterial, "cls"_a = "PhysicalMaterial", "name"_a = "", "params"_a,
-          "Create a material with parameters: material('PhysicalMaterial', 'Red', base_color=(0.8, 0.1, 0.1)).");
-    m.def("texmap", &CreateTexmap, "cls"_a, "name"_a = "", "params"_a,
-          "Create a texture map with parameters: texmap('Bitmaptexture', 'Wood', filename='C:/tex/wood.png').");
+    BindCollection<MaterialCollection, MaterialRef, std::string>(m, "materials", "Materials",
+        "The materials assigned to scene nodes. materials['Brick'] is one by name, materials('Brick*') lists by "
+        "wildcard, and materials.new('PhysicalMaterial', 'Red', base_color=(0.8, 0.1, 0.1)) creates one; a new "
+        "material is in the collection once a node uses it (node.material = mat).",
+        [] { return SceneMaterials(std::nullopt); },
+        [](const std::string& name) {
+            return FindByName(SceneMaterials(std::nullopt), name, "material",
+                              [](const MaterialRef& r) { return NameOf(ResolveMaterial(r)); });
+        })
+        .def("__call__", [](const MaterialCollection&, const std::optional<std::string>& pattern) {
+            return SceneMaterials(pattern);
+        }, "pattern"_a = nb::none(), "Materials assigned to scene nodes, or those a wildcard name matches: materials('Brick*').")
+        .def("new", [](const MaterialCollection&, const std::string& cls, const std::string& name, nb::kwargs params) {
+            return CreateMaterial(cls, name, params);
+        }, "cls"_a = "PhysicalMaterial", "name"_a = "", "params"_a,
+           "Create a material with parameters: materials.new('PhysicalMaterial', 'Red', base_color=(0.8, 0.1, 0.1)).");
+
+    BindCollection<TexmapCollection, TexmapRef, std::string>(m, "texmaps", "Texmaps",
+        "The texture maps the scene uses: every map the scene materials reach, through sub-materials and maps of "
+        "maps, and the environment map. texmaps['Wood'] is one by name, texmaps('*noise*') lists by wildcard, and "
+        "texmaps.new('Bitmaptexture', 'Wood', filename='C:/tex/wood.png') creates one; a new map is in the "
+        "collection once something in the scene uses it.",
+        [] { return SceneTexmaps(std::nullopt); },
+        [](const std::string& name) {
+            return FindByName(SceneTexmaps(std::nullopt), name, "texture map",
+                              [](const TexmapRef& r) { return NameOf(ResolveTexmap(r)); });
+        })
+        .def("__call__", [](const TexmapCollection&, const std::optional<std::string>& pattern) {
+            return SceneTexmaps(pattern);
+        }, "pattern"_a = nb::none(), "Texture maps the scene uses, or those a wildcard name matches: texmaps('*noise*').")
+        .def("new", [](const TexmapCollection&, const std::string& cls, const std::string& name, nb::kwargs params) {
+            return CreateTexmap(cls, name, params);
+        }, "cls"_a, "name"_a = "", "params"_a,
+           "Create a texture map with parameters: texmaps.new('Bitmaptexture', 'Wood', filename='C:/tex/wood.png').");
     m.def("osl", &CreateOsl, "code"_a, "name"_a = "", "params"_a,
           "Compile OSL code into an OSLMap and set its shader parameters; name defaults to the shader's.");
-    m.def("materials", &SceneMaterials, "pattern"_a = nb::none(),
-          "Materials assigned to scene nodes, optionally filtered by a wildcard name: materials('Brick*').");
     m.def("material_classes", [](const std::optional<std::string>& pattern) { return MatchingClasses(MATERIAL_CLASS_ID, pattern); },
-          "pattern"_a = nb::none(), "Material class names material() takes: material_classes('*PBR*').");
+          "pattern"_a = nb::none(), "Material class names materials.new() takes: material_classes('*PBR*').");
     m.def("texmap_classes", [](const std::optional<std::string>& pattern) { return MatchingClasses(TEXMAP_CLASS_ID, pattern); },
-          "pattern"_a = nb::none(), "Texture map class names texmap() takes: texmap_classes('*bitmap*').");
+          "pattern"_a = nb::none(), "Texture map class names texmaps.new() takes: texmap_classes('*bitmap*').");
     m.def("material_library", &LibraryMaterials, "The current material library (currentMaterialLibrary): Materials and Texmaps.");
     m.def("medit_materials", &MeditMaterials, "The 24 Compact Material Editor slots (meditMaterials), None where empty.");
     m.def("backup_material_library", &BackupLibrary, "source"_a = "all", "folder"_a = "", "path"_a = "", "prefix"_a = "",
-          "Save library, editor slots and both combined ('all') to timestamped .mat files; returns what was saved where.");
+          "Save library, editor slots and both combined ('all') to timestamped .mat files; returns one {'source', 'path', "
+          "'count', 'saved', 'skipped', 'error'} per file, skipped with the reason in error when that library is empty.");
 }
 
 } // namespace MX_ABI_TAG

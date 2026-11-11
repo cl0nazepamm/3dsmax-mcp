@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from ._runtime import Node, call, node_name
+from ._node import Node, to_node
+from ._runtime import call, node_handle, node_name
 
 __all__ = [
     "box",
@@ -52,7 +53,7 @@ def create(
     lists them), in degrees, 0-1 colors and choice names. pos_mode: ground (default,
     pos is the bbox bottom-center), center, or pivot.
     """
-    return Node.from_result(call(
+    return to_node(call(
         "create_object", type=type, name=name, params=params, pos=_list(pos), pos_mode=pos_mode,
         length=length, width=width, height=height, depth=depth, radius=radius,
         radius1=radius1, radius2=radius2, fillet=fillet, capheight=capheight,
@@ -105,7 +106,7 @@ def plane(
 
 def get(name: Node | str) -> Node:
     """An existing node by name, verified with inspect_object (raises MaxToolError if missing)."""
-    return Node.from_result(call("inspect_object", name=node_name(name)))
+    return to_node(call("inspect_object", name=node_name(name)))
 
 
 def find(
@@ -127,7 +128,7 @@ def find(
     objects = result.get("objects") if isinstance(result, dict) else None
     if not isinstance(objects, list):
         return result
-    return [Node.from_result(entry) for entry in objects]
+    return [to_node(entry) for entry in objects]
 
 
 def scene(max_roots: int | None = None) -> Any:
@@ -139,13 +140,13 @@ def selection(detail: str | None = None, max_items: int | None = None) -> list[N
     """The currently selected nodes (query_scene action=selection; detail=compact|full)."""
     result = call("query_scene", action="selection", detail=detail, max_items=max_items)
     entries = result if isinstance(result, list) else (result or {}).get("objects", [])
-    return [Node.from_result(entry) for entry in entries]
+    return [to_node(entry) for entry in entries]
 
 
 def delete(*targets: Node | str, dry_run: bool | None = None) -> Any:
     """Delete nodes (by handle when a Node has one, else by name)."""
-    handles = [t.handle for t in targets if isinstance(t, Node) and t.handle]
-    names = [node_name(t) for t in targets if not (isinstance(t, Node) and t.handle)]
+    handles = [node_handle(t) for t in targets if node_handle(t)]
+    names = [node_name(t) for t in targets if not node_handle(t)]
     return call("delete_objects", names=names or None, handles=handles or None, dry_run=dry_run)
 
 
@@ -164,7 +165,7 @@ def clone(
     if len(handles) != len(cloned):
         handles = [None] * len(cloned)
     nodes = result.get("nodes") or [{"name": name, "handle": handle} for name, handle in zip(cloned, handles)]
-    return [Node.from_result(entry) for entry in nodes]
+    return [to_node(entry) for entry in nodes]
 
 
 def parent(child: Node | str, parent: Node | str | None) -> Any:  # noqa: A002 - tool argument name
@@ -226,10 +227,8 @@ def params(
         return call("parameters", action="describe", class_name=class_name, kind=kind, query=query, offset=offset)
     if target is None:
         raise ValueError("pass a node (or name), or class_name=... to describe a class")
-    selector: dict[str, Any] = (
-        {"handle": target.handle} if isinstance(target, Node) and target.handle
-        else {"handle": getattr(target, "handle")} if not isinstance(target, str) and getattr(target, "handle", None)
-        else {"name": node_name(target)})
+    handle = node_handle(target)
+    selector: dict[str, Any] = {"handle": handle} if handle else {"name": node_name(target)}
     if merged:
         return call("parameters", action="set", path=path, values=merged, **selector)
     if names:

@@ -4,6 +4,18 @@
 // values come from the shared parameter codec (param_codec.h), the model the
 // bridge's tools use; reads and writes of plain values stay native Python here.
 #include "mx_common.h"
+
+// What a ParamBlock2 parameter holds (GetOne): a number (angles in degrees,
+// percentages 0-100, times in frames), an int, a bool, a string, a Point3, a
+// color as (r, g, b), a point4 or color4 as four floats, a Node, Material,
+// Texmap or Object, and None for an empty slot or a type that is not read. A
+// list parameter holds a list of them (GetParam).
+#define MX_PARAM_HELD                                                                                    \
+    "float | int | bool | str | _mx.Point3 | tuple[float, float, float] | "                             \
+    "tuple[float, float, float, float] | _mx.Node | _mx.Material | _mx.Texmap | _mx.Object | None"
+MX_RESULT_TYPE(ParamHeld, MX_PARAM_HELD " | list[" MX_PARAM_HELD "]")
+#undef MX_PARAM_HELD
+
 #include "mcp_bridge/param_codec.h"
 
 namespace mx {
@@ -246,8 +258,8 @@ static void SetOne(const ParamRef& ref, TimeValue t, nb::handle value, int index
         }
         case TYPE_TEXMAP: case TYPE_MTL: case TYPE_REFTARG: ok = SetReference(ref, t, value, index, what); break;
         default:
-            throw BadParam(what + " is " + WithArticle(TypeName(type)) +
-                           " parameter, which _mx cannot set yet; use rt (pymxs)");
+            throw BadParam(what + " is read-only here: its type is one _mx neither reads nor sets (params.info() "
+                           "marks it read_only); use rt (pymxs)");
         }
     } catch (const nb::cast_error&) {
         throw BadParam(what + " expects " + WithArticle(TypeName(type)) + ", got " + TypeNameOf(value));
@@ -337,14 +349,14 @@ void BindParams(nb::module_& m) {
         })
         .def("keys", [](const Params& p) { return AllNames(ParamOwner(p)); },
             "Parameter names, then transform/point subanims (gizmo, center), then MAXScript properties that are not parameters.")
-        .def("to_dict", [](const Params& p) {
+        .def("to_dict", [](const Params& p) -> nb::typed<nb::dict, std::string, ParamHeld> {
             nb::dict out;
             const TimeValue t = Now();
             ForEachParam(ParamOwner(p), [&](IParamBlock2* block, const ParamDef& def) {
                 out[ParamName(block, def).c_str()] = GetParam(ParamRef{block, &def}, t);
             });
             return out;
-        }, "Every parameter and its value.")
+        }, "Every ParamBlock2 parameter and its value, by name; a list parameter gives a list.")
         .def("update", [](const Params& p, nb::kwargs values) {
             Animatable* owner = ParamOwner(p);
             const TimeValue t = Now();
@@ -353,9 +365,13 @@ void BindParams(nb::module_& m) {
         .def("describe", &Describe, "query"_a = "",
             "One line per parameter: name, type, value, range, {named choices}, \"UI label\", +anim; "
             "subanims (gizmo, center) and MAXScript properties after. query filters by name or label.")
-        .def("info", [](const Params& p, const std::string& query) { return ToPython(Described(p, query)["params"]); },
-            "query"_a = "",
-            "describe() as a list of dicts: name, type, value, default, range, choices, label, animatable, source.")
+        .def("info", [](const Params& p, const std::string& query) -> nb::typed<nb::list, nb::dict> {
+                // The codec's "params" is an array of objects.
+                return nb::borrow<nb::list>(ToPython(Described(p, query)["params"]));
+            }, "query"_a = "",
+            "describe() as a list of dicts. Each has name, type and source (paramblock2, subanim or maxscript), and "
+            "where they apply value, default, range, choices (with choices_source, and choice for the current one), "
+            "label, list, takes, animatable, read_only and controller.")
         .def("track", [](const Params& p, const std::string& name) {
             const ParamRef ref = RequireParam(ParamOwner(p), name);
             return Track{p.node, p.owner, ParamName(ref.block, *ref.def), true};

@@ -9,6 +9,26 @@
 // mode.
 #include "mx_construction.h"
 
+// What the boolean and loft members take and give, named for their signatures.
+// Each text is read off the code that parses or builds the value.
+
+// Inline cutters of node.boolean, a list or tuple of dicts (ParseCutters,
+// ParseCutter): 'name' and 'size', and optionally 'shape', 'pos', 'rot',
+// 'operation' and 'segments'. size, pos and rot are (x, y, z) or one number
+// for all three (Triple), segments is an int, the others are text.
+MX_ARG_TYPE(BooleanCuttersArg, "collections.abc.Sequence[dict[str, str | int | float | _mx.Point3]]")
+// How node.boolean arrays its cutters (ParseRepeat): 'count', an int, and
+// optionally 'axis', a signed axis name, and 'spacing', a number.
+MX_ARG_TYPE(BooleanRepeatArg, "dict[str, int | float | str]")
+// The cross sections of loft_mesh (SectionsFromPython): lists or tuples of
+// sections, of points, of three coordinates, each a number or an expression
+// over the parameters (CoordFromPython).
+MX_ARG_TYPE(LoftSectionsArg, "collections.abc.Sequence[collections.abc.Sequence[collections.abc.Sequence[float | str]]]")
+// What a stored loft definition holds (BuildLoft, ParseStored): 'sections',
+// lists of sections of [x, y, z] coordinates as written, and the booleans
+// 'profile_closed', 'close_path', 'caps' and 'reverse'.
+MX_RESULT_TYPE(LoftDefinitionField, "list[list[list[float | str]]] | bool")
+
 #include <iEPoly.h>
 #include <mnmesh.h>
 
@@ -334,16 +354,17 @@ BooleanSettings ParseSettings(const std::string& option, const std::optional<std
 std::vector<std::string> OperandNames(INode* base, const std::vector<INode*>& nodes, const std::vector<Cutter>& cutters);
 AnimHandle AppendedModifier(const std::string& reply, const std::vector<std::string>& names);
 
-BooleanRef ApplyBoolean(const Node& n, nb::handle operands, const std::string& operation, nb::handle cutters,
-                        nb::handle repeat, const std::optional<std::vector<std::string>>& operations,
+BooleanRef ApplyBoolean(const Node& n, NodesOrNone operands, const std::string& operation, BooleanCuttersArg cutters,
+                        BooleanRepeatArg repeat, const std::optional<std::vector<std::string>>& operations,
                         const std::string& option, const std::optional<std::string>& method,
                         std::optional<double> voxelSize, bool live, bool useOperandMaterial, bool newModifier,
                         const std::string& modifierName) {
     INode* base = Resolve(n);
-    const std::vector<INode*> nodes = OperandNodes(base, operands);
+    const std::vector<INode*> nodes = OperandNodes(base, operands.value);
     if (!repeat.is_none() && cutters.is_none()) throw BadParam("repeat needs cutters");
     const std::string defaultOperation = OperationEnum(operation);
-    const std::vector<Cutter> made = cutters.is_none() ? std::vector<Cutter>{} : ParseCutters(cutters, repeat, defaultOperation);
+    const std::vector<Cutter> made =
+        cutters.is_none() ? std::vector<Cutter>{} : ParseCutters(cutters.value, repeat.value, defaultOperation);
     if (nodes.empty() && made.empty()) throw BadParam("boolean needs operands (nodes) and/or cutters (inline primitives)");
     if (operations && operations->size() > nodes.size())
         throw BadParam("operations has " + std::to_string(operations->size()) + " entries for " +
@@ -761,7 +782,7 @@ std::optional<Point3> RayHit(const RayTarget& target, const Point3& from, const 
     return (ray.p + ray.dir * at) * target.tm;
 }
 
-std::pair<int, int> ConformVerts(const Node& n, nb::handle targetKey, const std::optional<std::vector<long long>>& indices,
+std::pair<int, int> ConformVerts(const Node& n, NodeArg targetKey, const std::optional<std::vector<long long>>& indices,
                                  const std::string& axes, const std::string& axis, double strength, int spline,
                                  bool convert) {
     const std::string mask = Lower(Trim(axes));
@@ -773,7 +794,7 @@ std::pair<int, int> ConformVerts(const Node& n, nb::handle targetKey, const std:
         throw BadParam("axis must be x, y or z (both ways) or +x, -x, +y, -y, +z, -z (one way)");
     if (!std::isfinite(strength)) throw BadParam("strength must be a finite number (1.0 moves all the way)");
     if (spline < 1) throw BadParam("spline numbers start at 1");
-    INode* target = Resolve(FindNode(targetKey));
+    INode* target = Resolve(FindNode(targetKey.value));
     if (target == Resolve(n)) throw BadParam("conform target must be another node");
     const TimeValue t = Now();
     Object* evaluated = target->EvalWorldState(t).obj;
@@ -1104,22 +1125,22 @@ std::optional<Values> MatchedParams(const LoftState& s) {
     return ParamsFromJson(s.data["history"][*revision]["parameters"]);
 }
 
-nb::object ParamsPython(const Values& params) {
+nb::dict ParamsPython(const Values& params) {
     nb::dict out;
     for (const auto& [name, value] : params) out[name.c_str()] = value;
     return out;
 }
 
-Node CreateLoft(const std::string& name, nb::handle sections, nb::handle parameters, bool profileClosed, bool closePath,
-                bool caps, bool reverse) {
+Node CreateLoft(const std::string& name, LoftSectionsArg sections, ParametersArg parameters, bool profileClosed,
+                bool closePath, bool caps, bool reverse) {
     RequireMain();
     if (Trim(name).empty()) throw BadParam("loft_mesh needs a name for the new node");
     const std::wstring wide = Utf8ToWide(name);
     for (INode* node : AllNodes())
         if (_wcsicmp(node->GetName(), wide.c_str()) == 0)
             throw BadParam("a node named '" + NodeName(node) + "' already exists; loft_mesh needs a new name");
-    const Values params = ParamsFromPython(parameters);
-    const LoftBuild built = BuildLoft(SectionsFromPython(sections), params, {profileClosed, closePath, caps, reverse});
+    const Values params = ParamsFromPython(parameters.value);
+    const LoftBuild built = BuildLoft(SectionsFromPython(sections.value), params, {profileClosed, closePath, caps, reverse});
     const Vec3 origin = BoxCenter(built.vertices);
     const json data = {{"schema", kLoftSchema}, {"version", 1}, {"origin", origin}, {"definition", built.definition},
                        {"history", json::array({json{{"parameters", ParamsJson(params)}, {"fingerprint", kLoftMarker}}})}};
@@ -1170,7 +1191,7 @@ void RestoreCage(const PolyBase& pb, const std::vector<Point3>& before) {
 
 // Rebuilds the cage for changed parameters; vertex IDs, the transform,
 // modifiers and materials stay. Returns {name: (before, after)} of what changed.
-nb::dict UpdateLoft(const LoftRef& r, nb::kwargs values) {
+nb::typed<nb::dict, std::string, std::pair<double, double>> UpdateLoft(const LoftRef& r, nb::kwargs values) {
     const Values changes = ParamsFromPython(values);
     if (changes.empty()) throw BadParam("update needs at least one parameter: loft.update(width=20)");
     LoftState s = ReadLoft(r, true);
@@ -1278,8 +1299,8 @@ void BindSolids(nb::module_& m) {
         .def_ro("disabled", &OperandInfo::disabled, "Whether the operand is switched off and left out of the result.")
         .def("__repr__", &OperandRepr);
 
-    AddMethod<Node>("boolean", &ApplyBoolean, "operands"_a = nb::none(), "operation"_a = "subtract", nb::kw_only(),
-        "cutters"_a = nb::none(), "repeat"_a = nb::none(), "operations"_a = nb::none(), "option"_a = "",
+    AddMethod<Node>("boolean", &ApplyBoolean, "operands"_a.none() = nb::none(), "operation"_a = "subtract", nb::kw_only(),
+        "cutters"_a.none() = nb::none(), "repeat"_a.none() = nb::none(), "operations"_a = nb::none(), "option"_a = "",
         "method"_a = nb::none(), "voxel_size"_a = nb::none(), "live"_a = false, "use_operand_material"_a = true,
         "new_modifier"_a = false, "modifier_name"_a = "",
         "Cut or fuse with a Boolean modifier and return it: wall.boolean(['Door', 'Window']) subtracts both. "
@@ -1288,8 +1309,9 @@ void BindSolids(nb::module_& m) {
         "new_modifier=True. Non-live operands are consumed: their nodes are deleted and they keep their names in the "
         "modifier; live=True keeps them in the scene, hidden. cutters are primitives built in place: "
         "[{'name': 'Hole', 'shape': 'box'|'cylinder'|'sphere', 'size': (x, y, z) or n, 'pos': bbox center, "
-        "'rot': degrees, 'operation': ..., 'segments': 4-256}] (cylinder size is (diameter, diameter, height), "
-        "Z up); repeat={'count': 4, 'axis': 'x'|'-x'|..., 'spacing': 20} arrays them as Hole_1..Hole_4.");
+        "'rot': degrees, 'operation': ..., 'segments': 4-256}] (name and size are required; cylinder size is "
+        "(diameter, diameter, height), Z up); repeat={'count': 4, 'axis': 'x'|'-x'|..., 'spacing': 20} arrays them "
+        "as Hole_1..Hole_4.");
     AddProperty<Node>("boolean_modifier", &TopBoolean, "The topmost Boolean modifier on the stack, or None.");
 
     AddMethod<Node>("get_verts", &GetVerts, "indices"_a = nb::none(), nb::kw_only(), "bbox"_a.none() = nb::none(),
@@ -1312,12 +1334,15 @@ void BindSolids(nb::module_& m) {
         "A parametric quad loft's definition, stored on its node; node.loft_mesh.update(width=20) rebuilds the cage.")
         .def_prop_ro("node", [](const LoftRef& r) { Resolve(Node{r.node}); return Node{r.node}; },
             "The node that carries this loft.")
-        .def_prop_ro("parameters", [](const LoftRef& r) -> nb::object {
+        .def_prop_ro("parameters", [](const LoftRef& r) -> std::optional<nb::typed<nb::dict, std::string, double>> {
             const auto params = MatchedParams(ReadLoft(r, true));
-            return params ? ParamsPython(*params) : nb::none();
+            if (!params) return std::nullopt;
+            return nb::typed<nb::dict, std::string, double>(ParamsPython(*params));
         }, "The parameters that built the current cage, or None when the cage was edited by hand (update refuses then).")
-        .def_prop_ro("definition", [](const LoftRef& r) { return ToPython(ReadLoft(r, false).data["definition"]); },
-            "sections as written (numbers and expressions) and the profile_closed, close_path, caps, reverse options.")
+        .def_prop_ro("definition", [](const LoftRef& r) -> nb::typed<nb::dict, std::string, LoftDefinitionField> {
+            return nb::borrow<nb::dict>(ToPython(ReadLoft(r, false).data["definition"]));
+        }, "'sections' as written (numbers and expressions) and the 'profile_closed', 'close_path', 'caps' and "
+           "'reverse' options.")
         .def_prop_ro("origin", [](const LoftRef& r) {
             const LoftState s = ReadLoft(r, false);
             const json& o = s.data["origin"];
@@ -1333,14 +1358,14 @@ void BindSolids(nb::module_& m) {
     AddProperty<Node>("loft_mesh",
         [](const Node& n) -> std::optional<LoftRef> { return HasLoft(n) ? std::optional<LoftRef>(LoftRef{n.handle}) : std::nullopt; },
         "The node's parametric loft definition (LoftMesh), or None.");
-    m.def("loft_mesh", &CreateLoft, "name"_a, "sections"_a, "parameters"_a = nb::none(), nb::kw_only(),
+    m.def("loft_mesh", &CreateLoft, "name"_a, "sections"_a, "parameters"_a.none() = nb::none(), nb::kw_only(),
           "profile_closed"_a = true, "close_path"_a = false, "caps"_a = false, "reverse"_a = false,
           "Create a parametric quad loft (Editable Poly) through matched cross sections and return its node: "
           "loft_mesh('Rail', [[(0, 0, 0), ('w', 0, 0), ('w', 'd', 0)], [(0, 0, 'h'), ('w', 0, 'h'), ('w', 'd', 'h')]], "
-          "{'w': 10, 'd': 4, 'h': 50}). Sections have the same point count in corresponding order, in world space; "
-          "coordinates are numbers or expressions over parameters (+ - * / % **, sin/cos in radians, sqrt, abs, "
-          "min, max, pi). profile_closed wraps each section, close_path joins the last section to the first, caps "
-          "adds end faces (closed profiles, open path), reverse flips the winding.");
+          "{'w': 10, 'd': 4, 'h': 50}). Sections are lists of (x, y, z) points, the same count in corresponding order, "
+          "in world space; coordinates are numbers or expressions over parameters (+ - * / % **, sin/cos in "
+          "radians, sqrt, abs, min, max, pi). profile_closed wraps each section, close_path joins the last section "
+          "to the first, caps adds end faces (closed profiles, open path), reverse flips the winding.");
 }
 
 } // namespace MX_ABI_TAG

@@ -7,6 +7,13 @@
 // one removes the nodes it added. Paths are str or os.PathLike.
 #include "mx_common.h"
 
+// What file_info() gives (FileInfoOf): one report for a path, a list of
+// reports for a list of paths.
+MX_RESULT_TYPE(FileInfoResult, "dict | list[dict]")
+// A field of a search_max_files() hit (SearchMaxFiles): the file's 'path', its
+// 'objects' count, or the matching 'names'.
+MX_RESULT_TYPE(MaxFileHitField, "str | int | list[str]")
+
 #include <nanobind/stl/filesystem.h>
 #include <nanobind/stl/variant.h>
 
@@ -415,19 +422,19 @@ static std::vector<nb::dict> FileReports(const std::vector<fs::path>& paths, boo
     return out;
 }
 
-static nb::object FileInfoOf(const std::variant<fs::path, std::vector<fs::path>>& path, bool objects, bool classes) {
+static FileInfoResult FileInfoOf(const std::variant<fs::path, std::vector<fs::path>>& path, bool objects, bool classes) {
     RequireMain();
     if (const fs::path* one = std::get_if<fs::path>(&path)) {
         const fs::path file = RequireSceneFile(*one);
         nb::dict report = FileReports({file}, objects, classes).front();
         if (report.contains("error")) throw MaxError(nb::cast<std::string>(report["error"]));
-        return report;
+        return FileInfoResult{report};
     }
     const auto& paths = std::get<std::vector<fs::path>>(path);
     if (paths.empty()) throw BadParam("file_info() takes a path or a non-empty list of paths");
     nb::list out;
     for (nb::dict& report : FileReports(paths, objects, classes)) out.append(report);
-    return out;
+    return FileInfoResult{out};
 }
 
 // A file pattern ("*.max") would match no object name.
@@ -440,7 +447,10 @@ static void RequireNamePattern(const std::string& pattern) {
                        "or a name pattern such as 'Chair*'");
 }
 
-static nb::list SearchMaxFiles(const fs::path& folder, const std::string& pattern, bool recursive) {
+// One dict per file with a match: {path, objects, names}.
+using MaxFileHits = nb::typed<nb::list, nb::typed<nb::dict, std::string, MaxFileHitField>>;
+
+static MaxFileHits SearchMaxFiles(const fs::path& folder, const std::string& pattern, bool recursive) {
     RequireMain();
     const fs::path root = RequireFolder(folder, "folder");
     RequireNamePattern(pattern);
@@ -1132,11 +1142,14 @@ void BindFiles(nb::module_& m) {
     m.def("save", &SaveScene,
           "Save the scene to its own file and return the path; an untitled scene raises (never Save As).");
     m.def("file_info", &FileInfoOf, "path"_a, "objects"_a = false, "classes"_a = false,
-          "A .max file's metadata without opening it: {'path', 'size', 'created', 'modified' (UTC), 'title', "
-          "'author', ...}, plus 'objects' (names) and 'classes' (plugin classes by kind) when asked. A list of paths "
-          "gives a list of reports; an unreadable file reports its 'error'.");
+          "A .max file's metadata without opening it: its path and size in bytes, the created and modified times "
+          "(UTC), title, subject, author, comments and properties it holds, plus 'objects' (names) and 'classes' "
+          "(plugin classes by kind) when asked. A list of paths gives a list of reports, where an unreadable file "
+          "reports only its 'path' and 'error'. Keys: {'path', 'size'?, 'created'?, 'modified'?, 'title'?, "
+          "'subject'?, 'author'?, 'comments'?, 'properties'?, 'objects'?, 'classes'?, 'error'?}.");
     m.def("search_max_files", &SearchMaxFiles, "folder"_a, "pattern"_a = "*", "recursive"_a = true,
-          "The .max files under folder with objects named like pattern: [{'path', 'objects', 'names'}], "
+          "The .max files under folder with objects named like pattern: [{'path', 'objects', 'names'}], objects "
+          "being the file's object count and names the ones that match: "
           "search_max_files('D:/lib', 'chair*'); then merge(hit['path'], hit['names']).");
     m.def("merge", &MergeFile, "path"_a, "names"_a = nb::none(), "duplicates"_a = "rename", "materials"_a = "rename",
           "Merge a .max file's objects (all, or names) and return the new nodes. Name clashes: duplicates='rename', "

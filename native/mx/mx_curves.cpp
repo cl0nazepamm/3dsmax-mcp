@@ -14,6 +14,22 @@
 // (MAXScript's are 1-based). Edits change the spline base beneath modifiers.
 #include "mx_construction.h"
 
+// What the spline and curve members take and give, named for their signatures.
+// Each text is read off the code that parses or builds the value.
+
+// The knots of a new or rewritten spline, a list or tuple with one entry per
+// knot (ParsePoints, SetKnots). An entry (KnotFrom) is a Knot, a point, or a
+// dict of Knot fields: 'pos', and optionally 'type', 'in_vec', 'out_vec', 'seg'.
+MX_ARG_TYPE(KnotsArg, "collections.abc.Sequence[_mx.Knot | _mx.Point3 | dict[str, _mx.Point3 | str | None]]")
+// A curve_model definition (BuildModel): 'curves' {name: curve dict} and
+// 'output' {'kind': 'curve' | 'sweep' | 'loft', ...}, and optionally
+// 'tolerance', a number or an expression over the parameters.
+MX_ARG_TYPE(CurveDefinitionArg, "dict[str, dict | float | str]")
+// What an entry of Spline.pick holds (Pick): 'knot' its index, 'component'
+// and 'type' text, 'point' the world position, 'distance' in pixels and
+// 'image' the (x, y) fractions of the capture.
+MX_RESULT_TYPE(SplinePickField, "int | str | float | _mx.Point3 | tuple[float, float]")
+
 #include <iInstanceMgr.h>
 #include <iepoly.h>
 #include <mnmesh.h>
@@ -1379,10 +1395,10 @@ KnotEdit Difference(Spline3D* sp, int k, const Knot& want, const Edit& e) {
     return edit;
 }
 
-void SetKnots(const SplineRef& r, nb::handle knots, const std::optional<std::string>& expected) {
+void SetKnots(const SplineRef& r, KnotsArg knots, const std::optional<std::string>& expected) {
     const Edit e = OpenEdit(r.node, expected);
     Spline3D* sp = SplineAt(e.shape, r.index, e.node);
-    const std::vector<nb::handle> items = Items(knots, "knots");
+    const std::vector<nb::handle> items = Items(knots.value, "knots");
     const int count = sp->KnotCount();
     if (int(items.size()) != count)
         throw BadParam("set_knots needs one entry per knot: the spline has " + std::to_string(count) + ", got " +
@@ -1567,8 +1583,11 @@ nb::dict Capture(const SplineRef& r, const std::optional<std::vector<int>>& knot
     return out;
 }
 
-nb::list Pick(const SplineRef& r, double x, double y, const std::string& view, double tolerance,
-              const std::optional<std::vector<int>>& knots) {
+// One dict per knot or handle within tolerance: {knot, component, point, type, distance, image}.
+using SplinePicks = nb::typed<nb::list, nb::typed<nb::dict, std::string, SplinePickField>>;
+
+SplinePicks Pick(const SplineRef& r, double x, double y, const std::string& view, double tolerance,
+                 const std::optional<std::vector<int>>& knots) {
     if (!(0 <= x && x <= 1 && 0 <= y && y <= 1)) throw BadParam("x and y are fractions of the captured image, 0-1");
     if (!(0 <= tolerance && tolerance <= .25)) throw BadParam("tolerance must be 0-0.25 of the image's shorter side");
     if (view.empty()) throw BadParam("view needs the view_token of the capture you picked in");
@@ -1646,9 +1665,9 @@ SplineShape* NewSplineShape() {
     return static_cast<SplineShape*>(created);
 }
 
-Node CreateSpline(nb::handle points, const std::string& name, bool closed, const std::string& knot, bool centerPivot) {
+Node CreateSpline(KnotsArg points, const std::string& name, bool closed, const std::string& knot, bool centerPivot) {
     RequireMain();
-    const NewSpline parsed = ParsePoints(points, knot, closed);
+    const NewSpline parsed = ParsePoints(points.value, knot, closed);
     WarnOvershoot(parsed.risky);
     std::vector<V3> positions;
     for (const NewKnot& k : parsed.knots) positions.push_back(k.pos);
@@ -1659,9 +1678,9 @@ Node CreateSpline(nb::handle points, const std::string& name, bool closed, const
     return Wrap(PlaceNode(ss, name, L"Shape", origin));
 }
 
-SplineRef AddSpline(const Node& n, nb::handle points, bool closed, const std::string& knot,
+SplineRef AddSpline(const Node& n, KnotsArg points, bool closed, const std::string& knot,
                     const std::optional<std::string>& expected) {
-    const NewSpline parsed = ParsePoints(points, knot, closed);
+    const NewSpline parsed = ParsePoints(points.value, knot, closed);
     const Edit e = OpenEdit(n.handle, expected);
     WarnOvershoot(parsed.risky);
     LeaveModifyPanel(e.node, e.shape);
@@ -1880,10 +1899,10 @@ nb::dict ModelReport(INode* node, const Stored& s, bool includeDefinition) {
     return out;
 }
 
-Node CurveCreate(nb::handle definition, const std::string& name, nb::handle parameters) {
+Node CurveCreate(CurveDefinitionArg definition, const std::string& name, ParametersArg parameters) {
     RequireMain();
-    const json def = FromPython(definition);
-    const Values values = ParseValues(FromPython(parameters));
+    const json def = FromPython(definition.value);
+    const Values values = ParseValues(FromPython(parameters.value));
     if (def.dump().size() > kMaxRecipeBytes) throw BadParam("Curve construction exceeds 4 MB");
     const Model m = BuildModel(def, values, json());
     std::vector<V3> points = m.vertices;
@@ -1934,9 +1953,9 @@ std::function<void()> Rewrite(INode* node, const Model& m, const V3& origin) {
     };
 }
 
-nb::dict CurveUpdate(const Node& n, nb::handle parameters, const std::optional<std::string>& expected) {
+nb::dict CurveUpdate(const Node& n, ParametersArg parameters, const std::optional<std::string>& expected) {
     INode* node = Resolve(n);
-    const Values values = ParseValues(FromPython(parameters));
+    const Values values = ParseValues(FromPython(parameters.value));
     if (values.empty()) throw BadParam("curve_update needs parameters to change: node.curve_update({'width': 5})");
     Stored s = LoadRecipe(node);
     const std::optional<std::string> fingerprint = Fingerprint(node);
@@ -2106,7 +2125,9 @@ void BindCurves(nb::module_& m) {
             "set_knot(2, type='bezier_corner', out_vec=(14, 3, 0)).")
         .def("set_knots", &SetKnots, "knots"_a, nb::kw_only(), "expected"_a = nb::none(),
             "Rewrite every knot at once from Knots, dicts or points (one per knot); checked before anything is "
-            "written. ks = s.knots; ks[1].pos = (5, 2, 0); s.set_knots(ks).")
+            "written. A dict has 'pos' and any of 'type', 'in_vec', 'out_vec' and 'seg'; what an entry leaves out "
+            "or gives as None is kept, and a moved knot carries its handles. ks = s.knots; ks[1].pos = (5, 2, 0); "
+            "s.set_knots(ks).")
         .def("insert", &Insert, "segment"_a, "param"_a = 0.5, nb::kw_only(), "expected"_a = nb::none(),
             "Split a segment at param (0-1, exclusive) with a new knot; returns its index.")
         .def("delete_knot", &DeleteKnot, "index"_a, nb::kw_only(), "expected"_a = nb::none(), "Delete a knot.")
@@ -2142,7 +2163,9 @@ void BindCurves(nb::module_& m) {
             "Keys: {'file', 'view', 'width', 'height', 'labels', 'labels_truncated'}.")
         .def("pick", &Pick, "x"_a, "y"_a, "view"_a, "tolerance"_a = 0.025, "knots"_a = nb::none(),
             "Knots and handles near image point (x, y) of a capture (fractions 0-1), nearest first; view is the "
-            "capture's view_token. Overlapping front and back handles stay ambiguous.")
+            "capture's view_token. Overlapping front and back handles stay ambiguous. Each is {'knot': index, "
+            "'component': 'knot', 'in_handle' or 'out_handle', 'point': world position, 'type': the knot's type, "
+            "'distance': pixels from (x, y), 'image': its (x, y) fractions}.")
         .def("__len__", [](const SplineRef& r) { return ViewOf(r).spline->KnotCount(); })
         .def("__repr__", &SplineRepr)
         .def("__eq__", [](const SplineRef& a, nb::handle b) {
@@ -2160,7 +2183,8 @@ void BindCurves(nb::module_& m) {
     }, "The splines of an editable spline base (SplineShape or Line).");
     AddMethod<Node>("add_spline", &AddSpline, "points"_a, "closed"_a = false, "knot"_a = "smooth", nb::kw_only(),
         "expected"_a = nb::none(),
-        "Add a spline from world points or Knots to an editable shape (a hole, another outline); returns it.");
+        "Add a spline from world points, dicts or Knots, as spline() takes them, to an editable shape (a hole, "
+        "another outline); returns it.");
     AddProperty<Node>("curve_token", [](const Node& n) {
         INode* node = Resolve(n);
         return CurveToken(node, EditableSpline(node));
@@ -2186,17 +2210,22 @@ void BindCurves(nb::module_& m) {
           "center_pivot"_a = false,
           "Create an editable spline from world points, dicts or Knots: spline([(0, 0, 0), (40, 0, 0), (40, 30, 0)], "
           "'Rail', knot='corner'). knot: corner, smooth, bezier, bezier_corner or bounded (short handles that do not "
-          "overshoot).");
-    m.def("curve_preview", [](nb::handle definition, nb::handle parameters) {
+          "overshoot). At least two entries; a dict is {'pos', 'type', 'in_vec', 'out_vec', 'seg'} with only 'pos' "
+          "required, and a bezier or bezier_corner knot needs both handles.");
+    m.def("curve_preview", [](CurveDefinitionArg definition, ParametersArg parameters) {
         RequireMain();
-        return Preview(BuildModel(FromPython(definition), ParseValues(FromPython(parameters)), json()));
-    }, "definition"_a, "parameters"_a = nb::none(),
+        return Preview(BuildModel(FromPython(definition.value), ParseValues(FromPython(parameters.value)), json()));
+    }, "definition"_a, "parameters"_a.none() = nb::none(),
           "Evaluate a curve_model definition without touching the scene: counts, bounds and per-curve QA. "
-          "definition={'curves': {name: curve}, 'output': {'kind': 'curve' | 'sweep' | 'loft', ...}}. "
+          "definition={'curves': {name: curve}, 'output': {'kind': 'curve' | 'sweep' | 'loft', ...}, 'tolerance': "
+          "0.01}; parameters {'width': 4} are the numbers its expressions name. mx.help('curve_model') has the "
+          "grammar of curves and outputs. "
           "Keys: {'kind', 'curves', 'alignment', 'bounds'?, 'notes', 'counts'}.");
-    m.def("curve_create", &CurveCreate, "definition"_a, "name"_a = "", "parameters"_a = nb::none(),
+    m.def("curve_create", &CurveCreate, "definition"_a, "name"_a = "", "parameters"_a.none() = nb::none(),
           "Build a curve_model definition as an editable spline or quad cage centered on its bounds, saving the "
-          "recipe for node.curve_update.");
+          "recipe for node.curve_update. definition and parameters are curve_preview's: {'curves': {name: curve}, "
+          "'output': {'kind': 'curve' | 'sweep' | 'loft', ...}} and {'width': 4}; mx.help('curve_model') has the "
+          "grammar.");
 }
 
 } // namespace MX_ABI_TAG

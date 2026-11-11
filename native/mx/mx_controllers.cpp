@@ -571,7 +571,7 @@ static void AddTarget(const ControllerRef& ref, ControllerTargetArg given, std::
     const std::string cls = CtrlClass(c);
     if (IScriptCtrl* sc = ScriptOf(c)) {
         if (weight || frame) throw BadParam(cls + " inputs take name=, not weight= or frame=");
-        if (!name) throw BadParam("a script input needs name=: add_target(mx.node('Hip'), name='hip')");
+        if (!name) throw BadParam("a script input needs name=: add_target(nodes['Hip'], name='hip')");
         AddBinding(sc, ParseBinding(*name, target, 0));
         return Notify(c);
     }
@@ -1046,7 +1046,7 @@ void BindControllers(nb::module_& m) {
         .def("add_target", &AddTarget, "target"_a, "weight"_a = nb::none(), "frame"_a = nb::none(), "name"_a = nb::none(),
             "Add a target: a node with weight= (position, orientation, look-at, path constraints), with frame= (link), "
             "the attachment node, or a named input of a script (node, track, (track, offset_frames), controller, "
-            "constant) or expression (track, node, number, point3): c.add_target(mx.node('Ball'), weight=50).")
+            "constant) or expression (track, node, number, point3): c.add_target(nodes['Ball'], weight=50).")
         .def_prop_ro("layers", &Layers, "A list controller's layers, first to last; [] for other controllers.")
         .def("__repr__", &ControllerRepr)
         .def("__eq__", [](const ControllerRef& a, nb::handle b) {

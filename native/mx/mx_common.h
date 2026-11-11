@@ -22,12 +22,20 @@
 //   never an error for a parameter that can be set.
 // - A name has one shape: state and related objects are properties (nodes,
 //   params, modifiers), work is a method, on every class that has the name.
+// - What the scene or 3ds Max has many of is a collection (mx_collection.h):
+//   nodes, materials, layers, classes, ... Lookup is c[key], listing is
+//   c(pattern, ...), creation is c.new(...), deletion is c.remove(x) or the
+//   item's own delete(). No function of the module does a collection's work.
+// - A node is the same thing inside 3ds Max and outside it: what mx.Node
+//   offers (maxmcp/mx/_node.py), Node offers under the same name and meaning.
 // - Positions in a Python sequence count from 0 (node.splines[i], knots,
 //   sub_materials). A number 3ds Max itself shows or MAXScript takes is an ID
 //   and keeps Max's value, from 1: vertex, edge and face IDs, material IDs,
 //   steps in a MAXScript path ('modifiers[1]', 'pos[2]').
 // - Annotations say what a value is. `object` and a bare dict, list or tuple
-//   result are a debt the lint counts, and the count only goes down.
+//   result are not allowed, except for the few values the lint names as
+//   dynamic (DYNAMIC): what a bridge handler, a published function or a
+//   macroscript returns. A report dictionary names its keys: "Keys: {...}".
 #pragma once
 
 // nanobind first: the MAXScript headers pulled in below define function-like
@@ -143,6 +151,10 @@ inline std::string NodeName(INode* node) { return WideToUtf8(node->GetName()); }
 inline std::string Quoted(INode* node) { return "'" + NodeName(node) + "'"; }
 Node FindNode(nb::handle key);
 std::vector<INode*> NodeList(nb::handle nodes, const char* what, bool allow_empty = false);
+// Nodes matching every filter (mx_scene.cpp): what nodes(...) lists.
+std::vector<Node> FindNodes(const std::optional<std::string>& pattern, const std::optional<std::string>& cls,
+                            const std::optional<std::string>& layer, bool rootsOnly,
+                            const std::optional<std::string>& uses, nb::kwargs props);
 // Nodes sharing this node's object, itself included.
 int InstanceCount(INode* node);
 

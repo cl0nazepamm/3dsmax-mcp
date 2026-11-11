@@ -5,6 +5,12 @@
 // live in a .NET plugin without a C++ API; they are read through MAXScript as
 // snapshots.
 #include "mx_common.h"
+#include "mx_collection.h"
+
+// A layer, or its name (FindLayer).
+MX_ARG_TYPE(LayerArg, "_mx.Layer | str")
+// A named selection set, or its name.
+MX_ARG_TYPE(SelectionSetArg, "_mx.SelectionSet | str")
 
 #include <ilayermanager.h>
 #include <INamedSelectionSetManager.h>
@@ -83,8 +89,8 @@ static ILayer* RequireLayer(const std::string& name) {
     if (ILayer* layer = LayerByName(name)) return layer;
     std::vector<std::string> names;
     for (ILayer* layer : AllLayers()) names.push_back(LayerName(layer));
-    throw NotFound("no layer named '" + name + "'." + Suggest(name, names) + " Create it with mx.layer('" + name +
-                   "', create=True).");
+    throw NotFound("no layer named '" + name + "'." + Suggest(name, names) + " Create it with layers.new('" + name +
+                   "').");
 }
 
 // A Layer or a layer name.
@@ -119,19 +125,18 @@ static void MoveToLayer(ILayer* layer, const std::vector<INode*>& nodes) {
     if (!kept.empty()) throw MaxError("3ds Max kept " + Join(kept) + " off layer '" + LayerName(layer) + "'");
 }
 
-static LayerRef GetLayer(const std::optional<std::string>& name, bool create) {
-    ILayerManagerEx* manager = LayerManager();
-    if (!name) {
-        if (create) throw BadParam("create=True needs a layer name");
-        ILayer* current = manager->GetCurrentLayer();
-        if (!current) throw MaxError("3ds Max has no current layer");
-        return WrapLayer(current);
-    }
-    if (!create) return WrapLayer(RequireLayer(*name));
-    if (ILayer* existing = LayerByName(*name)) return WrapLayer(existing);
-    if (name->empty()) throw BadParam("a layer needs a name");
-    ILayer* layer = manager->CreateLayer(MSTR(Utf8ToWide(*name).c_str()));
-    if (!layer) throw MaxError("3ds Max could not create layer '" + *name + "'");
+static LayerRef CurrentLayer() {
+    ILayer* current = LayerManager()->GetCurrentLayer();
+    if (!current) throw MaxError("3ds Max has no current layer");
+    return WrapLayer(current);
+}
+
+static LayerRef NewLayer(const std::string& name) {
+    if (name.empty()) throw BadParam("a layer needs a name");
+    if (ILayer* existing = LayerByName(name))
+        throw BadParam("a layer named '" + LayerName(existing) + "' already exists: layers['" + LayerName(existing) + "']");
+    ILayer* layer = LayerManager()->CreateLayer(MSTR(Utf8ToWide(name).c_str()));
+    if (!layer) throw MaxError("3ds Max could not create layer '" + name + "'");
     return WrapLayer(layer);
 }
 
@@ -193,7 +198,7 @@ static void SetCurrentLayer(const LayerRef& r, bool on) {
     ILayerManagerEx* manager = LayerManager();
     const bool current = manager->GetCurrentLayer() == layer;
     if (on == current) return;
-    if (!on) throw BadParam("a layer stops being current when another one becomes current: mx.layer('0').current = True");
+    if (!on) throw BadParam("a layer stops being current when another one becomes current: layers.current = '0'");
     manager->SetCurrentLayer(layer);
     if (manager->GetCurrentLayer() != layer)
         throw MaxError("3ds Max did not make '" + LayerName(layer) + "' the current layer");
@@ -205,10 +210,10 @@ static void DeleteLayer(const LayerRef& r) {
     const std::string name = LayerName(layer);
     if (layer == manager->GetRootLayer()) throw BadParam("layer '0' cannot be deleted");
     if (layer == manager->GetCurrentLayer())
-        throw BadParam("'" + name + "' is the current layer; make another one current first: mx.layer('0').current = True");
+        throw BadParam("'" + name + "' is the current layer; make another one current first: layers.current = '0'");
     if (const size_t count = LayerNodes(layer).size())
-        throw BadParam("layer '" + name + "' still holds " + Counted(count, "node") + "; move them first: mx.layer('0').add("
-                       "mx.layer('" + name + "').nodes)");
+        throw BadParam("layer '" + name + "' still holds " + Counted(count, "node") + "; move them first: layers['0'].add("
+                       "layers['" + name + "'].nodes)");
     if (manager->DoesLayerHierarchyContainNodes(layer))
         throw BadParam("a child layer of '" + name + "' still holds nodes; move them or delete that layer first");
     if (!manager->DeleteLayer(layer)) throw MaxError("3ds Max refused to delete layer '" + name + "'");
@@ -261,6 +266,11 @@ static const LayerFlag kLayerFlags[] = {
      [](ILayer* l, bool on) { l->SetSecondaryVisibility(on); }, "Visible to reflections and refractions."},
 };
 
+struct Layers {};
+struct Groups {};
+struct SelectionSets {};
+struct StateSetList {};
+
 static void BindLayers(nb::module_& m) {
     nb::class_<LayerRef> cls(m, "Layer", "A scene layer: layer.add(nodes), layer.hidden = True, layer.parent = 'Building'.");
     cls.def_prop_rw("name", [](const LayerRef& r) { return LayerName(ResolveLayer(r)); }, &RenameLayer,
@@ -270,11 +280,11 @@ static void BindLayers(nb::module_& m) {
             "Parent layer or None; assign a Layer, a layer name or None (top level).")
         .def_prop_ro("children", &LayerChildren, "Child layers.")
         .def_prop_ro("nodes", [](const LayerRef& r) { return WrapAll(LayerNodes(ResolveLayer(r))); },
-            "Nodes on this layer, not on its child layers; mx.select(layer.nodes) selects them.")
+            "Nodes on this layer, not on its child layers; selection.set(layer.nodes) selects them.")
         .def_prop_rw("current", [](const LayerRef& r) { return LayerManager()->GetCurrentLayer() == ResolveLayer(r); },
             &SetCurrentLayer, "Whether new objects go on this layer; assign True to make it current.")
         .def("add", [](const LayerRef& r, NodesArg nodes) { MoveToLayer(ResolveLayer(r), NodeList(nodes, "layer.add")); },
-            "nodes"_a, "Move nodes onto this layer: layer.add(mx.nodes('Wall*')).")
+            "nodes"_a, "Move nodes onto this layer: layer.add(nodes('Wall*')).")
         .def("delete", &DeleteLayer, "Delete the layer; it must hold no nodes and not be current.")
         .def("__repr__", &LayerRepr)
         .def("__eq__", [](const LayerRef& a, nb::handle b) {
@@ -287,13 +297,30 @@ static void BindLayers(nb::module_& m) {
             [set = flag.set](const LayerRef& r, bool on) { set(ResolveLayer(r), on); },
             flag.doc);
 
-    m.def("layer", &GetLayer, "name"_a = nb::none(), "create"_a = false,
-          "Layer by name, ignoring case; no name: the current layer. layer('Walls', create=True) makes a missing one.");
-    m.def("layers", [] {
+    auto all = [] {
         std::vector<LayerRef> out;
         for (ILayer* layer : AllLayers()) out.push_back(WrapLayer(layer));
         return out;
-    }, "Every layer, in the layer manager's order.");
+    };
+    BindCollection<Layers, LayerRef, std::string>(m, "layers", "Layers",
+        "The scene's layers, in the layer manager's order. layers['Walls'] is one by name, ignoring case; "
+        "layers.new('Walls') makes one, layers.current is where new objects go, layers.remove(layer) deletes "
+        "an empty one.",
+        all, [](const std::string& name) { return WrapLayer(RequireLayer(name)); })
+        .def("__call__", [](const Layers&, const std::optional<std::string>& pattern) {
+            std::vector<LayerRef> out;
+            for (ILayer* layer : AllLayers())
+                if (!pattern || HandlerHelpers::WildcardMatch(LayerName(layer), *pattern)) out.push_back(WrapLayer(layer));
+            return out;
+        }, "pattern"_a = nb::none(), "Every layer, or those a wildcard name matches: layers('Wall*').")
+        .def("new", [](const Layers&, const std::string& name) { return NewLayer(name); }, "name"_a,
+             "Create a layer; a name already taken (ignoring case) is BadParam: "
+             "layer = layers.get('Walls') or layers.new('Walls').")
+        .def("remove", [](const Layers&, LayerArg layer) { DeleteLayer(WrapLayer(FindLayer(layer))); }, "layer"_a,
+             "Delete a layer (a Layer or its name); it must hold no nodes and not be current.")
+        .def_prop_rw("current", [](const Layers&) { return CurrentLayer(); },
+             [](const Layers&, LayerArg layer) { SetCurrentLayer(WrapLayer(FindLayer(layer)), true); },
+             "The layer new objects go on; assign a Layer or a layer name: layers.current = 'Walls'.");
 
     AddProperty<Node>("layer",
         [](const Node& n) { return WrapLayer(NodeLayer(Resolve(n))); },
@@ -342,13 +369,6 @@ static INode* ResolveGroup(const GroupRef& g) {
     INode* head = Resolve(g);
     if (!head->IsGroupHead()) throw NotFound(Quoted(head) + " is no longer a group");
     return head;
-}
-
-static GroupRef ToGroup(nb::handle key) {
-    INode* node = Resolve(FindNode(key));
-    if (node->IsGroupHead()) return WrapGroup(node);
-    INode* group = GroupOf(node);
-    throw BadParam(Quoted(node) + " is not a group head" + (group ? "; it is in group " + Quoted(group) + " (node.group)" : ""));
 }
 
 static GroupRef CreateGroup(NodesArg nodes, const std::string& name) {
@@ -467,9 +487,7 @@ static std::string GroupRepr(const GroupRef& g) {
 
 static void BindGroups(nb::module_& m) {
     nb::class_<GroupRef, Node>(m, "Group",
-        "A group: a Node whose members move with it. Group(node) wraps an existing group head (Node, name or handle).")
-        .def("__init__", [](GroupRef* self, nb::handle node) { new (self) GroupRef(ToGroup(node)); }, "node"_a,
-            "The group headed by node (a Node, name or handle): mx.Group('Chairs').")
+        "A group: a Node whose members move with it. groups['Chairs'] is an existing one, groups.new(nodes) makes one.")
         .def_prop_ro("members", [](const GroupRef& g) -> nb::typed<nb::list, Node> {
             nb::list out;
             for (INode* node : Members(ResolveGroup(g))) out.append(WrapMember(node));
@@ -478,21 +496,36 @@ static void BindGroups(nb::module_& m) {
         .def_prop_rw("open", [](const GroupRef& g) { return ResolveGroup(g)->IsOpenGroupHead() != 0; },
             [](const GroupRef& g, bool open) { NoAnimate noAnimate; SetGroupOpen(ResolveGroup(g), open); },
             "Whether the group is open, so its members can be picked and edited one by one.")
-        .def("add", &AddToGroup, "nodes"_a, "Add nodes to the group: group.add(mx.node('Lamp')).")
+        .def("add", &AddToGroup, "nodes"_a, "Add nodes to the group: group.add('Lamp').")
         .def("remove", &RemoveFromGroup, "nodes"_a, "Take nodes out of the group; they move to the scene root.")
         .def("ungroup", &Ungroup, "Dissolve the group (its head is deleted); returns the former members.")
         .def("delete", &DeleteGroup, "Delete the group with all its members, nested groups included; ungroup() keeps them.")
         .def("__repr__", &GroupRepr);
 
-    m.def("group", &CreateGroup, "nodes"_a, "name"_a = "",
-          "Group nodes under a new group head: group(mx.nodes('Chair*'), 'Chairs').");
-    m.def("groups", [] {
+    auto matching = [](const std::optional<std::string>& pattern) {
         RequireMain();
         std::vector<GroupRef> out;
         for (INode* node : AllNodes())
-            if (node->IsGroupHead()) out.push_back(WrapGroup(node));
+            if (node->IsGroupHead() && (!pattern || HandlerHelpers::WildcardMatch(NodeName(node), *pattern)))
+                out.push_back(WrapGroup(node));
         return out;
-    }, "Every group in the scene, nested ones included.");
+    };
+    BindCollection<Groups, GroupRef, NodeArg>(m, "groups", "Groups",
+        "The scene's groups, nested ones included. groups['Chairs'] is one by its head's name, handle or Node; "
+        "groups.new(nodes, 'Chairs') groups nodes. A group dissolves with group.ungroup() or goes, members and "
+        "all, with group.delete().",
+        [matching] { return matching(std::nullopt); },
+        [](const NodeArg& key) {
+            INode* node = Resolve(FindNode(key));
+            if (node->IsGroupHead()) return WrapGroup(node);
+            INode* group = GroupOf(node);
+            throw NotFound(Quoted(node) + " is not a group head" +
+                           (group ? "; it is in group " + Quoted(group) + " (node.group)" : ""));
+        })
+        .def("__call__", [matching](const Groups&, const std::optional<std::string>& pattern) { return matching(pattern); },
+             "pattern"_a = nb::none(), "Every group, or those a wildcard name matches: groups('Chair*').")
+        .def("new", [](const Groups&, NodesArg nodes, const std::string& name) { return CreateGroup(nodes, name); },
+             "nodes"_a, "name"_a = "", "Group nodes under a new group head: groups.new(nodes('Chair*'), 'Chairs').");
 
     AddProperty<Node>("group", [](const Node& n) -> std::optional<GroupRef> {
         INode* group = GroupOf(Resolve(n));
@@ -546,7 +579,7 @@ static int RequireSet(const std::string& name) {
     const int index = FindSet(name);
     if (index < 0)
         throw NotFound("no selection set named '" + name + "'." + Suggest(name, SetNames()) +
-                       " Create it with mx.selection_set('" + name + "', nodes).");
+                       " Create it with selection_sets.new('" + name + "', nodes).");
     return index;
 }
 
@@ -558,16 +591,20 @@ static std::vector<INode*> SetNodes(int index) {
     return out;
 }
 
-static SelectionSetRef GetSelectionSet(const std::string& name, NodesOrNone nodes) {
-    if (nodes.is_none()) return SelectionSetRef{SetName(RequireSet(name))};
+static SelectionSetRef NewSelectionSet(const std::string& name, NodesArg nodes) {
     if (name.empty()) throw BadParam("a selection set needs a name");
-    INodeTab tab = ToTab(NodeList(nodes, "selection_set"));
-    INamedSelectionSetManager* sets = NamedSets();
-    const int index = FindSet(name);
+    if (const int index = FindSet(name); index >= 0)
+        throw BadParam("a selection set named '" + SetName(index) + "' already exists; assign its nodes: selection_sets['" +
+                       SetName(index) + "'].nodes = nodes");
+    INodeTab tab = ToTab(NodeList(nodes, "selection_sets.new", true));
     MSTR setName(Utf8ToWide(name).c_str());
-    const BOOL ok = index >= 0 ? sets->ReplaceNamedSelSet(tab, index) : sets->AddNewNamedSelSet(tab, setName);
-    if (!ok) throw MaxError("3ds Max could not store selection set '" + name + "'");
+    if (!NamedSets()->AddNewNamedSelSet(tab, setName)) throw MaxError("3ds Max could not store selection set '" + name + "'");
     return SelectionSetRef{SetName(RequireSet(name))};
+}
+
+static void DeleteSet(const std::string& name) {
+    if (!NamedSets()->RemoveNamedSelSet(RequireSet(name)))
+        throw MaxError("3ds Max could not delete selection set '" + name + "'");
 }
 
 static void SetSetNodes(const SelectionSetRef& s, NodesArg nodes) {
@@ -595,15 +632,12 @@ static std::string SetRepr(const SelectionSetRef& s) {
 
 static void BindSelectionSets(nb::module_& m) {
     nb::class_<SelectionSetRef>(m, "SelectionSet",
-        "A named selection set, held by name: s.nodes = nodes replaces it; mx.select(s.nodes) selects it.")
+        "A named selection set, held by name: s.nodes = nodes replaces it; selection.set(s.nodes) selects it.")
         .def_prop_rw("name", [](const SelectionSetRef& s) { return SetName(RequireSet(s.name)); }, &RenameSet,
             "The set's name; assigning renames it.")
         .def_prop_rw("nodes", [](const SelectionSetRef& s) { return WrapAll(SetNodes(RequireSet(s.name))); }, &SetSetNodes,
             "Nodes in the set; assigning replaces them.")
-        .def("delete", [](const SelectionSetRef& s) {
-            if (!NamedSets()->RemoveNamedSelSet(RequireSet(s.name)))
-                throw MaxError("3ds Max could not delete selection set '" + s.name + "'");
-        }, "Delete the set; its nodes stay in the scene.")
+        .def("delete", [](const SelectionSetRef& s) { DeleteSet(s.name); }, "Delete the set; its nodes stay in the scene.")
         .def("__len__", [](const SelectionSetRef& s) { return SetNodes(RequireSet(s.name)).size(); })
         .def("__repr__", &SetRepr)
         .def("__eq__", [](const SelectionSetRef& a, nb::handle b) {
@@ -611,13 +645,29 @@ static void BindSelectionSets(nb::module_& m) {
         }, nb::arg("other").none())
         .def("__hash__", [](const SelectionSetRef& s) { return (Py_hash_t)std::hash<std::string>()(s.name); });
 
-    m.def("selection_set", &GetSelectionSet, "name"_a, "nodes"_a.none() = nb::none(),
-          "Named selection set by name; with nodes, create or replace it: selection_set('Lights', mx.nodes('Light*')).");
-    m.def("selection_sets", [] {
+    auto matching = [](const std::optional<std::string>& pattern) {
         std::vector<SelectionSetRef> out;
-        for (const std::string& name : SetNames()) out.push_back(SelectionSetRef{name});
+        for (const std::string& name : SetNames())
+            if (!pattern || HandlerHelpers::WildcardMatch(name, *pattern)) out.push_back(SelectionSetRef{name});
         return out;
-    }, "Every named selection set.");
+    };
+    BindCollection<SelectionSets, SelectionSetRef, std::string>(m, "selection_sets", "SelectionSets",
+        "The scene's named selection sets. selection_sets['Lights'] is one by name; "
+        "selection_sets.new('Lights', nodes('Light*')) makes one, selection_sets.remove(s) deletes one and "
+        "leaves its nodes.",
+        [matching] { return matching(std::nullopt); },
+        [](const std::string& name) { return SelectionSetRef{SetName(RequireSet(name))}; })
+        .def("__call__", [matching](const SelectionSets&, const std::optional<std::string>& pattern) {
+            return matching(pattern);
+        }, "pattern"_a = nb::none(), "Every named selection set, or those a wildcard name matches.")
+        .def("new", [](const SelectionSets&, const std::string& name, NodesArg nodes) { return NewSelectionSet(name, nodes); },
+             "name"_a, "nodes"_a, "Create a named selection set of nodes; a name already taken is BadParam.")
+        .def("remove", [](const SelectionSets&, SelectionSetArg set) {
+            if (nb::isinstance<SelectionSetRef>(set.value)) return DeleteSet(nb::cast<SelectionSetRef>(set.value).name);
+            if (!nb::isinstance<nb::str>(set.value))
+                throw BadParam("expected a SelectionSet or its name, not " + TypeNameOf(set.value));
+            DeleteSet(nb::cast<std::string>(set.value));
+        }, "set"_a, "Delete a set (a SelectionSet or its name); its nodes stay in the scene.");
 }
 
 // ── State Sets ───────────────────────────────────────────────────
@@ -748,9 +798,26 @@ static void BindStateSets(nb::module_& m) {
             "Whether the camera's animation is locked to the range.")
         .def("__repr__", &StateSetRepr);
 
-    m.def("state_sets", &StateSets, "The top-level State Sets with their cameras and ranges (snapshots).");
-    m.def("camera_sequence", &CameraSequence,
-          "The State Sets that have a camera, by render start frame (sets without a render range last).");
+    BindCollection<StateSetList, StateSetInfo, std::string>(m, "state_sets", "StateSets",
+        "The top-level State Sets with their cameras and ranges, as snapshots: state_sets['Shot 01'], "
+        "state_sets(), state_sets.camera_sequence().",
+        &StateSets,
+        [](const std::string& name) {
+            std::vector<std::string> names;
+            for (StateSetInfo& s : StateSets()) {
+                if (s.name == name) return std::move(s);
+                names.push_back(s.name);
+            }
+            throw NotFound("no State Set named '" + name + "'." + Suggest(name, names));
+        })
+        .def("__call__", [](const StateSetList&, const std::optional<std::string>& pattern) {
+            std::vector<StateSetInfo> out;
+            for (StateSetInfo& s : StateSets())
+                if (!pattern || HandlerHelpers::WildcardMatch(s.name, *pattern)) out.push_back(std::move(s));
+            return out;
+        }, "pattern"_a = nb::none(), "Every top-level State Set, or those a wildcard name matches.")
+        .def("camera_sequence", [](const StateSetList&) { return CameraSequence(); },
+             "The State Sets that have a camera, by render start frame (sets without a render range last).");
 }
 
 void BindOrganize(nb::module_& m) {

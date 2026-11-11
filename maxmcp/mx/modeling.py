@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ._runtime import Node, call, ms_value, node_name
+from ._node import Node, to_node
+from ._runtime import call, ms_value, node_handle, node_name
 
 __all__ = [
     "boolean",
@@ -35,14 +36,13 @@ def _target(target: Node | str | None) -> dict[str, Any]:
     """name/handle arguments for tools that take both; handle wins when the Node has one."""
     if target is None:
         return {}
-    if isinstance(target, Node) and target.handle:
-        return {"handle": target.handle}
-    return {"name": node_name(target)}
+    handle = node_handle(target)
+    return {"handle": handle} if handle else {"name": node_name(target)}
 
 
 def _names(targets: Any) -> list[str] | str | None:
     # A lone name passes through for the tool to coerce, instead of being split into characters.
-    if targets is None or isinstance(targets, (Node, str)):
+    if targets is None or isinstance(targets, str) or hasattr(targets, "handle"):
         return None if targets is None else node_name(targets)
     return [node_name(item) for item in targets]
 
@@ -133,7 +133,7 @@ def remove_modifier(target: Node | str, modifier: str) -> Any:
 
 def mesh(name: str, vertices: list[Any], faces: list[Any]) -> Node:
     """Create an Editable Poly from world vertices and 1-based polygon faces (create_mesh)."""
-    return Node.from_result(call("create_mesh", name=name, vertices=_plain(vertices), faces=_plain(faces)))
+    return to_node(call("create_mesh", name=name, vertices=_plain(vertices), faces=_plain(faces)))
 
 
 def inspect_mesh(
@@ -188,7 +188,7 @@ def spline(
 
     points are [x,y,z] or {pos, type, seg, in_vec, out_vec} dicts.
     """
-    return Node.from_result(call(
+    return to_node(call(
         "draw_spline",
         action="create",
         name=name,
@@ -214,7 +214,7 @@ def curve(
 
     create returns a Node; preview, read and update return the tool's result.
     """
-    target = _target(name) if isinstance(name, Node) else {"name": name, "handle": handle}
+    target = _target(name) if hasattr(name, "handle") else {"name": name, "handle": handle}
     result = call(
         "curve_model",
         action=action,
@@ -225,7 +225,7 @@ def curve(
         include_definition=include_definition,
     )
     if action == "create" and isinstance(result, dict) and result.get("name"):
-        return Node.from_result(result)
+        return to_node(result)
     return result
 
 
@@ -245,7 +245,7 @@ def loft(
 
     sections are matched point lists [[[x,y,z], ...], ...]; coordinates may be parameter expressions.
     """
-    target = _target(name) if isinstance(name, Node) else {"name": name, "handle": handle}
+    target = _target(name) if hasattr(name, "handle") else {"name": name, "handle": handle}
     result = call(
         "loft_mesh",
         action=action,
@@ -259,7 +259,7 @@ def loft(
         include_definition=include_definition,
     )
     if action.strip().lower() == "create" and isinstance(result, dict) and result.get("name"):
-        return Node.from_result(result)
+        return to_node(result)
     return result
 
 

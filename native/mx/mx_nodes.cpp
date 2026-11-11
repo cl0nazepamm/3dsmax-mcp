@@ -1,6 +1,7 @@
 // Scene nodes: identity, transform, hierarchy, visibility, bounds, creation,
 // cloning and selection.
 #include "mx_common.h"
+#include "mx_collection.h"
 
 #include <triobj.h>
 
@@ -247,6 +248,25 @@ static Node Clone(const Node& n, const std::string& mode, const std::string& nam
 
 Track MakeTransformTrack(const Node& n, const std::string& path);
 
+struct Nodes {};
+struct Selection {};
+
+static std::vector<Node> SelectedNodes() {
+    RequireMain();
+    Interface* ip = GetCOREInterface();
+    std::vector<Node> out;
+    for (int i = 0; i < ip->GetSelNodeCount(); ++i) out.push_back(Wrap(ip->GetSelNode(i)));
+    return out;
+}
+
+static void SelectNodes(NodesArg nodes, const char* what, bool replace) {
+    Interface* ip = GetCOREInterface();
+    INodeTab tab;
+    for (INode* node : NodeList(nodes, what, true)) tab.AppendNode(node);
+    if (replace) ip->ClearNodeSelection(FALSE);
+    ip->SelectNodeTab(tab, TRUE, FALSE);
+}
+
 void BindNodes(nb::module_& m) {
     nb::class_<Node>(m, "Node", "A scene node, held by handle; NotFound once deleted.")
         .def_prop_ro("handle", [](const Node& n) { return (unsigned long long)n.handle; },
@@ -313,34 +333,62 @@ void BindNodes(nb::module_& m) {
         }, nb::arg("other").none())
         .def("__hash__", [](const Node& n) { return (Py_hash_t)n.handle; });
 
-    m.def("node", [](NodeArg key) { return FindNode(key); }, "key"_a, "Node by name, handle or Node; NotFound or Ambiguous otherwise.");
-    m.def("nodes", [](const std::optional<std::string>& pattern) {
-        RequireMain();
-        std::vector<Node> out;
-        for (INode* node : AllNodes())
-            if (!pattern || HandlerHelpers::WildcardMatch(NodeName(node), *pattern)) out.push_back(Wrap(node));
-        return out;
-    }, "pattern"_a = nb::none(), "Scene nodes, optionally filtered by a wildcard name: nodes('Wall*').");
-    m.def("create", &Create, "cls"_a, "name"_a = "", "pos"_a = nb::none(), "params"_a,
-          "Create an object (geometry, shape, helper, light, camera) with parameters: "
-          "create('Sphere', 'Ball', pos=(0, 0, 10), radius=10, segs=32).");
-    m.def("delete", [](NodesArg nodes) {
-        for (INode* node : NodeList(nodes, "delete", true)) GetCOREInterface()->DeleteNode(node, FALSE);
-    }, "nodes"_a, "Delete a node or a list of nodes; an empty list deletes nothing.");
-    m.def("select", [](NodesArg nodes, bool add) {
-        Interface* ip = GetCOREInterface();
-        INodeTab tab;
-        for (INode* node : NodeList(nodes, "select", true)) tab.AppendNode(node);
-        if (!add) ip->ClearNodeSelection(FALSE);
-        ip->SelectNodeTab(tab, TRUE, FALSE);
-    }, "nodes"_a, "add"_a = false, "Select nodes, replacing the selection unless add=True; select([]) clears it.");
-    m.def("selection", [] {
-        RequireMain();
-        Interface* ip = GetCOREInterface();
-        std::vector<Node> out;
-        for (int i = 0; i < ip->GetSelNodeCount(); ++i) out.push_back(Wrap(ip->GetSelNode(i)));
-        return out;
-    }, "Selected nodes.");
+    BindCollection<Nodes, Node, NodeArg>(m, "nodes", "Nodes",
+        "The scene's nodes. nodes['Ball'] is one by name, handle or Node; nodes('Wall*', cls='Box', hidden=False) "
+        "lists those every filter matches; nodes.new('Sphere', 'Ball', radius=10) creates one and "
+        "nodes.remove(nodes) deletes.",
+        [] {
+            RequireMain();
+            std::vector<Node> out;
+            for (INode* node : AllNodes()) out.push_back(Wrap(node));
+            return out;
+        },
+        [](const NodeArg& key) { return FindNode(key); })
+        .def("__call__", [](const Nodes&, const std::optional<std::string>& pattern,
+                            const std::optional<std::string>& cls, const std::optional<std::string>& layer,
+                            bool rootsOnly, const std::optional<std::string>& uses, nb::kwargs props) {
+            return FindNodes(pattern, cls, layer, rootsOnly, uses, props);
+        }, "pattern"_a = nb::none(), "cls"_a = nb::none(), "layer"_a = nb::none(), "roots_only"_a = false,
+           "uses"_a = nb::none(), "props"_a,
+           "Nodes matching every filter, all of them without one: nodes('Wall*', cls='Box', layer='Walls', "
+           "uses='TurboSmooth', hidden=False, height=50). Keywords compare node flags (hidden, frozen, renderable, "
+           "cast_shadows, material, ...) or base object parameters; numbers within 1e-4, text ignoring case.")
+        .def("new", [](const Nodes&, const std::string& cls, const std::string& name, std::optional<PointArg> pos,
+                       nb::kwargs params) { return Create(cls, name, pos, params); },
+             "cls"_a, "name"_a = "", "pos"_a = nb::none(), "params"_a,
+             "Create an object (geometry, shape, helper, light, camera) with parameters: "
+             "nodes.new('Sphere', 'Ball', pos=(0, 0, 10), radius=10, segs=32).")
+        .def("remove", [](const Nodes&, NodesArg nodes) {
+            for (INode* node : NodeList(nodes, "nodes.remove", true)) GetCOREInterface()->DeleteNode(node, FALSE);
+        }, "nodes"_a, "Delete a node or a list of nodes; an empty list deletes nothing.");
+
+    BindCollection<Selection, Node, NodeArg>(m, "selection", "Selection",
+        "The selected nodes. selection() lists them, `node in selection` and len(selection) read the state; "
+        "selection.set(nodes) selects these and no others, add and remove change it, clear() empties it.",
+        &SelectedNodes,
+        [](const NodeArg& key) {
+            const Node node = FindNode(key);
+            INode* live = Resolve(node);
+            if (!live->Selected()) throw NotFound(Quoted(live) + " is not selected");
+            return node;
+        })
+        .def("__call__", [](const Selection&, const std::optional<std::string>& pattern) {
+            std::vector<Node> out;
+            for (const Node& node : SelectedNodes())
+                if (!pattern || HandlerHelpers::WildcardMatch(NodeName(Resolve(node)), *pattern)) out.push_back(node);
+            return out;
+        }, "pattern"_a = nb::none(), "The selected nodes, or those a wildcard name matches: selection('Wall*').")
+        .def("set", [](const Selection&, NodesArg nodes) { SelectNodes(nodes, "selection.set", true); }, "nodes"_a,
+             "Select these nodes and no others; set([]) clears the selection.")
+        .def("add", [](const Selection&, NodesArg nodes) { SelectNodes(nodes, "selection.add", false); }, "nodes"_a,
+             "Add nodes to the selection.")
+        .def("remove", [](const Selection&, NodesArg nodes) {
+            for (INode* node : NodeList(nodes, "selection.remove", true)) GetCOREInterface()->DeSelectNode(node);
+        }, "nodes"_a, "Take nodes out of the selection; they stay in the scene.")
+        .def("clear", [](const Selection&) {
+            RequireMain();
+            GetCOREInterface()->ClearNodeSelection(FALSE);
+        }, "Deselect everything.");
 }
 
 } // namespace MX_ABI_TAG

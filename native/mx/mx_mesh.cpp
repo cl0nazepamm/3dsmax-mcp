@@ -10,6 +10,20 @@
 // read from a mesh that has changed since.
 #include "mx_common.h"
 
+// What the mesh members take, named for their signatures. Each text is read
+// off the code that parses the value.
+
+// The operations of Poly.edit, a list or tuple of dicts (Edit, OpScript,
+// OpArgs): 'op', 'level' and the op's mode are text, 'selection' is 'current',
+// 'all' or a list of IDs, offsets, factors and pivots are (x, y, z), amounts
+// are numbers, and segments and iterations are ints.
+MX_ARG_TYPE(PolyOpsArg, "collections.abc.Sequence[dict[str, str | int | float | _mx.Point3 | collections.abc.Sequence[int]]]")
+// The vertices of create_mesh (MeshVerts): a list or tuple of world positions.
+MX_ARG_TYPE(MeshPointsArg, "collections.abc.Sequence[_mx.Point3]")
+// The polygons of create_mesh (MeshFaces): a list or tuple of faces, each the
+// 1-based vertex IDs of its corners.
+MX_ARG_TYPE(MeshPolygonsArg, "collections.abc.Sequence[collections.abc.Sequence[int]]")
+
 #include <iepoly.h>
 #include <iInstanceMgr.h>
 #include <mnmesh.h>
@@ -815,7 +829,8 @@ static nb::list ParseSteps(const std::string& output) {
     return steps;
 }
 
-static nb::dict Edit(const Poly& p, nb::handle ops, const std::string& expected, bool show) {
+static nb::dict Edit(const Poly& p, PolyOpsArg given, const std::string& expected, bool show) {
+    const nb::handle ops = given.value;
     const Cage c = ResolveCage(p);
     if (!IsSequence(ops) || nb::len(ops) == 0)
         throw BadParam("edit takes a list of operations: edit([{'op': 'extrude', 'selection': ids, 'amount': 5}])");
@@ -887,13 +902,13 @@ static std::vector<std::vector<int>> MeshFaces(nb::handle faces, size_t vertCoun
     return out;
 }
 
-static Node CreateMesh(const std::string& name, nb::handle verts, nb::handle faces) {
+static Node CreateMesh(const std::string& name, MeshPointsArg verts, MeshPolygonsArg faces) {
     RequireMain();
     if (name.find_first_not_of(" \t") == std::string::npos) throw BadParam("create_mesh needs a name");
     if (!HandlerHelpers::CollectNodesByName(name).empty())
         throw BadParam("a node named '" + name + "' already exists; choose another name");
-    const std::vector<Point3> points = MeshVerts(verts);
-    const std::vector<std::vector<int>> polygons = MeshFaces(faces, points.size());
+    const std::vector<Point3> points = MeshVerts(verts.value);
+    const std::vector<std::vector<int>> polygons = MeshFaces(faces.value, points.size());
     Box3 box;
     for (const Point3& p : points) box += p;
     const Point3 center = box.Center();
@@ -1937,7 +1952,7 @@ void BindMesh(nb::module_& m) {
         "its IDs are not the cage's.");
     AddMethod<Node>("faces", &NodeFaces,
         "Triangles of the evaluated mesh as 1-based vertex IDs into verts(): "
-        "mx.create_mesh('Copy', n.verts(), n.faces()) copies it.");
+        "create_mesh('Copy', n.verts(), n.faces()) copies it.");
     AddMethod<Node>("mesh_qa", &MeshQa, "limit"_a = 12, "area_epsilon"_a = 0.0,
         "Topology report of the evaluated mesh: boundary, non-manifold and winding-conflict edges, degenerate and "
         "duplicate triangles, isolated vertices and edge-connected components, each counted with up to limit samples; "

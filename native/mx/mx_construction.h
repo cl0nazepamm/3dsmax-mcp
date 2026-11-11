@@ -13,6 +13,12 @@
 
 class MNMesh;
 
+// Parameter values by name, as curve models and lofts take them (ParseValues
+// in mx_curves.cpp, ParamsFromPython in mx_solids.cpp): {'width': 40}, at most
+// 64 numbers (a bool is not one) under names IsParameterName accepts. Declared
+// with .none() where leaving it out means no parameters.
+MX_ARG_TYPE(ParametersArg, "dict[str, float]")
+
 namespace mx {
 inline namespace MX_ABI_TAG {
 

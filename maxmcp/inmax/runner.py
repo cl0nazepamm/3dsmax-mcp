@@ -133,7 +133,7 @@ def run_script(code: str, timeout_s: float = 300, label: str = UNDO_LABEL) -> di
     import pymxs
 
     from .. import mx
-    from ..mx import _script
+    from ..mx import _node, _script
     from . import sdk as sdk_loader
     from .host import activate
 
@@ -151,6 +151,8 @@ def run_script(code: str, timeout_s: float = 300, label: str = UNDO_LABEL) -> di
     if sdk is not None:
         namespace["sdk"] = sdk
         mx.sdk = sdk  # type: ignore[attr-defined]
+    # With sdk the mx helpers return sdk nodes: one node type inside 3ds Max.
+    _node.use_sdk(sdk)
     step = ScriptStep(rt, label)
     reply = _script.execute(code, namespace, timeout_s, transaction=lambda: step)
     if step.refused is not None:

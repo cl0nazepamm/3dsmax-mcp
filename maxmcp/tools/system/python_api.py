@@ -142,13 +142,16 @@ def run_python(code: str, timeout_s: float = 300, where: str = "auto") -> dict:
     family, each tool call its own undo step. where="max" or "server" forces one.
 
     sdk (inside Max; also mx.sdk): the scene object model bound straight from the 3ds Max SDK,
-      calls in microseconds. sdk.node("Ball"), sdk.nodes("Wall*"), sdk.create("Sphere", "Ball",
-      pos=(0, 0, 10), radius=10), node.pos / .rot (degrees) / .scale / .transform settable,
-      node.look_at(point), node.params.radius = 12,
-      node.add_modifier("Bend", angle=30), node.modifiers, node.material = sdk.material("PhysicalMaterial",
-      "Red", base_color=(1, 0, 0)), with sdk.at(10): ..., with sdk.animate(): ..., node.bbox,
-      sdk.contacts(nodes). mx.help("sdk") is its index, mx.help("sdk.Node") one class. sdk nodes and
-      mx.Node are separate types; each side accepts the other's nodes. In pymxs a node is
+      calls in microseconds. What the scene has many of is a collection, the same way on every one:
+      sdk.nodes["Ball"], sdk.nodes.get("Ball"), "Ball" in sdk.nodes, len(sdk.nodes), for n in sdk.nodes,
+      sdk.nodes("Wall*", cls="Box") to list, sdk.nodes.new("Sphere", "Ball", pos=(0, 0, 10), radius=10),
+      sdk.nodes.remove(node). Also sdk.selection (.set(nodes), .add, .remove, .clear), sdk.materials,
+      sdk.texmaps, sdk.layers (.current), sdk.groups, sdk.selection_sets, sdk.effects, sdk.classes,
+      sdk.plugins, sdk.macros, sdk.interfaces. node.pos / .rot (degrees) / .scale / .transform settable,
+      node.look_at(point), node.params.radius = 12, node.add_modifier("Bend", angle=30), node.modifiers,
+      node.material = sdk.materials.new("PhysicalMaterial", "Red", base_color=(1, 0, 0)),
+      with sdk.at(10): ..., with sdk.animate(): ..., node.bbox, sdk.contacts(nodes). mx.help("sdk") is its
+      index, mx.help("sdk.nodes") one collection, mx.help("sdk.Node") one class. In pymxs a node is
       rt.getAnimByHandle(node.handle).
 
     Parameters, one model for every class and plugin (objects, modifiers, materials, maps, controllers):
@@ -160,16 +163,18 @@ def run_python(code: str, timeout_s: float = 300, where: str = "auto") -> dict:
       of mx.create, mx.add_modifier and mx.material. Values: degrees, percentages 0-100, colors 0-1 or
       "#rrggbb", choice names, gizmos {"position", "rotation", "scale"}, map slots {"class": "Noise",
       "params": {...}} built in place or {"params": {...}} to edit the one there. Inside Max the same on
-      sdk objects: node.params.describe(), sdk.class_info("Bend", "modifier").describe().
+      sdk objects: node.params.describe(), sdk.classes["Bend", "modifier"].describe().
 
-    Objects (return mx.Node): mx.box(name, width, length, height, pos=(x,y,z), pos_mode="ground"|"center"),
+    Objects (return a node: the sdk node inside Max, mx.Node outside): mx.box(name, width, length, height, pos=(x,y,z), pos_mode="ground"|"center"),
       mx.sphere(name, radius, pos, pos_mode), mx.cylinder(name, radius, height, pos, pos_mode),
       mx.plane(name, width, length, pos, pos_mode), mx.create(type, name, params, pos, ...), mx.get(name),
       mx.find(pattern="Wall*", class_name=..., layer=...) -> [Node], mx.selection(), mx.scene() -> overview,
       mx.clone(target, mode, offset, count) -> [Node], mx.parent(child, parent), mx.select(*targets),
       mx.delete(*targets). pos_mode "ground" puts the base on pos, "center" the bbox center.
-      Node: .name .handle .bbox (min, max) .center .size .info() .move(x,y,z) .rotate(x,y,z) degrees
-      .scale(x,y,z) .set(property, value) .delete().
+      A node has the same core wherever the script runs: .handle, .name (settable), .exists, .class_name,
+      .pos (world, settable: node.pos = node.pos + (0, 0, 10)), .bbox (.min .max .center .size), .hidden
+      (settable), .delete(). Inside Max it is the sdk node, with everything sdk.Node has; outside Max
+      rotation and scale are mx.tools.transform_object(handle=node.handle, rotate=..., scale=...).
     Modeling: mx.boolean(target, operation="subtract"|"union"|"intersect", operands=[nodes], cutters=[specs]),
       mx.add_modifier(target, modifier, params={"segs": 48}), mx.set_modifier(target, property_name,
       property_value, modifier_index=1), mx.remove_modifier(target, modifier), mx.mesh(name, vertices, faces),

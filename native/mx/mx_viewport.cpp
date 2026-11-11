@@ -7,6 +7,29 @@
 // and return a Capture: the image file and compact metadata.
 #include "mx_common.h"
 
+// What the views and captures take and give, named for their signatures. Each
+// text is read off the code that uses or makes the value.
+
+// A crop (CaptureRegion::Crop in the bridge): x, y, width and height in whole
+// pixels of the capture target, as a tuple or a list of four.
+MX_ARG_TYPE(CropArg, "tuple[int, int, int, int]")
+// One tile's view (ParseTileView in the bridge): a view name (front, back,
+// left, right, top, bottom, perspective, three_quarter, current), or an
+// (x, y, z) direction from the subject toward the eye.
+MX_ARG_TYPE(TileArg, "str | _mx.Point3")
+// The tiles of capture_views: one view, by name, or a list or tuple of 1 to 8.
+MX_ARG_TYPE(TilesArg, "str | collections.abc.Sequence[str | _mx.Point3]")
+// The frames of a strip (StripFrames): a count, or the frame numbers.
+MX_ARG_TYPE(StripFramesArg, "int | collections.abc.Sequence[int]")
+// The world points project() takes: a list or tuple of (x, y, z).
+MX_ARG_TYPE(WorldPointsArg, "collections.abc.Sequence[_mx.Point3]")
+// A tile's view as a Capture reports it (CaptureTiles): the name it was asked
+// by, or its direction.
+MX_RESULT_TYPE(TileShown, "str | _mx.Point3")
+// What viewport() gives: the user's active view, or the AGENT VIEWPORT (an
+// AgentViewport, which is a Viewport with navigation and picking).
+MX_RESULT_TYPE(EitherViewport, "_mx.Viewport | _mx.AgentViewport")
+
 #include <GraphicsWindow.h>
 #include <Graphics/IViewportViewSetting.h>
 #include <maxcom.h>
@@ -572,7 +595,8 @@ void BindViewport(nb::module_& m) {
         .def_ro("width", &Capture::width, "Image width in pixels.")
         .def_ro("height", &Capture::height, "Image height in pixels.")
         .def_ro("source", &Capture::source, "What it shows: 'agent', 'active', or the capture_screen target.")
-        .def_ro("views", &Capture::views, "The tiles' views in order: names or (x, y, z) directions; [] for one plain view.")
+        .def_prop_ro("views", [](const Capture& c) -> nb::typed<nb::list, TileShown> { return nb::borrow<nb::list>(c.views); },
+            "The tiles' views in order: names or (x, y, z) directions; [] for one plain view.")
         .def_ro("frames", &Capture::frames, "The frames of a capture_frames strip, else [].")
         .def_ro("grid", &Capture::grid, "(columns, rows) of the tiles.")
         .def_ro("nodes", &Capture::nodes, "capture_isolated: the instances shown, the captured hierarchy's top node first.")
@@ -596,27 +620,29 @@ void BindViewport(nb::module_& m) {
             return v.agent ? CaptureAgent(v, nb::none(), method, maxWidth, maxHeight) : CaptureViewport(v, method, maxWidth, maxHeight);
         }, "method"_a = "auto", "max_width"_a = kMaxWidth, "max_height"_a = 0,
            "Save the view as it is to a PNG; method='window' grabs the window instead of the Nitrous buffer.")
-        .def("capture_views", [](const ViewRef& v, nb::handle views, nb::handle subject, const std::optional<std::string>& shading,
+        .def("capture_views", [](const ViewRef& v, TilesArg views, NodeArg subject, const std::optional<std::string>& shading,
                                  std::optional<bool> edges, const std::string& method, int maxWidth, int maxHeight) {
             json args = json::object();
-            if (!views.is_none()) args["views"] = FromPython(views);
-            return CaptureTiles(v, args, subject, shading, edges, method, maxWidth, maxHeight);
-        }, "views"_a = nb::none(), "subject"_a = nb::none(), "shading"_a = nb::none(), "edges"_a = nb::none(),
+            if (!views.is_none()) args["views"] = FromPython(views.value);
+            return CaptureTiles(v, args, subject.value, shading, edges, method, maxWidth, maxHeight);
+        }, "views"_a.none() = nb::none(), "subject"_a.none() = nb::none(), "shading"_a = nb::none(), "edges"_a = nb::none(),
            "method"_a = "auto", "max_width"_a = kMaxWidth, "max_height"_a = 0,
            "Up to 8 framed views in one grid (default front, right, back, top; also perspective, three_quarter, current, "
-           "(x, y, z) eye directions); subject frames one hierarchy, shading smooth/flat/wireframe/clay for this capture; "
+           "(x, y, z) eye directions); subject (a node, its name or handle) frames one hierarchy, shading "
+           "smooth/flat/wireframe/clay for this capture; "
            "the view comes back after: capture_views(['front', 'three_quarter'], shading='clay', edges=True).")
-        .def("capture_frames", [](const ViewRef& v, nb::handle frames, nb::handle view, nb::handle subject,
+        .def("capture_frames", [](const ViewRef& v, StripFramesArg frames, TileArg view, NodeArg subject,
                                   const std::optional<std::string>& shading, std::optional<bool> edges, const std::string& method,
                                   int maxWidth, int maxHeight) {
-            json args = StripFrames(frames);
+            json args = StripFrames(frames.value);
             args["views"] = json::array();
-            args["views"].push_back(FromPython(view));
-            return CaptureTiles(v, args, subject, shading, edges, method, maxWidth, maxHeight);
-        }, "frames"_a, "view"_a = "current", "subject"_a = nb::none(), "shading"_a = nb::none(), "edges"_a = nb::none(),
+            args["views"].push_back(FromPython(view.value));
+            return CaptureTiles(v, args, subject.value, shading, edges, method, maxWidth, maxHeight);
+        }, "frames"_a, "view"_a = "current", "subject"_a.none() = nb::none(), "shading"_a = nb::none(), "edges"_a = nb::none(),
            "method"_a = "auto", "max_width"_a = kMaxWidth, "max_height"_a = 0,
            "One view over time in one strip: a frame count spread over the range or up to 12 frame numbers; a named view "
-           "is framed over all of them; the time slider comes back: capture_frames(6), capture_frames([0, 10, 20], 'three_quarter').")
+           "or an (x, y, z) eye direction is framed over all of them, 'current' keeps the view as it is; the time slider "
+           "comes back: capture_frames(6), capture_frames([0, 10, 20], 'three_quarter').")
         .def_prop_ro("type", [](const ViewRef& v) { return InfoOf(v).type; },
             "perspective, orthographic, front, back, left, right, top, bottom, camera, light or other.")
         .def_prop_ro("eye", [](const ViewRef& v) { return AsPoint{InfoOf(v).eye}; }, "Eye position (x, y, z).")
@@ -639,9 +665,9 @@ void BindViewport(nb::module_& m) {
 
     nb::class_<AgentViewRef, ViewRef>(m, "AgentViewport",
         "The agent's floating AGENT VIEWPORT: navigate, pick and capture without touching the user's views.")
-        .def("capture", [](const AgentViewRef& v, nb::handle crop, const std::string& method, int maxWidth, int maxHeight) {
-            return CaptureAgent(v, crop, method, maxWidth, maxHeight);
-        }, "crop"_a = nb::none(), "method"_a = "auto", "max_width"_a = kMaxWidth, "max_height"_a = 0,
+        .def("capture", [](const AgentViewRef& v, CropArg crop, const std::string& method, int maxWidth, int maxHeight) {
+            return CaptureAgent(v, crop.value, method, maxWidth, maxHeight);
+        }, "crop"_a.none() = nb::none(), "method"_a = "auto", "max_width"_a = kMaxWidth, "max_height"_a = 0,
            "Save this view, or the VFB its V-Ray/Corona preview renders into, to an image; crop=(x, y, w, h) in VFB client pixels.")
         .def("frame", [](const AgentViewRef&, NodesOrNone nodes, double padding) {
             json args = {{"padding", padding}};
@@ -672,7 +698,9 @@ void BindViewport(nb::module_& m) {
             return std::make_pair(PointObject{TupleOf(reply.at("origin"))}, PointObject{TupleOf(reply.at("direction"))});
         }, "x"_a, "y"_a, "capture"_a = nb::none(),
            "World ray (origin, direction) through image point x, y (0-1 from the top-left).")
-        .def("project", [](const AgentViewRef&, nb::handle points, const std::optional<Capture>& capture) {
+        .def("project", [](const AgentViewRef&, WorldPointsArg given, const std::optional<Capture>& capture)
+                               -> nb::typed<nb::list, std::optional<nb::typed<nb::tuple, double, double, double>>> {
+            const nb::handle points = given.value;
             if (!nb::isinstance<nb::list>(points) && !nb::isinstance<nb::tuple>(points))
                 throw BadParam("points is a list of (x, y, z) world points");
             json args = {{"points", json::array()}};
@@ -713,24 +741,27 @@ void BindViewport(nb::module_& m) {
             return AgentState().value("render", json::object()).value("mode", "shaded");
         }, "The preview: shaded, activeshade, vray_ipr, vray_vfb or corona_vfb.");
 
-    m.def("viewport", [](const std::string& source) -> nb::object {
+    m.def("viewport", [](const std::string& source) -> EitherViewport {
         const std::string which = Lower(source);
         if (which != "auto" && which != "agent" && which != "active")
             throw BadParam("source must be 'auto', 'agent' or 'active', not '" + source + "'");
         RequireMain();
-        if (which == "active") return nb::cast(ViewRef{});
+        if (which == "active") return EitherViewport{nb::cast(ViewRef{})};
         const bool open = AgentOpen();
         if (which == "agent" && !open) throw NotFound("the AGENT VIEWPORT is not open; open it with agent_viewport()");
-        return open ? nb::cast(AgentViewRef{}) : nb::cast(ViewRef{});
+        return EitherViewport{open ? nb::cast(AgentViewRef{}) : nb::cast(ViewRef{})};
     }, "source"_a = "auto",
-       "The AGENT VIEWPORT while it is open, else the user's active view; source='active' or 'agent' picks one: viewport().capture().");
+       "The AGENT VIEWPORT while it is open (an AgentViewport), else the user's active view (a Viewport); "
+       "source='active' or 'agent' picks one: viewport().capture().");
     m.def("agent_viewport", [](int width, int height, bool minimized) {
         Agent("open", {{"width", width}, {"height", height}, {"start_minimized", minimized}});
         return AgentViewRef{};
     }, "width"_a = 1000, "height"_a = 740, "minimized"_a = false,
        "Open the agent's own floating viewport (or restore it) and return it; the size applies when it first opens: "
        "av = agent_viewport().");
-    m.def("capture_screen", &CaptureScreen, "target"_a = "screen", "crop"_a = nb::none(), "max_width"_a = kMaxWidth,
+    m.def("capture_screen", [](const std::string& target, CropArg crop, int maxWidth, int maxHeight, bool desktop) {
+        return CaptureScreen(target, crop.value, maxWidth, maxHeight, desktop);
+    }, "target"_a = "screen", "crop"_a.none() = nb::none(), "max_width"_a = kMaxWidth,
           "max_height"_a = 0, "desktop"_a = false,
           "Save an open frame buffer or editor window (vray_vfb, corona_vfb, fstorm_vfb, tyflow_editor) to a JPEG, "
           "or the primary monitor with desktop=True (only when the user asked: it shows other applications); "

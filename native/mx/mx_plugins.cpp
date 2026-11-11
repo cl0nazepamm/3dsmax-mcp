@@ -8,6 +8,17 @@
 // MAXScript's own function-publishing marshalling: arguments follow MAXScript
 // (degrees, 1-based indices and bitarrays, enums by name).
 #include "mx_common.h"
+#include "mx_collection.h"
+
+// A name, or (name, kind) where several kinds share it; for a macroscript the
+// second is its category (SplitKey).
+MX_ARG_TYPE(NameKindKey, "str | tuple[str, str]")
+
+// The edits of plugin_patch (PluginPatch): pairs of the dict params.schema()
+// returned and the values to set, {parameter name: value}. Any iterable of
+// two-item tuples or lists.
+MX_ARG_TYPE(PluginEditsArg, "collections.abc.Iterable[tuple[dict, dict]]")
+
 #include "mcp_bridge/param_codec.h"
 
 #include <actiontable.h>
@@ -187,7 +198,7 @@ static ClassInfo FindClassInfo(const std::string& name, const std::optional<std:
     for (const auto& match : found)
         if (std::find(kinds.begin(), kinds.end(), KindOf(match.first.sid)) == kinds.end()) kinds.push_back(KindOf(match.first.sid));
     if (kinds.size() > 1)
-        throw Ambiguous("'" + name + "' names classes of several kinds (" + Join(kinds) + "); pass kind='" + kinds[0] + "'");
+        throw Ambiguous("'" + name + "' names classes of several kinds (" + Join(kinds) + "); name one: classes['" + name + "', '" + kinds[0] + "']");
     // Public classes win over private ones of the same name.
     for (const auto& match : found)
         if (match.second) return match.first;
@@ -205,9 +216,10 @@ static bool Creatable(const ClassInfo& c) {
 static std::string CreateHint(SClass_ID sid, const std::string& name) {
     switch (sid) {
     case GEOMOBJECT_CLASS_ID: case SHAPE_CLASS_ID: case HELPER_CLASS_ID: case LIGHT_CLASS_ID: case CAMERA_CLASS_ID:
-        return "create('" + name + "', ...)";
+        return "nodes.new('" + name + "', ...)";
     case OSM_CLASS_ID: return "node.add_modifier('" + name + "', ...)";
-    case MATERIAL_CLASS_ID: return "material('" + name + "', ...)";
+    case MATERIAL_CLASS_ID: return "materials.new('" + name + "', ...)";
+    case TEXMAP_CLASS_ID: return "texmaps.new('" + name + "', ...)";
     default: return {};
     }
 }
@@ -278,6 +290,18 @@ static std::vector<Node> NodesUsing(Uses&& uses) {
         if (found) out.push_back(Wrap(node));
     }
     return out;
+}
+
+// A collection key that is a name or a (name, second) pair.
+static std::pair<std::string, std::optional<std::string>> SplitKey(nb::handle key, const char* what, const char* second) {
+    if (nb::isinstance<nb::str>(key)) return {nb::cast<std::string>(key), std::nullopt};
+    if (IsSequence(key)) {
+        std::vector<nb::handle> parts;
+        for (nb::handle part : key) parts.push_back(part);
+        if (parts.size() == 2 && nb::isinstance<nb::str>(parts[0]) && nb::isinstance<nb::str>(parts[1]))
+            return {nb::cast<std::string>(parts[0]), nb::cast<std::string>(parts[1])};
+    }
+    throw BadParam(std::string(what) + " takes a name or (name, " + second + "), not " + ReprOf(key));
 }
 
 // ── Plugins ──────────────────────────────────────────────────────
@@ -1047,19 +1071,20 @@ static json ClassFields(const ClassInfo& c, nb::handle fields) {
     return out;
 }
 
-static nb::object Inspect(json request, const std::string& query, int offset, int limit) {
+static nb::dict Inspect(json request, const std::string& query, int offset, int limit) {
     request["query"] = query;
     request["offset"] = offset;
     request["limit"] = limit;
-    return SchemaToPython(NativeJson("native:plugin_inspect", request));
+    // SchemaToPython gives the inspector's reply, an object, as a dict.
+    return nb::borrow<nb::dict>(SchemaToPython(NativeJson("native:plugin_inspect", request)));
 }
 
-static nb::object OwnerSchema(const Params& p, nb::args fields, const std::string& query, int offset, int limit) {
+static nb::dict OwnerSchema(const Params& p, nb::args fields, const std::string& query, int offset, int limit) {
     Animatable* owner = ParamOwner(p);
     return Inspect({{"owner_ref", OwnerRefFor(p, owner)}, {"fields", OwnerFields(owner, fields)}}, query, offset, limit);
 }
 
-static nb::object ClassSchema(const ClassInfo& c, nb::args fields, const std::string& query, int offset, int limit) {
+static nb::dict ClassSchema(const ClassInfo& c, nb::args fields, const std::string& query, int offset, int limit) {
     const json classRef = {{"superclass_id", (uint64_t)c.sid}, {"class_id", {(uint32_t)c.a, (uint32_t)c.b}}};
     return Inspect({{"class_ref", classRef}, {"fields", ClassFields(c, fields)}}, query, offset, limit);
 }
@@ -1499,7 +1524,7 @@ static void BindClasses(nb::module_& m) {
             ClassEntry& entry = Entry(c);
             ScopedMaxScriptEvaluationContext context;
             return ScriptName(c.sid, entry);
-        }, "MAXScript name, as create() and classOf take it.")
+        }, "MAXScript name, as nodes.new() and classOf take it.")
         .def_prop_ro("label", [](const ClassInfo& c) { return Text(Entry(c).ClassName()); }, "Localized UI name.")
         .def_prop_ro("kind", [](const ClassInfo& c) { Entry(c); ScopedMaxScriptEvaluationContext context; return KindOf(c.sid); },
             "'geometry', 'modifier', 'material', ... or the MAXScript superclass name.")
@@ -1524,7 +1549,10 @@ static void BindClasses(nb::module_& m) {
             "Header plus one line per parameter with its default, range, {named choices}, \"UI label\" and +anim "
             "(MAXScript units); subanims (gizmo, center) and MAXScript properties after, from a temporary instance.")
         .def("schema", &ClassSchema, "fields"_a, "query"_a = "", "offset"_a = 0, "limit"_a = 256,
-            "Plugin inspector metadata: property refs, labels, units, domains, coverage: schema('radius').")
+            "Plugin inspector metadata: property refs, labels, units, domains, coverage: schema('radius'). properties "
+            "holds one dict per parameter (those named, or all; query filters by name, label or description), limit "
+            "at a time from offset; total counts the matches and next_offset is None after the last. Keys: {'identity', "
+            "'properties', 'schema_version', 'coverage', 'schema_token', 'total', 'offset', 'next_offset'}.")
         .def_prop_ro("nodes", [](const ClassInfo& c) {
             return NodesUsing([&](SClass_ID sid, const Class_ID& id) { return sid == c.sid && id == Class_ID(c.a, c.b); });
         }, "Scene nodes whose object, modifiers, material or controllers use the class.")
@@ -1557,11 +1585,40 @@ static void BindClasses(nb::module_& m) {
     BindIdentity<PluginRef>(plugin, [](const PluginRef& x, const PluginRef& y) { return x.index == y.index; },
         [](const PluginRef& p) { return (Py_hash_t)p.index; });
 
-    m.def("classes", &Classes, "kind"_a = nb::none(), "pattern"_a = nb::none(), "plugin"_a = nb::none(),
-          "Registered classes by kind, wildcard name and plugin file: classes('modifier', '*Bend*'), classes(plugin='tyFlow*').");
-    m.def("class_info", &FindClassInfo, "name"_a, "kind"_a = nb::none(),
-          "A class by MAXScript or UI name: class_info('Bend'); kind narrows a name several kinds share.");
-    m.def("plugins", &Plugins, "pattern"_a = nb::none(), "Plugin DLLs by wildcard file name or description: plugins('*corona*').");
+    struct ClassCollection {};
+    BindCollection<ClassCollection, ClassInfo, NameKindKey>(m, "classes", "Classes",
+        "The classes 3ds Max has registered. classes['TurboSmooth'] is one by MAXScript or UI name, and "
+        "classes['Bend', 'modifier'] names the kind where several share a name; "
+        "classes('modifier', '*Bend*') lists by kind, wildcard name and plugin file.",
+        [] { return Classes(std::nullopt, std::nullopt, std::nullopt); },
+        [](const NameKindKey& key) {
+            const auto [name, kind] = SplitKey(key.value, "classes[key]", "kind");
+            return FindClassInfo(name, kind);
+        })
+        .def("__call__", [](const ClassCollection&, const std::optional<std::string>& kind,
+                            const std::optional<std::string>& pattern, const std::optional<std::string>& plugin) {
+            return Classes(kind, pattern, plugin);
+        }, "kind"_a = nb::none(), "pattern"_a = nb::none(), "plugin"_a = nb::none(),
+           "Registered classes by kind, wildcard name and plugin file: classes('modifier', '*Bend*'), "
+           "classes(plugin='tyFlow*').");
+
+    struct PluginCollection {};
+    BindCollection<PluginCollection, PluginRef, std::string>(m, "plugins", "Plugins",
+        "The plugin DLLs 3ds Max has in its directory. plugins['prim.dlo'] is one by file name, ignoring case; "
+        "plugins('*corona*') lists by wildcard file name or description.",
+        [] { return Plugins(std::nullopt); },
+        [](const std::string& name) {
+            RequireMain();
+            DllDir& dir = DllDir::GetInstance();
+            std::vector<std::string> names;
+            for (int d = 0; d < dir.Count(); ++d) {
+                names.push_back(WideToUtf8(dir[d].GetFileName().data()));
+                if (Lower(names.back()) == Lower(name)) return PluginRef{d};
+            }
+            throw NotFound("no plugin file named '" + name + "'." + Suggest(name, names));
+        })
+        .def("__call__", [](const PluginCollection&, const std::optional<std::string>& pattern) { return Plugins(pattern); },
+             "pattern"_a = nb::none(), "Plugin DLLs by wildcard file name or description: plugins('*corona*').");
     m.def("capabilities", &Capabilities,
           "What this 3ds Max has: its version, the renderer in use and those installed, which known plugins are "
           "installed (plugins: forest_pack, forest_lite, tyflow, railclone, phoenix_fd, as bools) and class counts. "
@@ -1574,7 +1631,7 @@ static void BindInterfaces(nb::module_& m) {
         "A function-publishing interface: iface.fn(args) calls a function, iface.prop reads or sets a property. "
         "Arguments follow MAXScript: degrees, 1-based indices, enums by name.");
     iface.def_prop_ro("name", [](const InterfaceRef& r) { return InterfaceName(DescOf(r)); },
-            "The interface's name, as interface(name) takes it.")
+            "The interface's name, as interfaces[name] takes it.")
         .def_prop_ro("kind", [](const InterfaceRef& r) { return std::string(InterfaceKind(r, DescOf(r))); },
             "'core', 'class' (a class's static interface) or 'mixin' (on an object).")
         .def("describe", &DescribeInterface, "Its properties and function signatures, one per line.")
@@ -1596,9 +1653,16 @@ static void BindInterfaces(nb::module_& m) {
         },
         [](const InterfaceRef& r) { return (Py_hash_t)(((size_t)r.a * 31 + r.b) * 31 + r.owner); });
 
-    m.def("interfaces", &CoreInterfaces, "pattern"_a = nb::none(),
-          "Core interfaces (MAXScript's global ones), by wildcard name: interfaces('*Layer*').");
-    m.def("interface", &FindInterface, "name"_a, "A core or plugin-class static interface by name: interface('LayerManager').");
+    struct InterfaceCollection {};
+    BindCollection<InterfaceCollection, InterfaceRef, std::string>(m, "interfaces", "Interfaces",
+        "3ds Max's core interfaces (MAXScript's global ones). interfaces['LayerManager'] is one by name, a "
+        "plugin class's static interface included; interfaces('*Layer*') lists the core ones by wildcard. An "
+        "object's own interfaces are on the object: node.interfaces, mod.interface('unwrap2').",
+        [] { return CoreInterfaces(std::nullopt); },
+        [](const std::string& name) { return FindInterface(name); })
+        .def("__call__", [](const InterfaceCollection&, const std::optional<std::string>& pattern) {
+            return CoreInterfaces(pattern);
+        }, "pattern"_a = nb::none(), "Core interfaces (MAXScript's global ones), by wildcard name: interfaces('*Layer*').");
 
     AddProperty<Node>("interfaces", [](const Node& n) { return Mixins(Resolve(n)); }, "Mixin interfaces of the node itself.");
     AddMethod<Node>("interface", [](const Node& n, const std::string& name) { return FindMixin(Resolve(n), name); }, "name"_a,
@@ -1612,7 +1676,7 @@ static void BindInterfaces(nb::module_& m) {
 static void BindTools(nb::module_& m) {
     nb::class_<MacroRef> macro(m, "Macro", "A macroscript: name, category, tooltip, text, file, run().");
     macro.def_prop_ro("name", [](const MacroRef& x) { return Text(ResolveMacro(x)->GetName()); },
-            "The macroscript's name, as macro(name) and macros.run take it.")
+            "The macroscript's name, as macros[name] and MAXScript's macros.run take it.")
         .def_prop_ro("category", [](const MacroRef& x) { return Text(ResolveMacro(x)->GetCategory()); },
             "The category it is filed under.")
         .def_prop_ro("tooltip", [](const MacroRef& x) { return Text(ResolveMacro(x)->GetToolTip()); }, "Tooltip text.")
@@ -1675,10 +1739,33 @@ static void BindTools(nb::module_& m) {
     BindIdentity<ActionRef>(action, [](const ActionRef& x, const ActionRef& y) { return x.table == y.table && x.id == y.id; },
         [](const ActionRef& a) { return (Py_hash_t)(a.table * 65537 + (unsigned)a.id); });
 
-    m.def("macros", &Macros, "pattern"_a = nb::none(), "category"_a = nb::none(),
-          "Macroscripts by wildcard name, tooltip or button text and category: macros('*isolate*').");
-    m.def("macro", &FindMacro, "name"_a, "category"_a = nb::none(), "A macroscript by name: macro('SmartIsolate', 'Tools').");
-    m.def("action_tables", &ActionTables, "pattern"_a = nb::none(), "Action tables by wildcard name: action_tables('Main*').");
+    struct MacroCollection {};
+    BindCollection<MacroCollection, MacroRef, NameKindKey>(m, "macros", "Macros",
+        "The macroscripts of this 3ds Max session. macros['SmartIsolate'] is one by name, and "
+        "macros['SmartIsolate', 'Tools'] names the category where several share a name; macros('*isolate*') "
+        "lists by wildcard name, tooltip or button text.",
+        [] { return Macros(std::nullopt, std::nullopt); },
+        [](const NameKindKey& key) {
+            const auto [name, category] = SplitKey(key.value, "macros[key]", "category");
+            return FindMacro(name, category);
+        })
+        .def("__call__", [](const MacroCollection&, const std::optional<std::string>& pattern,
+                            const std::optional<std::string>& category) { return Macros(pattern, category); },
+             "pattern"_a = nb::none(), "category"_a = nb::none(),
+             "Macroscripts by wildcard name, tooltip or button text and category: macros('*isolate*').");
+
+    struct ActionTableCollection {};
+    BindCollection<ActionTableCollection, ActionTableRef, std::string>(m, "action_tables", "ActionTables",
+        "The action tables 3ds Max has registered: action_tables['Main UI'] by name, action_tables('Main*') by "
+        "wildcard. actions() searches the actions of all of them.",
+        [] { return ActionTables(std::nullopt); },
+        [](const std::string& name) {
+            return FindByName(ActionTables(std::nullopt), name, "action table",
+                              [](const ActionTableRef& t) { return Text(ResolveTable(t.id)->GetName()); });
+        })
+        .def("__call__", [](const ActionTableCollection&, const std::optional<std::string>& pattern) {
+            return ActionTables(pattern);
+        }, "pattern"_a = nb::none(), "Action tables by wildcard name: action_tables('Main*').");
     m.def("actions", &Actions, "pattern"_a = nb::none(), "table"_a = nb::none(),
           "Actions by wildcard menu text, description or category across tables: actions('*Isolate*').");
 }
@@ -1692,7 +1779,11 @@ static void BindInspection(nb::module_& m) {
         "'cast_shadows', 'receive_shadows', 'wirecolor', 'instances', 'mesh', 'bbox', 'modifiers', 'material', "
         "'plugins'}.");
     AddMethod<Params>("schema", &OwnerSchema, "fields"_a, "query"_a = "", "offset"_a = 0, "limit"_a = 256,
-        "Plugin inspector report with live values and the schema and state tokens patch() needs: p.schema('multiplier').");
+        "Plugin inspector report with live values and the schema and state tokens patch() needs: p.schema('multiplier'). "
+        "properties holds one dict per parameter (those named, or all; query filters by name, label or description) "
+        "with its value, limit at a time from offset; next_offset is None after the last; time is in frames. "
+        "Keys: {'identity', 'properties', 'schema_version', 'coverage', 'schema_token', 'total', 'offset', "
+        "'next_offset', 'owner_ref', 'state_token', 'time', 'references'}.");
     AddMethod<Params>("patch", [](const Params& p, nb::dict schema, bool allInstances, nb::kwargs values) {
         if (ReadSchema(schema).owner != ParamOwner(p)) throw BadParam("this schema describes another object; use its own params");
         return PluginPatch(nb::make_tuple(nb::make_tuple(schema, values)), allInstances);
@@ -1702,7 +1793,8 @@ static void BindInspection(nb::module_& m) {
         "{'owner', 'name', 'before', 'value'} per edit. Keys: {'status', 'verification', 'transaction', 'properties'}.");
     ExtendParamsDir({"interface", "interfaces", "patch", "schema"});
 
-    m.def("plugin_patch", &PluginPatch, "edits"_a, "all_instances"_a = false,
+    m.def("plugin_patch", [](PluginEditsArg edits, bool allInstances) { return PluginPatch(edits.value, allInstances); },
+          "edits"_a, "all_instances"_a = false,
           "Patch several objects in one guarded undo step: plugin_patch([(s1, {'multiplier': 2}), (s2, {'size': 5})]). "
           "properties lists {'owner', 'name', 'before', 'value'} per edit. "
           "Keys: {'status', 'verification', 'transaction', 'properties'}.");
