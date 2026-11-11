@@ -17,7 +17,12 @@ namespace ScriptHold {
 
 // native:script_hold {"action": "begin" | "end" | "status" | "break" | "resume",
 // "label": "...", "commit": true}. begin refuses with USER_BUSY while any undo
-// operation is open; end with commit=false rolls the step back.
+// operation is open or the undo system is suspended; end with commit=false
+// rolls the step back. end also says what the step could not roll back or
+// undo: records_lost (records the step made were discarded before it closed:
+// a full MAXScript gc(), or the script's own theHold.Cancel()),
+// records_lost_earlier (the same in a step committed early) and left_suspended
+// (the script left theHold suspended, so its later edits were never recorded).
 std::string Handle(const std::string& params);
 
 // A script's undo step is open.

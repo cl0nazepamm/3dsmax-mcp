@@ -77,6 +77,19 @@ inline void RequireMain() {
         throw WrongThread("_mx runs only on 3ds Max's main thread");
 }
 
+// Free an instance that was created and then not used. Inside a script's undo
+// step records may point at it already (3ds Max records the references a
+// constructor makes), and DeleteThis would leave them dangling for a rollback
+// to run into. MaybeAutoDelete frees it the same way when nothing is recorded,
+// and defers the delete into the step while 3ds Max is holding.
+inline void FreeUnused(Animatable* fresh) {
+    if (!fresh) return;
+    if (fresh->IsRefMaker() && static_cast<ReferenceMaker*>(fresh)->IsRefTarget())
+        static_cast<ReferenceTarget*>(fresh)->MaybeAutoDelete();
+    else
+        fresh->DeleteThis();
+}
+
 // ── Names and suggestions ────────────────────────────────────────
 
 std::string Lower(std::string s);

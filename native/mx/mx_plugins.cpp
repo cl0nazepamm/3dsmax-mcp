@@ -1293,7 +1293,7 @@ static nb::dict OslInfo(const std::string& shader) {
     if (!cd) throw NotFound("this 3ds Max has no OSLMap class");
     auto* created = static_cast<Animatable*>(GetCOREInterface()->CreateInstance(TEXMAP_CLASS_ID, cd->ClassID()));
     if (!created || created->SuperClassID() != TEXMAP_CLASS_ID) {
-        if (created) created->DeleteThis();
+        FreeUnused(created);
         throw MaxError("3ds Max could not create an OSLMap");
     }
     // The map is temporary: nothing references it once this returns.

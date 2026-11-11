@@ -4,9 +4,11 @@
 #include "mcp_bridge/handler_helpers.h"
 #include "mcp_bridge/quiet_policy.h"
 
+#include <control.h>
 #include <hold.h>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
+#include <vector>
 
 using json = nlohmann::json;
 
@@ -22,8 +24,14 @@ struct State {
     bool superOpen = false;  // our theHold.SuperBegin() is open
     std::wstring label = L"MCP run_python";
     int putBase = 0;         // theHold.GetGlobalPutCount() when the current step opened
+    int ownPuts = 0;         // records since then that are the step's own (its canaries)
     int breaks = 0;          // steps committed early by undo, reset or fetch
     int depth = 0;           // in-process dispatches in progress
+    AnimHandle canary = 0;   // see PutCanary: the open hold's
+    std::vector<AnimHandle> canaries;  // every canary of the current step
+    bool lost = false;       // the current step lost records it had made
+    bool lostEarlier = false;  // a step committed early (breaks) had lost records
+    bool unrecorded = false;   // the script left the hold suspended
 };
 
 State& S() {
@@ -31,21 +39,76 @@ State& S() {
     return state;
 }
 
-bool Changed() { return theHold.GetGlobalPutCount() != S().putBase; }
+bool Changed() { return theHold.GetGlobalPutCount() != S().putBase + S().ownPuts; }
+
+// A canary for the records of the hold that was just opened. 3ds Max defers
+// the delete of an unreferenced object while it is holding, in a record of its
+// own, and the object dies when that record is thrown away unrestored. So a
+// canary that is gone while its hold is still open says the hold's records were
+// discarded: a full MAXScript gc() releases them, and so does a script's own
+// theHold.Cancel(). The record is 3ds Max's, so nothing of this DLL stays in
+// the undo history (undo_records.h). Holds already accepted into the step are
+// not affected by a collection; only the open one needs watching.
+void PutCanary() {
+    State& s = S();
+    s.canary = 0;
+    if (!theHold.Holding()) return;
+    const int before = theHold.GetGlobalPutCount();
+    if (Control* canary = NewDefaultFloatController()) {
+        const AnimHandle handle = Animatable::GetHandleByAnim(canary);
+        canary->MaybeAutoDelete();
+        // Not deferred after all: it is already gone, and there is no canary.
+        if (Animatable::GetAnimByHandle(handle)) {
+            s.canary = handle;
+            s.canaries.push_back(handle);
+        }
+    }
+    s.ownPuts += theHold.GetGlobalPutCount() - before;
+}
+
+// A step that is cancelled restores its canaries' deferred deletes, which
+// leaves them alive with no owner; a committed step's belong to its undo entry.
+void FreeCanaries(bool kept) {
+    State& s = S();
+    if (!kept) {
+        for (const AnimHandle handle : s.canaries) {
+            Animatable* canary = Animatable::GetAnimByHandle(handle);
+            if (canary) static_cast<Control*>(canary)->MaybeAutoDelete();
+        }
+    }
+    s.canaries.clear();
+}
+
+// Before the open hold is accepted or cancelled: did it keep its records?
+void CheckCanary() {
+    State& s = S();
+    if (s.canary && !Animatable::GetAnimByHandle(s.canary)) s.lost = true;
+    s.canary = 0;
+}
 
 void OpenStep() {
     State& s = S();
     theHold.SuperBegin();
     s.superOpen = true;
     s.putBase = theHold.GetGlobalPutCount();
+    s.ownPuts = 0;
     theHold.Begin();
     s.open = true;
+    PutCanary();
 }
 
 // Close the hold and the step. commit=false rolls them back. A step that
 // recorded nothing is cancelled, so it leaves no empty undo entry.
 bool CloseStep(bool commit) {
     State& s = S();
+    // The step opened with the hold not suspended (begin refuses otherwise), so
+    // a suspension now is one the script left behind. While it lasts Accept and
+    // Cancel do nothing and the step would close without restoring anything.
+    for (int guard = 0; theHold.IsSuspended() && guard < 4096; ++guard) {
+        theHold.Resume();
+        s.unrecorded = true;
+    }
+    CheckCanary();
     const bool changed = Changed();
     // A leaked hold inside the step is closed with it.
     for (int guard = 0; theHold.Holding() && guard < 32; ++guard) {
@@ -63,6 +126,7 @@ bool CloseStep(bool commit) {
         }
         s.superOpen = false;
     }
+    FreeCanaries(kept);
     return kept;
 }
 
@@ -86,6 +150,7 @@ void Recover() {
 
 void Pause() {
     State& s = S();
+    if (s.open) CheckCanary();
     if (s.open && theHold.Holding()) theHold.Accept(s.label.c_str());
     s.open = false;
 }
@@ -97,7 +162,10 @@ void Resume() {
         OpenStep();
         return;
     }
-    if (!theHold.Holding()) theHold.Begin();
+    if (!theHold.Holding()) {
+        theHold.Begin();
+        PutCanary();
+    }
     s.open = true;
 }
 
@@ -106,6 +174,9 @@ void Break() {
     if (!s.superOpen) return;
     CloseStep(true);
     ++s.breaks;
+    // What the committed step lost says nothing about rolling back the next one.
+    s.lostEarlier = s.lostEarlier || s.lost;
+    s.lost = false;
 }
 
 [[noreturn]] void Fail(const char* code, const std::string& message) {
@@ -142,8 +213,13 @@ std::string Handle(const std::string& params) {
     if (action == "status") return Status().dump();
     if (action == "begin") {
         if (s.active) Fail("USER_BUSY", "a run_python script's undo step is already open");
-        if (theHold.Holding())
+        if (theHold.Holding() || theHold.GetSuperBeginDepth() > 0)
             Fail("USER_BUSY", "3ds Max has an open undo operation; finish it, then run the script again.");
+        // Edits made now would not be recorded, so a failing script could not be rolled back.
+        if (theHold.IsSuspended() || theHold.RestoreOrRedoing())
+            Fail("USER_BUSY", "3ds Max's undo system is suspended or in the middle of an undo, so the script's "
+                              "edits could not be rolled back; let the running operation finish, then run the "
+                              "script again.");
         s = State{};
         const std::string label = p.value("label", "");
         if (!label.empty()) s.label = HandlerHelpers::Utf8ToWide(label);
@@ -164,12 +240,16 @@ std::string Handle(const std::string& params) {
             failed = true;
             Recover();
         }
+        // What the step could not record or keep: such edits survive a rollback and cannot be undone.
+        const bool lost = s.lost, lostEarlier = s.lostEarlier, unrecorded = s.unrecorded;
         s = State{};
         if (failed)
             Fail("UNDO_STEP_FAILED", std::string("3ds Max failed while ") + (commit ? "committing" : "rolling back") +
                  " the script's undo step. Part of what the script changed may remain, and the undo history was "
                  "cleared; inspect the scene before continuing.");
-        return json({{"active", false}, {"kept", kept}, {"breaks", breaks}, {"was_active", true}}).dump();
+        return json({{"active", false}, {"kept", kept}, {"breaks", breaks}, {"was_active", true},
+                     {"records_lost", lost}, {"records_lost_earlier", lostEarlier}, {"left_suspended", unrecorded}})
+            .dump();
     }
     // _mx steps out around a scene reset or fetch it runs itself.
     if (action == "break") {

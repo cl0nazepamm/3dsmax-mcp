@@ -2,7 +2,7 @@
 
 3ds Max for agents, bound from the SDK: the scene's nodes, parameters, modifiers, materials and animation, and modeling, viewport, file and plugin work on them. Lights, cameras and renders are mx.render_setup, the same on every renderer.
 
-Build `b20261111173007`, 3ds Max SDK 2027.
+Build `b20261111215429`, 3ds Max SDK 2027.
 
 ## Functions
 
@@ -903,5 +903,5 @@ A viewport, resolved on every call: the user's active view, or the AGENT VIEWPOR
 
 ## Values
 
-- `BUILD` = 'b20261111173007'
+- `BUILD` = 'b20261111215429'
 - `MAX_VERSION` = 2027

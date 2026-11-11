@@ -1640,7 +1640,7 @@ INode* PlaceNode(Object* object, const std::string& name, const MCHAR* fallback,
 SplineShape* NewSplineShape() {
     auto* created = static_cast<Animatable*>(GetCOREInterface()->CreateInstance(SHAPE_CLASS_ID, splineShapeClassID));
     if (!created || created->ClassID() != splineShapeClassID) {
-        if (created) created->DeleteThis();
+        FreeUnused(created);
         throw MaxError("3ds Max could not create an editable spline");
     }
     return static_cast<SplineShape*>(created);
@@ -1695,7 +1695,7 @@ INode* CreateMeshNode(const std::string& name, const Model& m, const V3& origin)
     EPoly* poly = nullptr;
     MNMesh* mesh = PolyMesh(object, &poly);
     if (!mesh) {
-        if (object) object->DeleteThis();
+        FreeUnused(object);
         throw MaxError("3ds Max could not create an Editable Poly");
     }
     for (const V3& v : m.vertices) mesh->NewVert(ToP3(v - origin));
@@ -1703,7 +1703,7 @@ INode* CreateMeshNode(const std::string& name, const Model& m, const V3& origin)
     for (size_t i = 0; i < m.faces.size(); ++i) {
         std::vector<int> ids = m.faces[i];
         if (mesh->CreateFace(int(ids.size()), ids.data()) < 0) {
-            object->DeleteThis();
+            FreeUnused(object);
             throw MaxError("could not create polygon " + std::to_string(i) + "; check section winding and topology");
         }
     }

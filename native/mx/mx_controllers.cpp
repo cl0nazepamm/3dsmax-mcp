@@ -87,7 +87,7 @@ static Control* NewController(SClass_ID super, Class_ID id, const std::string& w
     auto* created = static_cast<Animatable*>(GetCOREInterface()->CreateInstance(super, id));
     if (!created) throw MaxError("3ds Max could not create " + WithArticle(what));
     if (created->SuperClassID() != super || created->ClassID() != id || !IsController(created)) {
-        created->DeleteThis();
+        FreeUnused(created);
         throw MaxError("3ds Max created a different class than " + what);
     }
     return static_cast<Control*>(created->GetInterface(I_CONTROL));

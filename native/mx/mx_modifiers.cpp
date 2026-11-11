@@ -43,7 +43,7 @@ ModifierRef AddModifier(const Node& n, const std::string& cls, const std::string
     }
     if (!name.empty()) mod->SetName(MSTR(Utf8ToWide(name).c_str()));
     if (GetCOREInterface7()->AddModifier(*node, *mod) != Interface7::kRES_SUCCESS) {
-        mod->DeleteThis();
+        FreeUnused(mod);
         throw MaxError("3ds Max could not add " + WithArticle(cls) + " to '" + NodeName(node) + "'");
     }
     // Parameters after the modifier is applied: some initialize on apply.

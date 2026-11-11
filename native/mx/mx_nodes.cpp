@@ -194,7 +194,7 @@ static Node Create(const std::string& cls, const std::string& name, std::optiona
     auto* created = static_cast<Animatable*>(ip->CreateInstance(cd->SuperClassID(), cd->ClassID()));
     if (!created) throw MaxError("3ds Max could not create a " + cls);
     if (created->SuperClassID() != cd->SuperClassID() || created->ClassID() != cd->ClassID()) {
-        created->DeleteThis();
+        FreeUnused(created);
         throw MaxError("3ds Max created a different class than " + cls);
     }
     Object* object = static_cast<Object*>(created);

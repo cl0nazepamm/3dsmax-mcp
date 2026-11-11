@@ -16,6 +16,22 @@ class _BridgeTooOld(Exception):
     """The bridge has no script_hold: the script falls back to SuperBegin grouping."""
 
 
+class _HoldError(RuntimeError):
+    """script_hold failed; code and message are the bridge's own when it gave them."""
+
+    def __init__(self, action: Any, error: Any) -> None:
+        text = error if isinstance(error, str) else json.dumps(error)
+        if isinstance(error, str):
+            try:
+                error = json.loads(error)
+            except ValueError:
+                pass
+        structured = error if isinstance(error, dict) else {}
+        self.code = str(structured.get("code") or "")
+        self.message = str(structured.get("message") or text)
+        super().__init__(f"script_hold {action}: {text}")
+
+
 def _script_hold(**args: Any) -> dict[str, Any]:
     request = json.dumps({"command": json.dumps(args), "type": "native:script_hold",
                           "requestId": uuid4().hex, "protocolVersion": 2})
@@ -25,9 +41,26 @@ def _script_hold(**args: Any) -> dict[str, Any]:
         text = json.dumps(error) if not isinstance(error, str) else error
         if "Unknown command type" in text:
             raise _BridgeTooOld(text)
-        raise RuntimeError(f"script_hold {args.get('action')}: {text}")
+        raise _HoldError(args.get("action"), error)
     result = reply.get("result")
     return json.loads(result) if isinstance(result, str) and result else (result or {})
+
+
+def _unrecorded(end: dict[str, Any], commit: bool) -> str:
+    """What script_hold's end reply says the step could not roll back (or, committed, undo)."""
+    fate = "cannot be undone" if commit else "was not rolled back"
+    parts = []
+    # Records lost in a step committed early matter to undo, never to rolling back the last step.
+    if end.get("records_lost") or (commit and end.get("records_lost_earlier")):
+        parts.append(
+            "the script's undo records were discarded while it ran (a full MAXScript gc() does that, and so "
+            f"does theHold.Cancel()), so what it changed before that point {fate}; use gc light:true inside "
+            "a script")
+    if end.get("left_suspended"):
+        parts.append(
+            "the script left the undo system suspended (theHold.Suspend() without Resume()), so what it "
+            f"changed after that was never recorded and {fate}")
+    return "; ".join(parts)
 
 
 class ScriptStep:
@@ -46,10 +79,18 @@ class ScriptStep:
         self.breaks = 0
         # Why the bridge could not close the step, when 3ds Max failed inside it.
         self.close_error = ""
+        # What the step never recorded or no longer held when it closed: those edits
+        # survive a rollback and cannot be undone.
+        self.unrecorded = ""
+        # The bridge's refusal to open the step: the script did not run.
+        self.refused: _HoldError | None = None
 
     def __enter__(self) -> "ScriptStep":
         try:
             _script_hold(action="begin", label=self.label)
+        except _HoldError as error:
+            self.refused = error
+            raise
         except _BridgeTooOld:
             self.legacy = True
             self.rt.theHold.SuperBegin()
@@ -64,7 +105,9 @@ class ScriptStep:
                 self.rt.theHold.SuperCancel()
             return False
         try:
-            self.breaks = int(_script_hold(action="end", commit=commit).get("breaks") or 0)
+            end = _script_hold(action="end", commit=commit)
+            self.breaks = int(end.get("breaks") or 0)
+            self.unrecorded = _unrecorded(end, commit)
         except RuntimeError as error:
             # A failed rollback must not hide the script's own error; a failed commit is the error.
             self.close_error = str(error)
@@ -110,18 +153,23 @@ def run_script(code: str, timeout_s: float = 300, label: str = UNDO_LABEL) -> di
         mx.sdk = sdk  # type: ignore[attr-defined]
     step = ScriptStep(rt, label)
     reply = _script.execute(code, namespace, timeout_s, transaction=lambda: step)
+    if step.refused is not None:
+        # Nothing ran, so there is nothing to roll back: the refusal is the whole reply.
+        return {"status": "error", "code": step.refused.code or "USER_BUSY", "error": step.refused.message}
     reply["ran_in"] = "max"
     if note:
         reply["note"] = note
     if reply.get("status") == "error":
         details = reply.setdefault("details", {})
-        details["rolled_back"] = not step.close_error
-        if step.close_error:
-            details["rollback_error"] = step.close_error
+        details["rolled_back"] = not (step.close_error or step.unrecorded)
+        if step.close_error or step.unrecorded:
+            details["rollback_error"] = step.close_error or f"Only part of the script was rolled back: {step.unrecorded}."
         if step.breaks:
             details["rolled_back_scope"] = (
                 f"only what the script changed after its last undo/reset/fetch; the {step.breaks} step(s) "
                 "before it were committed")
+    elif step.unrecorded:
+        reply.setdefault("warnings", []).append(f"Only part of the script can be undone: {step.unrecorded}.")
     elif step.legacy:
         reply.setdefault("warnings", []).append(
             "This 3ds Max bridge predates script undo steps: raw rt and sdk edits are not undoable and survive "

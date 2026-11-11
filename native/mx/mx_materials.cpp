@@ -153,7 +153,7 @@ static T* CreateMtlBase(SClass_ID super, const char* kind, const std::string& cl
     Interface* ip = GetCOREInterface();
     auto* created = static_cast<Animatable*>(ip->CreateInstance(super, cd->ClassID()));
     if (!created || created->SuperClassID() != super) {
-        if (created) created->DeleteThis();
+        FreeUnused(created);
         throw MaxError("3ds Max could not create " + WithArticle(cls));
     }
     T* base = static_cast<T*>(created);
