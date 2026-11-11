@@ -1494,7 +1494,7 @@ static void ExtendParamsDir(std::initializer_list<const char*> added) {
 }
 
 static void BindClasses(nb::module_& m) {
-    nb::class_<ClassInfo> cls(m, "ClassInfo", "A plugin class: name, kind, plugin, describe(), interfaces, schema(), nodes().");
+    nb::class_<ClassInfo> cls(m, "ClassInfo", "A plugin class: name, kind, plugin, describe(), interfaces, schema(), nodes.");
     cls.def_prop_ro("name", [](const ClassInfo& c) {
             ClassEntry& entry = Entry(c);
             ScopedMaxScriptEvaluationContext context;
@@ -1508,7 +1508,8 @@ static void BindClasses(nb::module_& m) {
             ScopedMaxScriptEvaluationContext context;
             return SuperclassName(c.sid);
         }, "MAXScript superclass name: GeometryClass, Modifier, ...")
-        .def_prop_ro("superclass_id", [](const ClassInfo& c) { return (unsigned long)c.sid; })
+        .def_prop_ro("superclass_id", [](const ClassInfo& c) { return (unsigned long)c.sid; },
+            "The superclass's SClass_ID, like MAXScript's superClassID.")
         .def_prop_ro("class_id", [](const ClassInfo& c) { return std::make_pair((unsigned long)c.a, (unsigned long)c.b); },
             "Class_ID as (a, b), like MAXScript's classID.")
         .def_prop_ro("category", [](const ClassInfo& c) { return Text(Entry(c).Category()); }, "Create-panel category.")
@@ -1524,7 +1525,7 @@ static void BindClasses(nb::module_& m) {
             "(MAXScript units); subanims (gizmo, center) and MAXScript properties after, from a temporary instance.")
         .def("schema", &ClassSchema, "fields"_a, "query"_a = "", "offset"_a = 0, "limit"_a = 256,
             "Plugin inspector metadata: property refs, labels, units, domains, coverage: schema('radius').")
-        .def("nodes", [](const ClassInfo& c) {
+        .def_prop_ro("nodes", [](const ClassInfo& c) {
             return NodesUsing([&](SClass_ID sid, const Class_ID& id) { return sid == c.sid && id == Class_ID(c.a, c.b); });
         }, "Scene nodes whose object, modifiers, material or controllers use the class.")
         .def("__repr__", [](const ClassInfo& c) {
@@ -1536,13 +1537,14 @@ static void BindClasses(nb::module_& m) {
     BindIdentity<ClassInfo>(cls, [](const ClassInfo& x, const ClassInfo& y) { return x.sid == y.sid && x.a == y.a && x.b == y.b; },
         [](const ClassInfo& c) { return (Py_hash_t)(((size_t)c.a * 31 + c.b) * 31 + c.sid); });
 
-    nb::class_<PluginRef> plugin(m, "Plugin", "A loaded plugin DLL: name, path, description, classes, nodes().");
+    nb::class_<PluginRef> plugin(m, "Plugin", "A loaded plugin DLL: name, path, description, classes, nodes.");
     plugin.def_prop_ro("name", [](const PluginRef& p) { return Text(Dll(p).GetFileName()); }, "File name: 'prim.dlo'.")
-        .def_prop_ro("path", [](const PluginRef& p) { return Text(Dll(p).GetFullPath()); })
-        .def_prop_ro("description", [](const PluginRef& p) { return WideToUtf8(Dll(p).Description()); })
+        .def_prop_ro("path", [](const PluginRef& p) { return Text(Dll(p).GetFullPath()); }, "Full path of the DLL file.")
+        .def_prop_ro("description", [](const PluginRef& p) { return WideToUtf8(Dll(p).Description()); },
+            "The description the plugin gives of itself.")
         .def_prop_ro("loaded", [](const PluginRef& p) { return Dll(p).IsLoaded(); }, "False while 3ds Max defers loading it.")
         .def_prop_ro("classes", &PluginClasses, "Classes the plugin defines.")
-        .def("nodes", [](const PluginRef& p) {
+        .def_prop_ro("nodes", [](const PluginRef& p) {
             std::set<std::tuple<SClass_ID, ULONG, ULONG>> ids;
             for (const ClassInfo& c : PluginClasses(p)) ids.insert({c.sid, c.a, c.b});
             return NodesUsing([&](SClass_ID sid, const Class_ID& id) { return ids.count({sid, id.PartA(), id.PartB()}) > 0; });
@@ -1568,7 +1570,8 @@ static void BindInterfaces(nb::module_& m) {
     nb::class_<InterfaceRef> iface(m, "Interface",
         "A function-publishing interface: iface.fn(args) calls a function, iface.prop reads or sets a property. "
         "Arguments follow MAXScript: degrees, 1-based indices, enums by name.");
-    iface.def_prop_ro("name", [](const InterfaceRef& r) { return InterfaceName(DescOf(r)); })
+    iface.def_prop_ro("name", [](const InterfaceRef& r) { return InterfaceName(DescOf(r)); },
+            "The interface's name, as interface(name) takes it.")
         .def_prop_ro("kind", [](const InterfaceRef& r) { return std::string(InterfaceKind(r, DescOf(r))); },
             "'core', 'class' (a class's static interface) or 'mixin' (on an object).")
         .def("describe", &DescribeInterface, "Its properties and function signatures, one per line.")
@@ -1605,21 +1608,25 @@ static void BindInterfaces(nb::module_& m) {
 
 static void BindTools(nb::module_& m) {
     nb::class_<MacroRef> macro(m, "Macro", "A macroscript: name, category, tooltip, text, file, run().");
-    macro.def_prop_ro("name", [](const MacroRef& x) { return Text(ResolveMacro(x)->GetName()); })
-        .def_prop_ro("category", [](const MacroRef& x) { return Text(ResolveMacro(x)->GetCategory()); })
-        .def_prop_ro("tooltip", [](const MacroRef& x) { return Text(ResolveMacro(x)->GetToolTip()); })
+    macro.def_prop_ro("name", [](const MacroRef& x) { return Text(ResolveMacro(x)->GetName()); },
+            "The macroscript's name, as macro(name) and macros.run take it.")
+        .def_prop_ro("category", [](const MacroRef& x) { return Text(ResolveMacro(x)->GetCategory()); },
+            "The category it is filed under.")
+        .def_prop_ro("tooltip", [](const MacroRef& x) { return Text(ResolveMacro(x)->GetToolTip()); }, "Tooltip text.")
         .def_prop_ro("text", [](const MacroRef& x) { return Text(ResolveMacro(x)->GetButtonText()); }, "Button text.")
         .def_prop_ro("file", [](const MacroRef& x) { return Text(ResolveMacro(x)->GetFileName()); }, "Source file.")
-        .def_prop_ro("id", [](const MacroRef& x) { return x.id; })
+        .def_prop_ro("id", [](const MacroRef& x) { return x.id; }, "Its ID in this 3ds Max session's macro directory.")
         .def("run", &RunMacro, "Run it, like macros.run; returns its result.")
         .def("__repr__", &MacroRepr);
     BindIdentity<MacroRef>(macro, [](const MacroRef& x, const MacroRef& y) { return x.id == y.id; },
         [](const MacroRef& x) { return (Py_hash_t)x.id; });
 
     nb::class_<ActionTableRef> table(m, "ActionTable", "An action table: name, id, actions(pattern).");
-    table.def_prop_ro("name", [](const ActionTableRef& t) { return Text(ResolveTable(t.id)->GetName()); })
-        .def_prop_ro("id", [](const ActionTableRef& t) { return t.id; })
-        .def_prop_ro("context_id", [](const ActionTableRef& t) { return (unsigned long)ResolveTable(t.id)->GetContextId(); })
+    table.def_prop_ro("name", [](const ActionTableRef& t) { return Text(ResolveTable(t.id)->GetName()); },
+            "The table's name, as action_tables(pattern) matches it.")
+        .def_prop_ro("id", [](const ActionTableRef& t) { return t.id; }, "The table's ActionTableId.")
+        .def_prop_ro("context_id", [](const ActionTableRef& t) { return (unsigned long)ResolveTable(t.id)->GetContextId(); },
+            "The ActionContextId the table belongs to.")
         .def("actions", [](const ActionTableRef& t, const std::optional<std::string>& pattern) {
             std::vector<ActionRef> out;
             TableActions(ResolveTable(t.id), pattern, out);
@@ -1638,11 +1645,14 @@ static void BindTools(nb::module_& m) {
         [](const ActionTableRef& t) { return (Py_hash_t)t.id; });
 
     nb::class_<ActionRef> action(m, "Action", "An action item (menu command, shortcut target): text, description, run().");
-    action.def_prop_ro("id", [](const ActionRef& a) { return a.id; })
-        .def_prop_ro("table", [](const ActionRef& a) { ResolveTable(a.table); return ActionTableRef{a.table}; })
+    action.def_prop_ro("id", [](const ActionRef& a) { return a.id; }, "The action's command ID within its table.")
+        .def_prop_ro("table", [](const ActionRef& a) { ResolveTable(a.table); return ActionTableRef{a.table}; },
+            "The ActionTable it belongs to.")
         .def_prop_ro("text", &ActionText, "Menu text.")
-        .def_prop_ro("description", [](const ActionRef& a) { return ItemText(ResolveAction(a), &ActionItem::GetDescriptionText); })
-        .def_prop_ro("category", [](const ActionRef& a) { return ItemText(ResolveAction(a), &ActionItem::GetCategoryText); })
+        .def_prop_ro("description", [](const ActionRef& a) { return ItemText(ResolveAction(a), &ActionItem::GetDescriptionText); },
+            "Description text, as the Customize User Interface dialog shows it.")
+        .def_prop_ro("category", [](const ActionRef& a) { return ItemText(ResolveAction(a), &ActionItem::GetCategoryText); },
+            "Category text, as the Customize User Interface dialog groups it.")
         .def_prop_ro("macro", [](const ActionRef& a) -> std::optional<MacroRef> {
             MacroEntry* entry = ResolveAction(a)->GetMacroScript();
             if (!entry) return std::nullopt;
@@ -1690,11 +1700,70 @@ static void BindInspection(nb::module_& m) {
           "Compile an OSL shader (a .osl path or a name in 3ds Max's OSL folder) in a temporary map: its parameters and outputs.");
 }
 
+// ── The object protocol ──────────────────────────────────────────
+// What every wrapper of a plugin object offers (mx_common.h names the members).
+// A class binds what is its own; what it leaves out is bound here once, through
+// the object's params: every wrapper has them, and reading them resolves the
+// live object or raises NotFound. A node's params are its base object's, so a
+// node's class_info is the class class_name names.
+
+static Animatable* ObjectOf(nb::handle self) { return ParamOwner(nb::cast<Params>(self.attr("params"))); }
+
+static ReferenceTarget* TargetOf(nb::handle self) {
+    Animatable* object = ObjectOf(self);
+    if (!object->IsRefMaker() || !static_cast<ReferenceMaker*>(object)->IsRefTarget())
+        throw BadParam("this object holds no references");
+    return static_cast<ReferenceTarget*>(object);
+}
+
+static void BindObjectProtocol(nb::module_& m) {
+    const nb::object notFound = m.attr("NotFound");
+    for (const char* name : {"Node", "Modifier", "Material", "Texmap", "Controller", "Effect", "Object"}) {
+        const nb::object cls = m.attr(name);
+        const auto lacks = [&](const char* member) { return !nb::hasattr(cls, member); };
+        if (lacks("handle"))
+            AddPropertyTo(cls, "handle",
+                [](nb::handle self) { return (unsigned long long)Animatable::GetHandleByAnim(ObjectOf(self)); },
+                "The object's animatable handle. In pymxs: rt.getAnimByHandle(x.handle).");
+        if (lacks("exists"))
+            AddPropertyTo(cls, "exists", [notFound](nb::handle self) {
+                try {
+                    ObjectOf(self);
+                    return true;
+                } catch (const NotFound&) {
+                    return false;
+                } catch (nb::python_error& error) {
+                    if (error.matches(notFound)) return false;
+                    throw;
+                }
+            }, "False once the object is gone: deleted, or off the stack or list it was read from.");
+        if (lacks("class_info"))
+            AddPropertyTo(cls, "class_info", [](nb::handle self) {
+                Animatable* object = ObjectOf(self);
+                return MakeClassInfo(object->SuperClassID(), object->ClassID());
+            }, "The object's class as a ClassInfo (a node's: its base object's): x.class_info.describe() lists what "
+               "the class takes, x.class_info.plugin the DLL it comes from.");
+        if (lacks("interfaces"))
+            AddPropertyTo(cls, "interfaces", [](nb::handle self) { return Mixins(ObjectOf(self)); },
+                "Mixin interfaces the object publishes.");
+        if (lacks("interface"))
+            AddMethodTo(cls, "interface",
+                [](nb::handle self, const std::string& name) { return FindMixin(ObjectOf(self), name); }, "name"_a,
+                "A mixin interface of the object by name: mod.interface('unwrap2').");
+        if (lacks("references"))
+            AddMethodTo(cls, "references", [](nb::handle self, int depth) { return ReferenceTree(TargetOf(self), depth); },
+                "depth"_a = 3,
+                "Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; "
+                "'seen' marks a target listed above, and nodes are listed, not expanded.");
+    }
+}
+
 void BindPlugins(nb::module_& m) {
     BindClasses(m);
     BindInterfaces(m);
     BindTools(m);
     BindInspection(m);
+    BindObjectProtocol(m);
 }
 
 } // namespace MX_ABI_TAG

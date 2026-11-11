@@ -739,7 +739,7 @@ static std::string StateSetRepr(const StateSetInfo& s) {
 static void BindStateSets(nb::module_& m) {
     nb::class_<StateSetInfo>(m, "StateSet",
         "A State Set (a snapshot): name, camera, render_range, anim_range, lock_camera_to_range.")
-        .def_ro("name", &StateSetInfo::name)
+        .def_ro("name", &StateSetInfo::name, "The State Set's name.")
         .def_prop_ro("camera", [](const StateSetInfo& s) { return s.camera; }, "The state set's camera, or None.")
         .def_ro("render_range", &StateSetInfo::render_range, "(start, end) render frames, or None.")
         .def_ro("anim_range", &StateSetInfo::anim_range, "(start, end) animation frames, or None.")

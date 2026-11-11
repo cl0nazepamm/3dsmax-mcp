@@ -2,7 +2,7 @@
 
 3ds Max for agents, bound from the SDK: the scene's nodes, parameters, modifiers, materials and animation, and modeling, viewport, file and plugin work on them. Lights, cameras and renders are mx.render_setup, the same on every renderer.
 
-Build `b20261111153725`, 3ds Max SDK 2027.
+Build `b20261111161633`, 3ds Max SDK 2027.
 
 ## Functions
 
@@ -324,12 +324,12 @@ The AGENT VIEWPORT while it is open, else the user's active view; source='active
 
 An action item (menu command, shortcut target): text, description, run().
 
-- `.category` (str)
-- `.description` (str)
-- `.id` (int)
+- `.category` (str): Category text, as the Customize User Interface dialog groups it.
+- `.description` (str): Description text, as the Customize User Interface dialog shows it.
+- `.id` (int): The action's command ID within its table.
 - `.macro` (_mx.Macro | None): The macroscript it runs, or None.
 - `.run() -> None`: Run it, like actionMan.executeAction.
-- `.table` (_mx.ActionTable)
+- `.table` (_mx.ActionTable): The ActionTable it belongs to.
 - `.text` (str): Menu text.
 
 ### ActionTable
@@ -337,9 +337,9 @@ An action item (menu command, shortcut target): text, description, run().
 An action table: name, id, actions(pattern).
 
 - `.actions(pattern: str | None = None) -> list[_mx.Action]`: Its actions, by wildcard menu text, description or category.
-- `.context_id` (int)
-- `.id` (int)
-- `.name` (str)
+- `.context_id` (int): The ActionContextId the table belongs to.
+- `.id` (int): The table's ActionTableId.
+- `.name` (str): The table's name, as action_tables(pattern) matches it.
 
 ### AgentViewport
 
@@ -362,12 +362,12 @@ The agent's floating AGENT VIEWPORT: navigate, pick and capture without touching
 
 ### AnimateMode
 
-(no description)
+What animate(on) returns: inside `with sdk.animate():`, edits set keys (Auto Key); animate(False) turns keying off for the block. The mode before the block comes back after it.
 
 
 ### AtTime
 
-(no description)
+What at(frame) returns: inside `with sdk.at(10):`, reads and edits happen at that frame instead of the time slider's.
 
 
 ### Boolean
@@ -396,16 +396,16 @@ A saved image: open(capture.path) or os.fspath(capture); width, height, and what
 
 A journal entry (a snapshot): seq, scene_seq, type ('added', 'name_changed', 'deleted', ...), node, name (when it happened), details.
 
-- `.details` (object)
-- `.name` (str)
-- `.node` (_mx.Node | None)
-- `.scene_seq` (int)
-- `.seq` (int)
-- `.type` (str)
+- `.details` (object): What else the event recorded, as a dict, or None.
+- `.name` (str): The node's name when it happened; '' for an event without a node.
+- `.node` (_mx.Node | None): The node the event is about, or None; a deleted node's raises NotFound when used.
+- `.scene_seq` (int): The scene's edit count once this event had happened.
+- `.seq` (int): The event's number in the journal; pass a Mark or this to changes(since).
+- `.type` (str): What happened: 'added', 'deleted', 'name_changed', 'selection_changed', ...
 
 ### ClassInfo
 
-A plugin class: name, kind, plugin, describe(), interfaces, schema(), nodes().
+A plugin class: name, kind, plugin, describe(), interfaces, schema(), nodes.
 
 - `.category` (str): Create-panel category.
 - `.class_id` (tuple[int, int]): Class_ID as (a, b), like MAXScript's classID.
@@ -415,22 +415,28 @@ A plugin class: name, kind, plugin, describe(), interfaces, schema(), nodes().
 - `.kind` (str): 'geometry', 'modifier', 'material', ... or the MAXScript superclass name.
 - `.label` (str): Localized UI name.
 - `.name` (str): MAXScript name, as create() and classOf take it.
-- `.nodes() -> list[_mx.Node]`: Scene nodes whose object, modifiers, material or controllers use the class.
+- `.nodes` (list[_mx.Node]): Scene nodes whose object, modifiers, material or controllers use the class.
 - `.plugin` (_mx.Plugin | None): The plugin DLL that defines the class, or None.
 - `.schema(*fields, query: str = '', offset: int = 0, limit: int = 256) -> object`: Plugin inspector metadata: property refs, labels, units, domains, coverage: schema('radius').
 - `.superclass` (str): MAXScript superclass name: GeometryClass, Modifier, ...
-- `.superclass_id` (int)
+- `.superclass_id` (int): The superclass's SClass_ID, like MAXScript's superClassID.
 
 ### Controller
 
 A track's controller: track.controller. c.params holds its parameters (Noise frequency, constraint relative, ...).
 
 - `.add_target(target: object, weight: float | None = None, frame: float | None = None, name: str | None = None) -> None`: Add a target: a node with weight= (position, orientation, look-at, path constraints), with frame= (link), the attachment node, or a named input of a script (...
+- `.class_info` (_mx.ClassInfo): The object's class as a ClassInfo (a node's: its base object's): x.class_info.describe() lists what the class takes, x.class_info.plugin the DLL it comes from.
 - `.class_name` (str): MAXScript class name: Bezier_Float, Float_Script, Position_Constraint, ...
+- `.exists` (bool): False once the object is gone: deleted, or off the stack or list it was read from.
 - `.expression` (object, settable): Script or expression text, None for other controllers. Setting it is unchecked; track.apply_script() validates first.
+- `.handle` (int): The object's animatable handle. In pymxs: rt.getAnimByHandle(x.handle).
+- `.interface(name: str) -> _mx.Interface`: A mixin interface of the object by name: mod.interface('unwrap2').
+- `.interfaces` (list[_mx.Interface]): Mixin interfaces the object publishes.
 - `.kind` (str): float, point3, point4, position, rotation, scale or transform.
 - `.layers` (list[_mx.Controller]): A list controller's layers, first to last; [] for other controllers.
 - `.params` (_mx.Params): The controller's parameters and MAXScript properties.
+- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'seen' marks a target listed above, and nodes are listed, n...
 - `.targets` (list): Constraint targets: [(node, weight)], [(node, frame)] for a link constraint, [node] for attachment.
 - `.variables` (object): Script inputs [{name, kind, value, offset}] (offset in frames), or expression inputs [{name, kind}].
 
@@ -439,13 +445,19 @@ A track's controller: track.controller. c.params holds its parameters (Noise fre
 An atmospheric or render effect: fx.active = False; fx.params.density = 20.
 
 - `.active` (bool, settable): Whether the effect renders.
+- `.class_info` (_mx.ClassInfo): The object's class as a ClassInfo (a node's: its base object's): x.class_info.describe() lists what the class takes, x.class_info.plugin the DLL it comes from.
 - `.class_name` (str): MAXScript class: VolumeFog, Blur, Lens_Effects, ...
 - `.delete() -> None`: Remove the effect from the scene.
+- `.exists` (bool): False once the object is gone: deleted, or off the stack or list it was read from.
+- `.handle` (int): The object's animatable handle. In pymxs: rt.getAnimByHandle(x.handle).
 - `.index` (int): 1-based position in its list.
+- `.interface(name: str) -> _mx.Interface`: A mixin interface of the object by name: mod.interface('unwrap2').
+- `.interfaces` (list[_mx.Interface]): Mixin interfaces the object publishes.
 - `.kind` (str): 'atmospheric' (Rendering > Environment) or 'render' (Rendering > Effects).
 - `.name` (str): Name in the Environment or Effects list.
 - `.nodes` (list[_mx.Node]): Gizmo nodes the effect uses (atmospheric apparatus); empty for most render effects.
 - `.params` (_mx.Params): The effect's parameters.
+- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'seen' marks a target listed above, and nodes are listed, n...
 
 ### Group
 
@@ -474,16 +486,16 @@ A function-publishing interface: iface.fn(args) calls a function, iface.prop rea
 - `.call(function: str, *args, **kwargs) -> object`: Call a function by name: iface.call('getLayer', 1).
 - `.describe() -> list[str]`: Its properties and function signatures, one per line.
 - `.kind` (str): 'core', 'class' (a class's static interface) or 'mixin' (on an object).
-- `.name` (str)
+- `.name` (str): The interface's name, as interface(name) takes it.
 
 ### Key
 
 A key: frame, value, in_tangent, out_tangent (a snapshot).
 
-- `.frame` (float)
-- `.in_tangent` (str)
-- `.out_tangent` (str)
-- `.value` (object)
+- `.frame` (float): The key's time, in frames.
+- `.in_tangent` (str): Incoming tangent type: smooth, linear, step, fast, slow, auto or custom; '' on a controller without tangents.
+- `.out_tangent` (str): Outgoing tangent type, named like in_tangent.
+- `.value` (object): The key's value, in the units the track's value() gives: a number, or (x, y, z).
 
 ### Knot
 
@@ -526,7 +538,7 @@ A scene layer: layer.add(nodes), layer.hidden = True, layer.parent = 'Building'.
 A parametric quad loft's definition, stored on its node; node.loft_mesh.update(width=20) rebuilds the cage.
 
 - `.definition` (object): sections as written (numbers and expressions) and the profile_closed, close_path, caps, reverse options.
-- `.node` (_mx.Node)
+- `.node` (_mx.Node): The node that carries this loft.
 - `.origin` (tuple): World point the initial sections were centered on; the cage follows the node's transform since.
 - `.parameters` (object): The parameters that built the current cage, or None when the cage was edited by hand (update refuses then).
 - `.update(**parameters) -> dict`: Rebuild the cage for new parameter values, keeping vertex IDs, transform, modifiers and materials; returns {name: (before, after)} of what changed.
@@ -535,32 +547,37 @@ A parametric quad loft's definition, stored on its node; node.loft_mesh.update(w
 
 A macroscript: name, category, tooltip, text, file, run().
 
-- `.category` (str)
+- `.category` (str): The category it is filed under.
 - `.file` (str): Source file.
-- `.id` (int)
-- `.name` (str)
+- `.id` (int): Its ID in this 3ds Max session's macro directory.
+- `.name` (str): The macroscript's name, as macro(name) and macros.run take it.
 - `.run() -> object`: Run it, like macros.run; returns its result.
 - `.text` (str): Button text.
-- `.tooltip` (str)
+- `.tooltip` (str): Tooltip text.
 
 ### Mark
 
 A point in the scene's change journal: seq counts every event, scene_seq only persistent edits.
 
-- `.scene_seq` (int)
-- `.seq` (int)
+- `.scene_seq` (int): Count of persistent edits only; what expected= compares.
+- `.seq` (int): Count of every journal event so far, selection changes included.
 
 ### Material
 
 A material: mat.params.base_color = (1, 0, 0); node.material = mat.
 
+- `.class_info` (_mx.ClassInfo): The object's class as a ClassInfo (a node's: its base object's): x.class_info.describe() lists what the class takes, x.class_info.plugin the DLL it comes from.
 - `.class_name` (str): MAXScript class: PhysicalMaterial, Multimaterial, ...
-- `.handle` (int)
+- `.exists` (bool): False once the object is gone: deleted, or off the stack or list it was read from.
+- `.handle` (int): The material's animatable handle. In pymxs: rt.getAnimByHandle(mat.handle).
+- `.interface(name: str) -> _mx.Interface`: A mixin interface of the object by name: mod.interface('unwrap2').
+- `.interfaces` (list[_mx.Interface]): Mixin interfaces the object publishes.
 - `.maps` (dict): Map slots by parameter name: {'base_color_map': <Texmap>, 'bump_map': None, ...}; set them through params.
 - `.name` (str, settable): The material's name.
 - `.network(depth: int = 6, max_nodes: int = 80) -> dict`: The map graph: {'tree': lines, 'links': [(parent, slot, child)], 'files', 'issues', 'complete'}; print('\n'.join(net['tree'])).
 - `.nodes` (list[_mx.Node]): Scene nodes whose material is this one or contains it.
 - `.params` (_mx.Params): The material's parameters.
+- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'seen' marks a target listed above, and nodes are listed, n...
 - `.remap_files(texture_folder: str = '', path_map: object | None = None, allow_missing: bool = False, preview: bool = False) -> list`: Repoint texture files in place, by file name in texture_folder or by path_map {old: new}; returns the changes (preview=True only plans).
 - `.replace_with(new: _mx.Material, sub_materials: bool = True) -> dict`: Put new wherever this material is: on nodes and in sub-material slots; returns {'nodes', 'slots', 'skipped'}.
 - `.replicate(texture_folder: str = '', path_map: object | None = None, name: str = '', nodes: object | None = None, allow_missing: bool = False) -> _mx.Material`: Copy the material, its texture files repointed to texture_folder or path_map {old: new}, onto nodes: mat.replicate('D:/tex/oak', name='Oak', nodes=['Table']).
@@ -571,12 +588,18 @@ A material: mat.params.base_color = (1, 0, 0); node.material = mat.
 
 A modifier on a node's stack: m.params.angle = 30, m.enabled = False.
 
-- `.class_name` (str)
+- `.class_info` (_mx.ClassInfo): The object's class as a ClassInfo (a node's: its base object's): x.class_info.describe() lists what the class takes, x.class_info.plugin the DLL it comes from.
+- `.class_name` (str): MAXScript class: Bend, TurboSmooth, Edit_Poly, ...
 - `.delete() -> None`: Remove the modifier from the stack.
-- `.enabled` (bool, settable)
-- `.name` (str, settable)
-- `.node` (_mx.Node)
+- `.enabled` (bool, settable): Whether the modifier is on, in the viewports and in renders.
+- `.exists` (bool): False once the object is gone: deleted, or off the stack or list it was read from.
+- `.handle` (int): The object's animatable handle. In pymxs: rt.getAnimByHandle(x.handle).
+- `.interface(name: str) -> _mx.Interface`: A mixin interface of the object by name: mod.interface('unwrap2').
+- `.interfaces` (list[_mx.Interface]): Mixin interfaces the object publishes.
+- `.name` (str, settable): The modifier's name in the stack; assigning renames it.
+- `.node` (_mx.Node): The node whose stack this modifier was read from; an instanced modifier is on others too.
 - `.params` (_mx.Params): The modifier's parameters.
+- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'seen' marks a target listed above, and nodes are listed, n...
 
 ### Node
 
@@ -587,7 +610,8 @@ A scene node, held by handle; NotFound once deleted.
 - `.bbox` (object): World bounding box ((min), (max)) of the evaluated geometry, or None.
 - `.boolean(operands: object | None = None, operation: str = 'subtract', *, cutters: object | None = None, repeat: object | None = None, operations: collections.abc.Sequence[str] | None = None, option: str = '', method: str | None = None, voxel_size: float | None = None, live: bool = False, use_operand_material: bool = True, new_modifier: bool = False, modifier_name: str = '') -> _mx.Boolean`: Cut or fuse with a Boolean modifier and return it: wall.boolean(['Door', 'Window']) subtracts both. operation: union, subtract, intersect, merge, attach, ins...
 - `.boolean_modifier` (_mx.Boolean | None): The topmost Boolean modifier on the stack, or None.
-- `.children` (list[_mx.Node])
+- `.children` (list[_mx.Node]): The nodes parented to this one, one level down.
+- `.class_info` (_mx.ClassInfo): The object's class as a ClassInfo (a node's: its base object's): x.class_info.describe() lists what the class takes, x.class_info.plugin the DLL it comes from.
 - `.class_name` (str): Class of the base object: Sphere, Editable_Poly, ...
 - `.clone(mode: str = 'copy', name: str = '', offset: object | None = None) -> _mx.Node`: Copy, instance or reference the node (and its children), moved by offset.
 - `.conform_verts(target: object, indices: collections.abc.Sequence[int] | None = None, *, axes: str = 'xyz', axis: str = '', strength: float = 1.0, spline: int = 1, convert: bool = False) -> tuple[int, int]`: Pull base vertices onto a spline (closest point on spline number `spline`) or a surface (ray along axis: x/y/z both ways, +x/-x/... one way, default z); axes...
@@ -603,7 +627,7 @@ A scene node, held by handle; NotFound once deleted.
 - `.get_verts(indices: collections.abc.Sequence[int] | None = None, *, bbox: object | None = None, near: object | None = None, radius: float = 0.0, convert: bool = False) -> dict`: World positions of the Editable Poly base's vertices as {index: (x, y, z)}, 1-based; filter by indices, bbox=((min), (max)) and near=(x, y, z) with radius. c...
 - `.group` (_mx.Group | None): The group this node is in, or None.
 - `.handle` (int): The node's animatable handle. In pymxs: rt.getAnimByHandle(node.handle), not maxOps.getNodeByHandle.
-- `.hidden` (bool, settable)
+- `.hidden` (bool, settable): Whether the node is hidden; assign to hide or show it.
 - `.inspect() -> dict`: Report: classes, transform, hierarchy, visibility and render flags, wirecolor, instances (self included), mesh, bbox, modifiers, material and the plugin file...
 - `.instances` (list[_mx.Node]): Nodes sharing this node's object (instances and references), itself included: instanced when len > 1.
 - `.interface(name: str) -> _mx.Interface`: A mixin interface of the node by name: node.interface('INodeBakeProperties').
@@ -616,7 +640,7 @@ A scene node, held by handle; NotFound once deleted.
 - `.mesh_qa(limit: int = 12, area_epsilon: float = 0.0) -> dict`: Topology report of the evaluated mesh: boundary, non-manifold and winding-conflict edges, degenerate and duplicate triangles, isolated vertices and edge-conn...
 - `.modifiers` (list[_mx.Modifier]): Modifier stack, top first.
 - `.move_verts(offset: object, indices: collections.abc.Sequence[int] | None = None, *, falloff: float = 0.0, convert: bool = False) -> tuple[int, int]`: Move base vertices (all by default) by a world offset; falloff > 0 drags neighbours within that distance with (1 - d/falloff)^2 weight. Returns (moved, soft_...
-- `.name` (str, settable)
+- `.name` (str, settable): The node's name; assigning renames it. Names need not be unique: hold the node, or its handle.
 - `.orientation() -> dict`: World orientation: pivot, unit local axes (x, y, z), matrix rows, bbox center and size, pivot_to_center.
 - `.params` (_mx.Params): The base object's parameters: node.params.radius = 10.
 - `.parent` (_mx.Node | None, settable): Parent node or None; reparenting keeps the world transform.
@@ -635,14 +659,27 @@ A scene node, held by handle; NotFound once deleted.
 - `.verts(world: bool = True) -> list`: Vertex positions of the evaluated, triangulated mesh (after modifiers), world space unless world=False; its IDs are not the cage's.
 - `.wires(depth: int = 8) -> list[dict]`: The node's wired tracks: [{track, controller, driven, driver, two_way, links: [{param, node, expression}]}].
 
+### Object
+
+Any other object a parameter holds, with its own parameters: a map's coords and output, a curve control, ... tex.params.coords.params.describe().
+
+- `.class_info` (_mx.ClassInfo): The object's class as a ClassInfo (a node's: its base object's): x.class_info.describe() lists what the class takes, x.class_info.plugin the DLL it comes from.
+- `.class_name` (str): MAXScript class: StandardUVGen, StandardXYZGen, StandardTextureOutput, ...
+- `.exists` (bool): False once the object is gone: deleted, or off the stack or list it was read from.
+- `.handle` (int): The object's animatable handle. In pymxs: rt.getAnimByHandle(x.handle).
+- `.interface(name: str) -> _mx.Interface`: A mixin interface of the object by name: mod.interface('unwrap2').
+- `.interfaces` (list[_mx.Interface]): Mixin interfaces the object publishes.
+- `.params` (_mx.Params): The object's parameters.
+- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'seen' marks a target listed above, and nodes are listed, n...
+
 ### Operand
 
 A Boolean operand (a snapshot): index, name, kind, operation, option, disabled.
 
-- `.disabled` (bool)
+- `.disabled` (bool): Whether the operand is switched off and left out of the result.
 - `.index` (int): Flat index in the operand stack; the base object is 1.
 - `.kind` (str): 'single' or 'folder'.
-- `.name` (str)
+- `.name` (str): The operand's name in the Boolean's operand list.
 - `.operation` (str): union, subtraction, intersection, merge, attach, insert or split.
 - `.option` (str): none, imprint (edges only) or cookie (cut without adding faces).
 
@@ -663,14 +700,14 @@ Parameters by name: p.radius, p['radius'] = 10. Angles in degrees, percentages 0
 
 ### Plugin
 
-A loaded plugin DLL: name, path, description, classes, nodes().
+A loaded plugin DLL: name, path, description, classes, nodes.
 
 - `.classes` (list[_mx.ClassInfo]): Classes the plugin defines.
-- `.description` (str)
+- `.description` (str): The description the plugin gives of itself.
 - `.loaded` (bool): False while 3ds Max defers loading it.
 - `.name` (str): File name: 'prim.dlo'.
-- `.nodes() -> list[_mx.Node]`: Scene nodes that use any of the plugin's classes.
-- `.path` (str)
+- `.nodes` (list[_mx.Node]): Scene nodes that use any of the plugin's classes.
+- `.path` (str): Full path of the DLL file.
 
 ### Poly
 
@@ -697,7 +734,7 @@ A production render queued by mx.render(): job.wait() renders it now; else it st
 - `.cancel() -> bool`: Drop the job if it has not started; returns whether it was dropped.
 - `.done` (bool): True once the job ended (done, failed or cancelled).
 - `.error` (object): Why the render failed, else None.
-- `.id` (str)
+- `.id` (str): The job's ID, as render_automations(job_id=...) takes it.
 - `.result` (object): {'status', 'output', 'width', 'height', 'seconds'} once done, else None.
 - `.signal_path` (str): Done file written when the job ends; render_automations(action='status', job_id=job.id) reads it outside Max.
 - `.status` (str): 'queued', 'rendering', 'done', 'failed' or 'cancelled'.
@@ -707,9 +744,9 @@ A production render queued by mx.render(): job.wait() renders it now; else it st
 
 A spline segment snapshot: type (line or curve), world length, and its cubic's control points.
 
-- `.length` (float)
+- `.length` (float): World length of the segment.
 - `.points` (tuple): (start, start handle, end handle, end) in world space; a line's handles lie on its chord.
-- `.type` (str)
+- `.type` (str): line or curve.
 
 ### SelectionSet
 
@@ -728,11 +765,11 @@ One spline of an editable shape (node.splines[i]). World space, 0-based indices;
 - `.closed` (bool): Whether the spline is closed; change it with close() or open().
 - `.delete(*, expected: str | None = None) -> None`: Delete the spline from its shape; later splines move down an index.
 - `.delete_knot(index: int, *, expected: str | None = None) -> None`: Delete a knot.
-- `.index` (int)
+- `.index` (int): The spline's position in node.splines, from 0.
 - `.insert(segment: int, param: float = 0.5, *, expected: str | None = None) -> int`: Split a segment at param (0-1, exclusive) with a new knot; returns its index.
 - `.knots` (list[_mx.Knot]): The knots as Knot values; edit them with set_knot or set_knots.
 - `.length` (float): World length of the spline.
-- `.node` (_mx.Node)
+- `.node` (_mx.Node): The node whose shape holds this spline.
 - `.open(*, expected: str | None = None) -> None`: Open the spline between its last and first knots.
 - `.pick(x: float, y: float, view: str, tolerance: float = 0.025, knots: collections.abc.Sequence[int] | None = None) -> list`: Knots and handles near image point (x, y) of a capture (fractions 0-1), nearest first; view is the capture's view_token. Overlapping front and back handles s...
 - `.qa(tolerance: float = 0.01) -> dict`: Sampled QA report: length, planarity, self-intersections, tangent breaks and segments that backtrack.
@@ -749,19 +786,24 @@ A State Set (a snapshot): name, camera, render_range, anim_range, lock_camera_to
 - `.anim_range` (tuple[float, float] | None): (start, end) animation frames, or None.
 - `.camera` (_mx.Node | None): The state set's camera, or None.
 - `.lock_camera_to_range` (bool): Whether the camera's animation is locked to the range.
-- `.name` (str)
+- `.name` (str): The State Set's name.
 - `.render_range` (tuple[float, float] | None): (start, end) render frames, or None.
 
 ### Texmap
 
 A texture map: tex.params.filename = 'C:/tex/wood.png'; mat.params.base_color_map = tex.
 
+- `.class_info` (_mx.ClassInfo): The object's class as a ClassInfo (a node's: its base object's): x.class_info.describe() lists what the class takes, x.class_info.plugin the DLL it comes from.
 - `.class_name` (str): MAXScript class: Bitmaptexture, Noise, OSLMap, ...
-- `.handle` (int)
+- `.exists` (bool): False once the object is gone: deleted, or off the stack or list it was read from.
+- `.handle` (int): The map's animatable handle. In pymxs: rt.getAnimByHandle(tex.handle).
+- `.interface(name: str) -> _mx.Interface`: A mixin interface of the object by name: mod.interface('unwrap2').
+- `.interfaces` (list[_mx.Interface]): Mixin interfaces the object publishes.
 - `.maps` (dict): Sub-map slots by parameter name: {'map1': <Texmap>, 'mask': None}; set them through params.
 - `.name` (str, settable): The map's name.
 - `.nodes` (list[_mx.Node]): Scene nodes whose material uses this map.
 - `.params` (_mx.Params): The map's parameters.
+- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'seen' marks a target listed above, and nodes are listed, n...
 
 ### Track
 
@@ -817,5 +859,5 @@ A viewport, resolved on every call: the user's active view, or the AGENT VIEWPOR
 
 ## Values
 
-- `BUILD` = 'b20261111153725'
+- `BUILD` = 'b20261111161633'
 - `MAX_VERSION` = 2027

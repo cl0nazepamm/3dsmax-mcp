@@ -56,6 +56,15 @@ static std::string Repr(const char* kind, AnimHandle handle, SClass_ID super) {
     return std::string("<") + kind + " " + Label(static_cast<MtlBase*>(anim)) + ">";
 }
 
+// The live reference target behind an Object.
+static ReferenceTarget* ResolveObject(const ObjectRef& ref) {
+    RequireMain();
+    Animatable* anim = Animatable::GetAnimByHandle(ref.handle);
+    if (!anim || anim->TestAFlag(A_IS_DELETED) || !anim->IsRefMaker() || !static_cast<ReferenceMaker*>(anim)->IsRefTarget())
+        throw NotFound("object #" + std::to_string(ref.handle) + " was deleted");
+    return static_cast<ReferenceTarget*>(anim);
+}
+
 nb::object RefToPython(ReferenceTarget* target) {
     if (!target) return nb::none();
     switch (target->SuperClassID()) {
@@ -65,32 +74,30 @@ nb::object RefToPython(ReferenceTarget* target) {
         INode* node = static_cast<INode*>(target);
         return InScene(node) ? nb::cast(Wrap(node)) : nb::none();
     }
-    default: return nb::str(("<" + HandlerHelpers::MaxScriptVisibleClassName(target) + ">").c_str());
+    default: return nb::cast(ObjectRef{Animatable::GetHandleByAnim(target)});
     }
 }
 
-// What PythonToRef accepts for a superclass, for its errors; null when _mx
-// has no object of that kind to pass.
+// What PythonToRef accepts for a superclass, for its errors.
 static const char* RefKinds(SClass_ID super) {
     switch (super) {
-    case 0: return "a Material, Texmap or Node";
+    case 0: return "a Material, Texmap, Node or Object";
     case MATERIAL_CLASS_ID: return "a Material";
     case TEXMAP_CLASS_ID: return "a Texmap";
     case BASENODE_CLASS_ID: return "a Node";
-    default: return nullptr;
+    default: return "an Object of the slot's kind";
     }
 }
 
 ReferenceTarget* PythonToRef(nb::handle value, SClass_ID super, const std::string& what) {
     if (value.is_none()) return nullptr;
-    const char* kinds = RefKinds(super);
-    if (!kinds) throw BadParam(what + " holds a kind of object _mx cannot pass yet; use rt (pymxs)");
     ReferenceTarget* target = nullptr;
     if (nb::isinstance<MaterialRef>(value)) target = ResolveMaterial(nb::cast<MaterialRef>(value));
     else if (nb::isinstance<TexmapRef>(value)) target = ResolveTexmap(nb::cast<TexmapRef>(value));
     else if (nb::isinstance<Node>(value)) target = Resolve(nb::cast<Node>(value));
+    else if (nb::isinstance<ObjectRef>(value)) target = ResolveObject(nb::cast<ObjectRef>(value));
     if (!target || (super && target->SuperClassID() != super))
-        throw BadParam(what + " expects " + kinds + " (or None), got " + TypeNameOf(value));
+        throw BadParam(what + " expects " + RefKinds(super) + " (or None), got " + TypeNameOf(value));
     return target;
 }
 
@@ -709,8 +716,29 @@ static nb::object BackupLibrary(const std::string& source, const std::string& fo
 // ── Binding ──────────────────────────────────────────────────────
 
 void BindMaterials(nb::module_& m) {
+    nb::class_<ObjectRef>(m, "Object",
+        "Any other object a parameter holds, with its own parameters: a map's coords and output, a curve control, ... "
+        "tex.params.coords.params.describe().")
+        .def_prop_ro("handle", [](const ObjectRef& r) { return (unsigned long long)r.handle; },
+            "The object's animatable handle. In pymxs: rt.getAnimByHandle(x.handle).")
+        .def_prop_ro("class_name", [](const ObjectRef& r) { return HandlerHelpers::MaxScriptVisibleClassName(ResolveObject(r)); },
+            "MAXScript class: StandardUVGen, StandardXYZGen, StandardTextureOutput, ...")
+        .def_prop_ro("params", [](const ObjectRef& r) { ResolveObject(r); return Params{0, r.handle}; },
+            "The object's parameters.")
+        .def("__repr__", [](const ObjectRef& r) {
+            RequireMain();
+            Animatable* anim = Animatable::GetAnimByHandle(r.handle);
+            if (!anim || anim->TestAFlag(A_IS_DELETED)) return "<Object #" + std::to_string(r.handle) + " deleted>";
+            return "<Object " + HandlerHelpers::MaxScriptVisibleClassName(anim) + ">";
+        })
+        .def("__eq__", [](const ObjectRef& a, nb::handle b) {
+            return nb::isinstance<ObjectRef>(b) && a.handle == nb::cast<ObjectRef>(b).handle;
+        }, nb::arg("other").none())
+        .def("__hash__", [](const ObjectRef& r) { return (Py_hash_t)r.handle; });
+
     nb::class_<TexmapRef>(m, "Texmap", "A texture map: tex.params.filename = 'C:/tex/wood.png'; mat.params.base_color_map = tex.")
-        .def_prop_ro("handle", [](const TexmapRef& r) { return (unsigned long long)r.tex; })
+        .def_prop_ro("handle", [](const TexmapRef& r) { return (unsigned long long)r.tex; },
+            "The map's animatable handle. In pymxs: rt.getAnimByHandle(tex.handle).")
         .def_prop_rw("name",
             [](const TexmapRef& r) { return NameOf(ResolveTexmap(r)); },
             [](const TexmapRef& r, const std::string& name) { ResolveTexmap(r)->SetName(Utf8ToWide(name).c_str()); },
@@ -729,7 +757,8 @@ void BindMaterials(nb::module_& m) {
         .def("__hash__", [](const TexmapRef& r) { return (Py_hash_t)r.tex; });
 
     nb::class_<MaterialRef>(m, "Material", "A material: mat.params.base_color = (1, 0, 0); node.material = mat.")
-        .def_prop_ro("handle", [](const MaterialRef& r) { return (unsigned long long)r.mtl; })
+        .def_prop_ro("handle", [](const MaterialRef& r) { return (unsigned long long)r.mtl; },
+            "The material's animatable handle. In pymxs: rt.getAnimByHandle(mat.handle).")
         .def_prop_rw("name",
             [](const MaterialRef& r) { return NameOf(ResolveMaterial(r)); },
             [](const MaterialRef& r, const std::string& name) { ResolveMaterial(r)->SetName(Utf8ToWide(name).c_str()); },

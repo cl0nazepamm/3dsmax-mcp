@@ -584,12 +584,13 @@ static nb::dict RefTree(ReferenceTarget* target, int index, int depth, bool root
     return entry;
 }
 
-static nb::dict References(const Node& n, int depth) {
-    INode* node = Resolve(n);
+nb::dict ReferenceTree(ReferenceTarget* root, int depth) {
     if (depth < 0 || depth > 8) throw BadParam("depth is 0-8, not " + std::to_string(depth));
     std::unordered_set<ReferenceTarget*> seen;
-    return RefTree(node, -1, depth, true, seen);
+    return RefTree(root, -1, depth, true, seen);
 }
+
+static nb::dict References(const Node& n, int depth) { return ReferenceTree(Resolve(n), depth); }
 
 // ── Queries ──────────────────────────────────────────────────────
 
@@ -813,8 +814,8 @@ static nb::dict ScenePatterns() {
 void BindScene(nb::module_& m) {
     nb::class_<SceneMark>(m, "Mark",
         "A point in the scene's change journal: seq counts every event, scene_seq only persistent edits.")
-        .def_ro("seq", &SceneMark::seq)
-        .def_ro("scene_seq", &SceneMark::scene_seq)
+        .def_ro("seq", &SceneMark::seq, "Count of every journal event so far, selection changes included.")
+        .def_ro("scene_seq", &SceneMark::scene_seq, "Count of persistent edits only; what expected= compares.")
         .def("__repr__", [](const SceneMark& mark) {
             return "<Mark seq=" + std::to_string(mark.seq) + " scene_seq=" + std::to_string(mark.scene_seq) + ">";
         });
@@ -822,12 +823,13 @@ void BindScene(nb::module_& m) {
     nb::class_<SceneChange>(m, "Change",
         "A journal entry (a snapshot): seq, scene_seq, type ('added', 'name_changed', 'deleted', ...), node, "
         "name (when it happened), details.")
-        .def_ro("seq", &SceneChange::seq)
-        .def_ro("scene_seq", &SceneChange::scene_seq)
-        .def_ro("type", &SceneChange::type)
-        .def_ro("name", &SceneChange::name)
-        .def_prop_ro("node", [](const SceneChange& change) { return change.node; })
-        .def_ro("details", &SceneChange::details)
+        .def_ro("seq", &SceneChange::seq, "The event's number in the journal; pass a Mark or this to changes(since).")
+        .def_ro("scene_seq", &SceneChange::scene_seq, "The scene's edit count once this event had happened.")
+        .def_ro("type", &SceneChange::type, "What happened: 'added', 'deleted', 'name_changed', 'selection_changed', ...")
+        .def_ro("name", &SceneChange::name, "The node's name when it happened; '' for an event without a node.")
+        .def_prop_ro("node", [](const SceneChange& change) { return change.node; },
+            "The node the event is about, or None; a deleted node's raises NotFound when used.")
+        .def_ro("details", &SceneChange::details, "What else the event recorded, as a dict, or None.")
         .def("__repr__", [](const SceneChange& change) {
             const std::string name = change.name.empty() ? "" : " '" + change.name + "'";
             return "<Change " + std::to_string(change.seq) + " " + change.type + name + ">";

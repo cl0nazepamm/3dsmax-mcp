@@ -377,7 +377,8 @@ static std::string EffectRepr(const EffectRef& r) {
 static void BindRender(nb::module_& m) {
     nb::class_<RenderJob>(m, "RenderJob",
         "A production render queued by mx.render(): job.wait() renders it now; else it starts when the script returns.")
-        .def_prop_ro("id", [](const RenderJob& j) { return j.id; })
+        .def_prop_ro("id", [](const RenderJob& j) { return j.id; },
+            "The job's ID, as render_automations(job_id=...) takes it.")
         .def_prop_ro("status", [](const RenderJob& j) { return WithJob(j, [](const RenderState& s) { return std::string(StatusName(s.phase)); }); },
             "'queued', 'rendering', 'done', 'failed' or 'cancelled'.")
         .def_prop_ro("done", [](const RenderJob& j) {

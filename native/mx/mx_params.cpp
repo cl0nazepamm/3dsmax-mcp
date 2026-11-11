@@ -177,6 +177,17 @@ static BOOL SetReference(const ParamRef& ref, TimeValue t, nb::handle value, int
     SClass_ID super = type == TYPE_TEXMAP ? TEXMAP_CLASS_ID : type == TYPE_MTL ? MATERIAL_CLASS_ID : ref.def->sclass_ID;
     if (super == REF_TARGET_CLASS_ID) super = 0;
     ReferenceTarget* target = PythonToRef(value, super, what);
+    if (target && nb::isinstance<ObjectRef>(value)) {
+        // An Object is of no kind _mx knows, and a slot does not say which class
+        // it takes: it fits only where an object of its own class already is.
+        ReferenceTarget* current = nullptr;
+        Interval valid = FOREVER;
+        pb->GetValue(id, t, current, valid, index);
+        if (!current || current->ClassID() != target->ClassID() || current->SuperClassID() != target->SuperClassID())
+            throw BadParam(what + " takes an Object of the class it holds" +
+                           (current ? " (" + HandlerHelpers::MaxScriptVisibleClassName(current) + ")" : std::string(", and it is empty")) +
+                           ", not " + ReprOf(value));
+    }
     if (target && target->TestForLoop(FOREVER, pb) != REF_SUCCEED)
         throw BadParam(what + ": " + ReprOf(value) + " already contains this object, so it cannot go in this slot");
     if (type == TYPE_TEXMAP) return pb->SetValue(id, t, static_cast<Texmap*>(target), index);
@@ -309,15 +320,16 @@ void BindParams(nb::module_& m) {
             if (name.size() > 1 && name[0] == '_' && name[1] == '_') throw nb::attribute_error(name.c_str());
             return GetValue(ParamOwner(p), name, Now());
         })
+        // None is a value here: it empties a map, material or node slot.
         .def("__setattr__", [](const Params& p, const std::string& name, nb::handle value) {
             SetParam(ParamOwner(p), name, value, Now());
-        })
+        }, "name"_a, nb::arg("value").none())
         .def("__getitem__", [](const Params& p, const std::string& name) {
             return GetValue(ParamOwner(p), name, Now());
         })
         .def("__setitem__", [](const Params& p, const std::string& name, nb::handle value) {
             SetParam(ParamOwner(p), name, value, Now());
-        })
+        }, "name"_a, nb::arg("value").none())
         .def("__contains__", [](const Params& p, const std::string& name) {
             Animatable* owner = ParamOwner(p);
             return FindParam(owner, name).has_value() || ParamCodec::FindSubControl(owner, name) != nullptr ||

@@ -2,6 +2,8 @@
 
 Agents and people read the same text: mx.help("sdk") inside a script, and
 docs/mx-sdk-reference.md, which scripts/codegen/gen_mx_reference.py writes from a running Max.
+The same walk checks the module against the API conventions (lint, check); the
+generator writes nothing while check() reports a problem.
 """
 
 from __future__ import annotations
@@ -175,3 +177,131 @@ def help_text(module: Any, path: str) -> str:
         return (f".{name}" + (f" -> {kind}" if kind else "") + f" ({settable})\n\n{_property_doc(member)}").strip()
     signatures, text = _split(getattr(owner, "__doc__", None))
     return "\n".join(signatures + ["", text]).strip() if signatures or text else repr(owner)
+
+
+# ── Conventions ──────────────────────────────────────────────────
+# native/mx/mx_common.h states the rules every sdk name follows. lint() checks the
+# ones a walk over the loaded module can see.
+
+# What every wrapper of a plugin object offers (Node, Modifier, Material, Texmap,
+# Controller, Effect, Object and their subclasses). A class binds what is its own; the
+# rest is bound once for all of them (native/mx/mx_plugins.cpp, the object protocol).
+OBJECT_MEMBERS = ("handle", "exists", "class_name", "class_info", "params", "interfaces", "interface", "references")
+
+# A name has one shape: a property on every class that has it, or a method on every
+# one. These are different things that share a word.
+HOMONYMS = {
+    "edges": "Viewport.edges is the edged-faces display flag; Poly.edges() lists the cage's edges",
+    "frame": "Key.frame is a time; Viewport.frame() fits nodes in the view",
+    "keys": "Params.keys() is dict's; Track.keys are the animation keys",
+    "open": "Group.open is a state; Spline.open() is an edit, with close()",
+    "value": "Key.value is the key's own value; Track.value(frame) evaluates the track",
+}
+
+# Signatures with an annotation that says nothing about the value: `object`, or a bare
+# dict, list or tuple as a result. Value types and typed results replace them. The
+# number only goes down: check() fails when the module has more, and when it has
+# fewer until this is lowered to match.
+UNTYPED_BUDGET = 133
+
+_OBJECT = re.compile(r"\bobject\b")
+_BARE_RESULTS = frozenset({"dict", "list", "tuple"})
+
+
+def _untyped(annotations: str, result: str) -> str:
+    """Why a signature's annotations are untyped, or "" when they say what the values are."""
+    why = []
+    count = len(_OBJECT.findall(annotations))
+    if count:
+        why.append("`object`" + (f" x{count}" if count > 1 else ""))
+    if result.strip() in _BARE_RESULTS:
+        why.append(f"a bare {result.strip()} result")
+    return " and ".join(why)
+
+
+def _signature_untyped(signature: str) -> str:
+    _, arrow, result = signature.rpartition(" -> ")
+    return _untyped(signature, result if arrow else "")
+
+
+def lint(module: Any) -> dict[str, list[str]]:
+    """Where the module departs from the conventions, by rule: one line per finding.
+
+    doc: a function, class, property or method without a description.
+    object: a plugin-object wrapper (a class with params) that lacks one of OBJECT_MEMBERS.
+    shape: a name that is a property on one class and a method on another (HOMONYMS excepted).
+    untyped: a signature with an untyped annotation (see UNTYPED_BUDGET).
+    """
+    found: dict[str, list[str]] = {"doc": [], "object": [], "shape": [], "untyped": []}
+    shapes: dict[str, dict[str, list[str]]] = {}
+
+    def note_untyped(where: str, why: str) -> None:
+        if why:
+            found["untyped"].append(f"{where}: {why}")
+
+    for name in _public(sorted(dir(module))):
+        value = getattr(module, name)
+        kind = _kind(value)
+        if kind == "function":
+            signatures, text = _split(value.__doc__)
+            if not text:
+                found["doc"].append(f"{name}(): no description")
+            note_untyped(f"{name}()", " and ".join(filter(None, map(_signature_untyped, signatures[:1]))))
+        elif kind in ("class", "exception"):
+            if not (value.__doc__ or "").strip():
+                found["doc"].append(f"{name}: no description")
+            if kind == "exception":
+                continue
+            if hasattr(value, "params"):
+                missing = [member for member in OBJECT_MEMBERS if not hasattr(value, member)]
+                if missing:
+                    found["object"].append(f"{name}: lacks {', '.join(missing)}")
+            for member in _public(sorted(vars(value))):
+                attribute = vars(value)[member]
+                if isinstance(attribute, property):
+                    shape = "property"
+                    if not _property_doc(attribute):
+                        found["doc"].append(f"{name}.{member}: no description")
+                    kind_text = _property_type(value, member, attribute)
+                    note_untyped(f"{name}.{member}", _untyped(kind_text, kind_text))
+                elif callable(attribute) and not inspect.isclass(attribute):
+                    shape = "method"
+                    signatures, text = _split(getattr(attribute, "__doc__", None))
+                    if not text:
+                        found["doc"].append(f"{name}.{member}(): no description")
+                    note_untyped(f"{name}.{member}()",
+                                 " and ".join(filter(None, map(_signature_untyped, signatures[:1]))))
+                else:
+                    continue
+                shapes.setdefault(member, {}).setdefault(shape, []).append(name)
+    for member, by_shape in sorted(shapes.items()):
+        if len(by_shape) > 1 and member not in HOMONYMS:
+            found["shape"].append(f"{member}: a property on {', '.join(by_shape['property'])} and a method on "
+                                  f"{', '.join(by_shape['method'])}")
+    return found
+
+
+def check(module: Any) -> list[str]:
+    """What has to be fixed before the reference is written; [] when the module follows the conventions."""
+    found = lint(module)
+    problems = [f"{rule}: {line}" for rule in ("doc", "object", "shape") for line in found[rule]]
+    untyped = len(found["untyped"])
+    if untyped > UNTYPED_BUDGET:
+        problems.append(f"untyped: {untyped} signatures have an untyped annotation, {untyped - UNTYPED_BUDGET} more "
+                        f"than UNTYPED_BUDGET allows; lint(module)['untyped'] lists them")
+    elif untyped < UNTYPED_BUDGET:
+        problems.append(f"untyped: down to {untyped}; lower UNTYPED_BUDGET in maxmcp/mx/_reference.py to match")
+    return problems
+
+
+def write(module: Any, path: str, title: str = "sdk") -> dict[str, Any]:
+    """Write the reference to `path`, unless the module breaks a convention: then nothing is written.
+
+    Returns {"build", "chars", "problems"}; problems is check()'s list, empty when the file was written.
+    """
+    problems = check(module)
+    text = "" if problems else reference(module, title)
+    if text:
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+    return {"build": getattr(module, "BUILD", "?"), "chars": len(text), "problems": problems}

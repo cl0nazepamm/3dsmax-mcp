@@ -8,6 +8,26 @@
 //
 // Values follow MAXScript: angles in degrees, percentages 0-100, times in
 // frames. Colors are 0-1 floats.
+//
+// Conventions every name follows (maxmcp/mx/_reference.py lints the ones a
+// walk over the loaded module can see; the reference is not written while it
+// reports a problem):
+// - Every class, function, property and method has a description.
+// - A wrapper of a plugin object (Node, Modifier, Material, Texmap, Controller,
+//   Effect, and Object for any other kind) offers the object protocol: handle,
+//   exists, class_name, class_info, params, interfaces, interface(name),
+//   references(depth). A class binds what is its own; mx_plugins.cpp binds the
+//   rest once for all of them.
+// - What a parameter returns, it takes back: params[name] = params[name] is
+//   never an error for a parameter that can be set.
+// - A name has one shape: state and related objects are properties (nodes,
+//   params, modifiers), work is a method, on every class that has the name.
+// - Positions in a Python sequence count from 0 (node.splines[i], knots,
+//   sub_materials). A number 3ds Max itself shows or MAXScript takes is an ID
+//   and keeps Max's value, from 1: vertex, edge and face IDs, material IDs,
+//   steps in a MAXScript path ('modifiers[1]', 'pos[2]').
+// - Annotations say what a value is. `object` and a bare dict, list or tuple
+//   result are a debt the lint counts, and the count only goes down.
 #pragma once
 
 // nanobind first: the MAXScript headers pulled in below define function-like
@@ -237,13 +257,21 @@ struct ModifierRef {
 
 struct MaterialRef { AnimHandle mtl = 0; };
 struct TexmapRef { AnimHandle tex = 0; };
+// Any other reference target a parameter holds (a map's coords and output, a
+// curve control, ...): the object protocol and its params, nothing of its own.
+struct ObjectRef { AnimHandle handle = 0; };
 
 // A reference target as Python: Material, Texmap, Node, None for null, else
-// its class name in angle brackets (mx_materials.cpp).
+// an Object (mx_materials.cpp).
 nb::object RefToPython(ReferenceTarget* target);
-// The Material, Texmap or Node `value` holds, nullptr for None. `super`
+// The Material, Texmap, Node or Object `value` holds, nullptr for None. `super`
 // restricts the kind (0: any of them); anything else is BadParam naming `what`.
 ReferenceTarget* PythonToRef(nb::handle value, SClass_ID super, const std::string& what);
+
+// A target and its references, depth (0-8) levels down, as nested dicts
+// (mx_scene.cpp): 'seen' marks a target listed above, and nodes other than
+// the root are listed, not expanded.
+nb::dict ReferenceTree(ReferenceTarget* root, int depth);
 
 // A public class by MAXScript or UI name within the superclasses, in order.
 ClassDesc* FindClass(const std::string& name, std::initializer_list<SClass_ID> supers);
@@ -281,10 +309,16 @@ nlohmann::json FromPython(nb::handle value);
 // A domain file adds methods and properties to classes bound elsewhere (Node,
 // Params, Track, ...) without editing that file. Call after the class is bound.
 
+// The class is named by its Python type here, for classes whose C++ type
+// another file keeps to itself; the function then takes `nb::handle self`.
+template <typename F, typename... Extra>
+void AddMethodTo(nb::handle cls, const char* name, F&& f, const Extra&... extra) {
+    nb::setattr(cls, name, nb::cpp_function(std::forward<F>(f), nb::is_method(), nb::scope(cls), nb::name(name), extra...));
+}
+
 template <typename Cls, typename F, typename... Extra>
 void AddMethod(const char* name, F&& f, const Extra&... extra) {
-    nb::handle cls = nb::type<Cls>();
-    nb::setattr(cls, name, nb::cpp_function(std::forward<F>(f), nb::is_method(), nb::scope(cls), nb::name(name), extra...));
+    AddMethodTo(nb::type<Cls>(), name, std::forward<F>(f), extra...);
 }
 
 // A property is a Python property over hidden accessor methods
@@ -292,10 +326,15 @@ void AddMethod(const char* name, F&& f, const Extra&... extra) {
 // property object calls them directly, bound methods do not.
 nb::object MakeProperty(nb::handle cls, const char* name, bool settable, const char* doc);
 
+template <typename G>
+void AddPropertyTo(nb::handle cls, const char* name, G&& getter, const char* doc) {
+    AddMethodTo(cls, ("_get_" + std::string(name)).c_str(), std::forward<G>(getter));
+    nb::setattr(cls, name, MakeProperty(cls, name, false, doc));
+}
+
 template <typename Cls, typename G>
 void AddProperty(const char* name, G&& getter, const char* doc) {
-    AddMethod<Cls>(("_get_" + std::string(name)).c_str(), std::forward<G>(getter));
-    nb::setattr(nb::type<Cls>(), name, MakeProperty(nb::type<Cls>(), name, false, doc));
+    AddPropertyTo(nb::type<Cls>(), name, std::forward<G>(getter), doc);
 }
 
 template <typename Cls, typename G, typename S>

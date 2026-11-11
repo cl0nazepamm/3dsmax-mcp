@@ -915,11 +915,14 @@ static std::string TrackRepr(const Track& tr) {
 // ── Binding ──────────────────────────────────────────────────────
 
 void BindTracks(nb::module_& m) {
-    nb::class_<AtTime>(m, "AtTime")
+    nb::class_<AtTime>(m, "AtTime",
+        "What at(frame) returns: inside `with sdk.at(10):`, reads and edits happen at that frame instead of the time slider's.")
         .def("__enter__", [](const AtTime& a) { RequireMain(); TimeStack().push_back(a.time); })
         .def("__exit__", [](const AtTime&, nb::args) { if (!TimeStack().empty()) TimeStack().pop_back(); });
 
-    nb::class_<AnimateMode>(m, "AnimateMode")
+    nb::class_<AnimateMode>(m, "AnimateMode",
+        "What animate(on) returns: inside `with sdk.animate():`, edits set keys (Auto Key); animate(False) turns keying "
+        "off for the block. The mode before the block comes back after it.")
         .def("__enter__", [](AnimateMode& a) {
             RequireMain();
             a.previous = Animating();
@@ -928,10 +931,11 @@ void BindTracks(nb::module_& m) {
         .def("__exit__", [](AnimateMode& a, nb::args) { if (a.previous) AnimateOn(); else AnimateOff(); });
 
     nb::class_<Key>(m, "Key", "A key: frame, value, in_tangent, out_tangent (a snapshot).")
-        .def_ro("frame", &Key::frame)
-        .def_ro("value", &Key::value)
-        .def_ro("in_tangent", &Key::in_tangent)
-        .def_ro("out_tangent", &Key::out_tangent)
+        .def_ro("frame", &Key::frame, "The key's time, in frames.")
+        .def_ro("value", &Key::value, "The key's value, in the units the track's value() gives: a number, or (x, y, z).")
+        .def_ro("in_tangent", &Key::in_tangent,
+            "Incoming tangent type: smooth, linear, step, fast, slow, auto or custom; '' on a controller without tangents.")
+        .def_ro("out_tangent", &Key::out_tangent, "Outgoing tangent type, named like in_tangent.")
         .def("__repr__", [](const Key& k) {
             std::string tangents = k.in_tangent.empty() ? "" : " " + k.in_tangent + "/" + k.out_tangent;
             return "<Key " + ReprOf(nb::float_(k.frame)) + ": " + ReprOf(k.value) + tangents + ">";

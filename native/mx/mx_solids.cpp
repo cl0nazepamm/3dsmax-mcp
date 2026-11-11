@@ -1271,11 +1271,11 @@ void BindSolids(nb::module_& m) {
 
     nb::class_<OperandInfo>(m, "Operand", "A Boolean operand (a snapshot): index, name, kind, operation, option, disabled.")
         .def_ro("index", &OperandInfo::index, "Flat index in the operand stack; the base object is 1.")
-        .def_ro("name", &OperandInfo::name)
+        .def_ro("name", &OperandInfo::name, "The operand's name in the Boolean's operand list.")
         .def_ro("kind", &OperandInfo::kind, "'single' or 'folder'.")
         .def_ro("operation", &OperandInfo::operation, "union, subtraction, intersection, merge, attach, insert or split.")
         .def_ro("option", &OperandInfo::option, "none, imprint (edges only) or cookie (cut without adding faces).")
-        .def_ro("disabled", &OperandInfo::disabled)
+        .def_ro("disabled", &OperandInfo::disabled, "Whether the operand is switched off and left out of the result.")
         .def("__repr__", &OperandRepr);
 
     AddMethod<Node>("boolean", &ApplyBoolean, "operands"_a = nb::none(), "operation"_a = "subtract", nb::kw_only(),
@@ -1310,7 +1310,8 @@ void BindSolids(nb::module_& m) {
 
     nb::class_<LoftRef>(m, "LoftMesh",
         "A parametric quad loft's definition, stored on its node; node.loft_mesh.update(width=20) rebuilds the cage.")
-        .def_prop_ro("node", [](const LoftRef& r) { Resolve(Node{r.node}); return Node{r.node}; })
+        .def_prop_ro("node", [](const LoftRef& r) { Resolve(Node{r.node}); return Node{r.node}; },
+            "The node that carries this loft.")
         .def_prop_ro("parameters", [](const LoftRef& r) -> nb::object {
             const auto params = MatchedParams(ReadLoft(r, true));
             return params ? ParamsPython(*params) : nb::none();

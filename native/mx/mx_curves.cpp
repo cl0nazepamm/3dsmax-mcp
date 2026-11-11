@@ -2072,8 +2072,8 @@ void BindCurves(nb::module_& m) {
 
     nb::class_<Segment>(m, "Segment",
         "A spline segment snapshot: type (line or curve), world length, and its cubic's control points.")
-        .def_ro("type", &Segment::type)
-        .def_ro("length", &Segment::length)
+        .def_ro("type", &Segment::type, "line or curve.")
+        .def_ro("length", &Segment::length, "World length of the segment.")
         .def_prop_ro("points", [](const Segment& s) {
             return nb::make_tuple(Tuple(s.points[0]), Tuple(s.points[1]), Tuple(s.points[2]), Tuple(s.points[3]));
         }, "(start, start handle, end handle, end) in world space; a line's handles lie on its chord.")
@@ -2086,8 +2086,10 @@ void BindCurves(nb::module_& m) {
     nb::class_<SplineRef>(m, "Spline",
         "One spline of an editable shape (node.splines[i]). World space, 0-based indices; every edit takes "
         "expected=node.curve_token to refuse a shape that changed.")
-        .def_prop_ro("index", [](const SplineRef& r) { return r.index; })
-        .def_prop_ro("node", [](const SplineRef& r) { Resolve(Node{r.node}); return Node{r.node}; })
+        .def_prop_ro("index", [](const SplineRef& r) { return r.index; },
+            "The spline's position in node.splines, from 0.")
+        .def_prop_ro("node", [](const SplineRef& r) { Resolve(Node{r.node}); return Node{r.node}; },
+            "The node whose shape holds this spline.")
         .def_prop_ro("closed", [](const SplineRef& r) { return ViewOf(r).spline->Closed() != 0; },
             "Whether the spline is closed; change it with close() or open().")
         .def_prop_ro("knots", &ReadKnots, "The knots as Knot values; edit them with set_knot or set_knots.")

@@ -260,7 +260,8 @@ void BindNodes(nb::module_& m) {
             "The node's animatable handle. In pymxs: rt.getAnimByHandle(node.handle), not maxOps.getNodeByHandle.")
         .def_prop_rw("name",
             [](const Node& n) { return NodeName(Resolve(n)); },
-            [](const Node& n, const std::string& name) { Resolve(n)->SetName(Utf8ToWide(name).c_str()); })
+            [](const Node& n, const std::string& name) { Resolve(n)->SetName(Utf8ToWide(name).c_str()); },
+            "The node's name; assigning renames it. Names need not be unique: hold the node, or its handle.")
         .def_prop_ro("class_name", [](const Node& n) { return ClassOf(Resolve(n)); },
             "Class of the base object: Sphere, Editable_Poly, ...")
         .def_prop_rw("pos", &GetPos, &SetPos, "World position of the pivot (x, y, z).")
@@ -294,10 +295,11 @@ void BindNodes(nb::module_& m) {
             std::vector<Node> out;
             for (int i = 0; i < node->NumberOfChildren(); ++i) out.push_back(Wrap(node->GetChildNode(i)));
             return out;
-        })
+        }, "The nodes parented to this one, one level down.")
         .def_prop_rw("hidden",
             [](const Node& n) { return Resolve(n)->IsHidden() != 0; },
-            [](const Node& n, bool hidden) { Resolve(n)->Hide(hidden ? TRUE : FALSE); })
+            [](const Node& n, bool hidden) { Resolve(n)->Hide(hidden ? TRUE : FALSE); },
+            "Whether the node is hidden; assign to hide or show it.")
         .def_prop_ro("layer", [](const Node& n) { return HandlerHelpers::NodeLayerName(Resolve(n)); })
         .def_prop_ro("exists", [](const Node& n) {
             RequireMain();

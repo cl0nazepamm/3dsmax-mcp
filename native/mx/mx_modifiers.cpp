@@ -66,17 +66,21 @@ void BindModifiers(nb::module_& m) {
             [](const ModifierRef& r) { return ModifierName(ResolveModifier(r)); },
             [](const ModifierRef& r, const std::string& name) {
                 ResolveModifier(r)->SetName(MSTR(Utf8ToWide(name).c_str()));
-            })
-        .def_prop_ro("class_name", [](const ModifierRef& r) { return HandlerHelpers::MaxScriptVisibleClassName(ResolveModifier(r)); })
+            },
+            "The modifier's name in the stack; assigning renames it.")
+        .def_prop_ro("class_name", [](const ModifierRef& r) { return HandlerHelpers::MaxScriptVisibleClassName(ResolveModifier(r)); },
+            "MAXScript class: Bend, TurboSmooth, Edit_Poly, ...")
         .def_prop_rw("enabled",
             [](const ModifierRef& r) { return ResolveModifier(r)->IsEnabled() != 0; },
             [](const ModifierRef& r, bool on) {
                 Modifier* mod = ResolveModifier(r);
                 if (on) mod->EnableMod(); else mod->DisableMod();
-            })
+            },
+            "Whether the modifier is on, in the viewports and in renders.")
         .def_prop_ro("params", [](const ModifierRef& r) { ResolveModifier(r); return Params{r.node, r.mod}; },
             "The modifier's parameters.")
-        .def_prop_ro("node", [](const ModifierRef& r) { ResolveModifier(r); return Node{r.node}; })
+        .def_prop_ro("node", [](const ModifierRef& r) { ResolveModifier(r); return Node{r.node}; },
+            "The node whose stack this modifier was read from; an instanced modifier is on others too.")
         .def("delete", [](const ModifierRef& r) {
             INode* node = nullptr;
             Modifier* mod = ResolveModifier(r, &node);
