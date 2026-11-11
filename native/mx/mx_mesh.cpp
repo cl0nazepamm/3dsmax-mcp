@@ -109,18 +109,23 @@ static void CheckMesh(const TriMesh& mesh, INode* node) {
             if (v < 0 || v >= count) throw MaxError("'" + NodeName(node) + "' has a triangle with a missing vertex");
 }
 
+// What the lists hold, so the signatures say it. A cage list has None in a deleted slot.
+using Points = nb::typed<nb::list, AsPoint>;
+using CagePointList = nb::typed<nb::list, std::optional<AsPoint>>;
+using Triangles = nb::typed<nb::list, nb::typed<nb::tuple, int, int, int>>;
+
 static nb::list PointList(const std::vector<Point3>& points) {
     nb::list out;
     for (const Point3& p : points) out.append(FromPoint3(p));
     return out;
 }
 
-static nb::list NodeVerts(const Node& n, bool world) {
+static Points NodeVerts(const Node& n, bool world) {
     INode* node = Resolve(n);
     return PointList(RequireMesh(node, Now(), world).verts);
 }
 
-static nb::list NodeFaces(const Node& n) {
+static Triangles NodeFaces(const Node& n) {
     INode* node = Resolve(n);
     nb::list out;
     for (const auto& f : RequireMesh(node, Now(), false).faces) out.append(nb::make_tuple(f[0] + 1, f[1] + 1, f[2] + 1));
@@ -299,31 +304,31 @@ static nb::list PerComponent(const MNMesh& m, Level level, const std::optional<s
     return out;
 }
 
-static nb::tuple CageCounts(const Poly& p) {
+static nb::typed<nb::tuple, int, int, int> CageCounts(const Poly& p) {
     const Cage c = ResolveCage(p);
     return nb::make_tuple(c.mesh->VNum(), c.mesh->ENum(), c.mesh->FNum());
 }
 
-static nb::list CageVerts(const Poly& p, const std::optional<std::vector<int>>& ids, bool world) {
+static CagePointList CageVerts(const Poly& p, const std::optional<std::vector<int>>& ids, bool world) {
     const Cage c = ResolveCage(p);
     const std::vector<Point3> points = CagePoints(c, world);
     return PerComponent(*c.mesh, Level::Vertex, ids, [&](int i) { return FromPoint3(points[i]); });
 }
 
-static nb::list CageEdges(const Poly& p, const std::optional<std::vector<int>>& ids) {
+static nb::typed<nb::list, std::optional<nb::typed<nb::tuple, int, int>>> CageEdges(const Poly& p, const std::optional<std::vector<int>>& ids) {
     const Cage c = ResolveCage(p);
     return PerComponent(*c.mesh, Level::Edge, ids, [&](int i) -> nb::object {
         return nb::make_tuple(c.mesh->E(i)->v1 + 1, c.mesh->E(i)->v2 + 1);
     });
 }
 
-static nb::list CageFaces(const Poly& p, const std::optional<std::vector<int>>& ids) {
+static nb::typed<nb::list, std::optional<nb::typed<nb::list, int>>> CageFaces(const Poly& p, const std::optional<std::vector<int>>& ids) {
     const Cage c = ResolveCage(p);
     return PerComponent(*c.mesh, Level::Face, ids,
                         [&](int i) -> nb::object { return IdList(ComponentVerts(*c.mesh, Level::Face, i)); });
 }
 
-static nb::list CageCenters(const Poly& p, const std::string& levelName, const std::optional<std::vector<int>>& ids,
+static CagePointList CageCenters(const Poly& p, const std::string& levelName, const std::optional<std::vector<int>>& ids,
                             bool world) {
     const Cage c = ResolveCage(p);
     const Level level = ParseLevel(levelName);
@@ -332,7 +337,7 @@ static nb::list CageCenters(const Poly& p, const std::string& levelName, const s
                         [&](int i) { return FromPoint3(MeanOf(points, ComponentVerts(*c.mesh, level, i))); });
 }
 
-static nb::list CageNormals(const Poly& p, const std::optional<std::vector<int>>& ids, bool world) {
+static CagePointList CageNormals(const Poly& p, const std::optional<std::vector<int>>& ids, bool world) {
     const Cage c = ResolveCage(p);
     const std::vector<Point3> points = CagePoints(c, world);
     return PerComponent(*c.mesh, Level::Face, ids, [&](int i) { return FromPoint3(FaceNormal(points, *c.mesh->F(i))); });
@@ -1797,7 +1802,7 @@ static Thresholds ContactThresholds(double tolerance, double nearGap) {
     return {tol, gap, tol * 0.01f};
 }
 
-static nb::dict Contacts(nb::handle nodes, nb::handle against, double tolerance, double nearGap, bool includeSeparate) {
+static nb::dict Contacts(NodesArg nodes, NodesOrNone against, double tolerance, double nearGap, bool includeSeparate) {
     RequireMain();
     const Thresholds th = ContactThresholds(tolerance, nearGap);
     const std::vector<INode*> setA = UniqueNodes(nodes, "contacts");
@@ -1941,7 +1946,7 @@ void BindMesh(nb::module_& m) {
     m.def("create_mesh", &CreateMesh, "name"_a, "verts"_a, "faces"_a,
         "Create an Editable Poly from world vertices and polygons of 1-based vertex IDs, counterclockwise seen from "
         "outside, as one undo step: create_mesh('Tri', [(0, 0, 0), (10, 0, 0), (0, 10, 0)], [(1, 2, 3)]).");
-    m.def("contacts", &Contacts, "nodes"_a, "against"_a = nb::none(), "tolerance"_a = 0.0, "near_gap"_a = 0.0,
+    m.def("contacts", &Contacts, "nodes"_a, "against"_a.none() = nb::none(), "tolerance"_a = 0.0, "near_gap"_a = 0.0,
         "include_separate"_a = false,
         "Evaluated meshes that penetrate, intersect, touch or nearly touch, worst first: contacts(legs, "
         "against=[floor, seat]) checks each leg against those only. tolerance and near_gap default to 0.1 mm and "

@@ -1321,7 +1321,7 @@ void BindSolids(nb::module_& m) {
         .def_prop_ro("origin", [](const LoftRef& r) {
             const LoftState s = ReadLoft(r, false);
             const json& o = s.data["origin"];
-            return nb::make_tuple(o[0].get<double>(), o[1].get<double>(), o[2].get<double>());
+            return PointObject{MakePoint3(o[0].get<double>(), o[1].get<double>(), o[2].get<double>())};
         }, "World point the initial sections were centered on; the cage follows the node's transform since.")
         .def("update", &UpdateLoft, "parameters"_a,
              "Rebuild the cage for new parameter values, keeping vertex IDs, transform, modifiers and materials; "

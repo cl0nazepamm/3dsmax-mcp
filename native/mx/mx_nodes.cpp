@@ -25,11 +25,11 @@ static Control* Controller(INode* node, int part) {
     return c;
 }
 
-static nb::object GetPos(const Node& n) { return FromPoint3(Resolve(n)->GetNodeTM(Now()).GetTrans()); }
+static AsPoint GetPos(const Node& n) { return {Resolve(n)->GetNodeTM(Now()).GetTrans()}; }
 
-static void SetPos(const Node& n, nb::handle value) {
+static void SetPos(const Node& n, PointArg value) {
     INode* node = Resolve(n);
-    const Point3 p = ToPoint3(value, "pos");
+    const Point3 p = ToPoint3(value.value, "pos");
     const TimeValue t = Now();
     INode* parent = node->GetParentNode();
     Control* pc = Controller(node, 0);
@@ -49,7 +49,7 @@ static Control* EulerAxis(Control* rc, int axis) {
     return axis == 0 ? rc->GetXController() : axis == 1 ? rc->GetYController() : rc->GetZController();
 }
 
-static nb::object GetRot(const Node& n) {
+static AsPoint GetRot(const Node& n) {
     INode* node = Resolve(n);
     Control* rc = Controller(node, 1);
     const TimeValue t = Now();
@@ -65,12 +65,12 @@ static nb::object GetRot(const Node& n) {
         rc->GetValue(t, &q, valid, CTRL_ABSOLUTE);
         QuatToEuler(q, angles, EULERTYPE_XYZ);
     }
-    return nb::make_tuple(RadToDeg(angles[0]), RadToDeg(angles[1]), RadToDeg(angles[2]));
+    return {Point3(RadToDeg(angles[0]), RadToDeg(angles[1]), RadToDeg(angles[2]))};
 }
 
-static void SetRot(const Node& n, nb::handle value) {
+static void SetRot(const Node& n, PointArg value) {
     INode* node = Resolve(n);
-    const auto deg = Floats(value, 3, 3, "rot");
+    const auto deg = Floats(value.value, 3, 3, "rot");
     Control* rc = Controller(node, 1);
     const TimeValue t = Now();
     if (EulerAxis(rc, 0) && EulerAxis(rc, 1) && EulerAxis(rc, 2)) {
@@ -87,15 +87,16 @@ static void SetRot(const Node& n, nb::handle value) {
     rc->SetValue(t, &q, 1, CTRL_ABSOLUTE);
 }
 
-static nb::object GetScale(const Node& n) {
+static AsPoint GetScale(const Node& n) {
     Control* sc = Controller(Resolve(n), 2);
     ScaleValue s(Point3(1, 1, 1));
     Interval valid = FOREVER;
     if (sc) sc->GetValue(Now(), &s, valid, CTRL_ABSOLUTE);
-    return FromPoint3(s.s);
+    return {s.s};
 }
 
-static void SetScale(const Node& n, nb::handle value) {
+static void SetScale(const Node& n, ScaleArg scale) {
+    const nb::handle value = scale.value;
     INode* node = Resolve(n);
     Control* sc = Controller(node, 2);
     if (!sc) throw MaxError("'" + NodeName(node) + "' has no scale track");
@@ -106,11 +107,7 @@ static void SetScale(const Node& n, nb::handle value) {
 }
 
 // The world matrix as four rows: the node's X, Y and Z axes, then its position.
-static nb::object GetTransform(const Node& n) {
-    const Matrix3 tm = Resolve(n)->GetNodeTM(Now());
-    return nb::make_tuple(FromPoint3(tm.GetRow(0)), FromPoint3(tm.GetRow(1)), FromPoint3(tm.GetRow(2)),
-                          FromPoint3(tm.GetRow(3)));
-}
+static AsMatrix GetTransform(const Node& n) { return {Resolve(n)->GetNodeTM(Now())}; }
 
 // A controller that owns part of the transform (look-at, path, script) keeps
 // its part; saying so beats a silent no-op.
@@ -127,25 +124,21 @@ static void ApplyTM(INode* node, const Matrix3& wanted, const char* what) {
     }
 }
 
-static void SetTransform(const Node& n, nb::handle value) {
+static void SetTransform(const Node& n, MatrixArg value) {
     INode* node = Resolve(n);
-    if (!nb::isinstance<nb::sequence>(value) || nb::len(value) != 4)
-        throw BadParam("transform is four rows of (x, y, z): the X, Y and Z axes, then the position");
-    Matrix3 tm(TRUE);
-    for (int r = 0; r < 4; ++r) tm.SetRow(r, ToPoint3(value[r], "transform row"));
-    ApplyTM(node, tm, "transform");
+    ApplyTM(node, ToMatrix3(value.value, "transform"), "transform");
 }
 
 // Turn the node so its -Z axis (the way lights and cameras look) points at a
 // world point; position and scale stay.
-static void LookAt(const Node& n, nb::handle target, nb::handle up) {
+static void LookAt(const Node& n, PointArg target, std::optional<PointArg> up) {
     INode* node = Resolve(n);
     const Matrix3 now = node->GetNodeTM(Now());
     const Point3 from = now.GetTrans();
-    Point3 back = from - ToPoint3(target, "target");  // +Z points away from the target
+    Point3 back = from - ToPoint3(target.value, "target");  // +Z points away from the target
     if (Length(back) < 1e-6f) throw BadParam("look_at: the target is the node's own position");
     back = Normalize(back);
-    Point3 hint = up.is_none() ? (std::fabs(back.z) > 0.999f ? Point3(0, 1, 0) : Point3(0, 0, 1)) : ToPoint3(up, "up");
+    Point3 hint = up ? ToPoint3(up->value, "up") : (std::fabs(back.z) > 0.999f ? Point3(0, 1, 0) : Point3(0, 0, 1));
     Point3 x = CrossProd(hint, back);
     if (Length(x) < 1e-6f) throw BadParam("look_at: up is parallel to the direction");
     x = Normalize(x);
@@ -159,36 +152,36 @@ static void LookAt(const Node& n, nb::handle target, nb::handle up) {
 }
 
 // World bounding box of the evaluated geometry, or None for nodes without any.
-static nb::object BBox(const Node& n) {
+static std::optional<AsBox> BBox(const Node& n) {
     INode* node = Resolve(n);
     const TimeValue t = Now();
     ObjectState os = node->EvalWorldState(t);
-    if (!os.obj) return nb::none();
+    if (!os.obj) return std::nullopt;
     Box3 box;
     Matrix3 tm = node->GetObjectTM(t);
     os.obj->GetDeformBBox(t, box, &tm, FALSE);
-    if (box.IsEmpty()) return nb::none();
-    return nb::make_tuple(FromPoint3(box.pmin), FromPoint3(box.pmax));
+    if (box.IsEmpty()) return std::nullopt;
+    return AsBox{box};
 }
 
 // (vertices, faces) of the evaluated mesh, triangulated, or None.
-static nb::object MeshCounts(const Node& n) {
+static std::optional<std::pair<int, int>> MeshCounts(const Node& n) {
     INode* node = Resolve(n);
     const TimeValue t = Now();
     ObjectState os = node->EvalWorldState(t);
     if (!os.obj || os.obj->SuperClassID() != GEOMOBJECT_CLASS_ID || !os.obj->CanConvertToType(triObjectClassID))
-        return nb::none();
+        return std::nullopt;
     TriObject* tri = static_cast<TriObject*>(os.obj->ConvertToType(t, triObjectClassID));
-    if (!tri) return nb::none();
+    if (!tri) return std::nullopt;
     const int verts = tri->GetMesh().getNumVerts();
     const int faces = tri->GetMesh().getNumFaces();
     if (tri != os.obj) tri->MaybeAutoDelete();
-    return nb::make_tuple(verts, faces);
+    return std::make_pair(verts, faces);
 }
 
 // ── Creation ─────────────────────────────────────────────────────
 
-static Node Create(const std::string& cls, const std::string& name, nb::handle pos, nb::kwargs params) {
+static Node Create(const std::string& cls, const std::string& name, std::optional<PointArg> pos, nb::kwargs params) {
     RequireMain();
     // Lookups stay inside these superclasses: several classes share a name
     // with a class of another kind, and creating the wrong one breaks the casts.
@@ -215,10 +208,10 @@ static Node Create(const std::string& cls, const std::string& name, nb::handle p
     NoAnimate noAnimate;
     const TimeValue t = Now();
     try {
-        if (!pos.is_none()) {
+        if (pos) {
             Matrix3 tm;
             tm.IdentityMatrix();
-            tm.SetTrans(ToPoint3(pos, "pos"));
+            tm.SetTrans(ToPoint3(pos->value, "pos"));
             node->SetNodeTM(t, tm);
         }
         for (auto [key, value] : params) SetParam(object, nb::cast<std::string>(key), value, t);
@@ -229,14 +222,14 @@ static Node Create(const std::string& cls, const std::string& name, nb::handle p
     return Wrap(node);
 }
 
-static Node Clone(const Node& n, const std::string& mode, const std::string& name, nb::handle offset) {
+static Node Clone(const Node& n, const std::string& mode, const std::string& name, std::optional<PointArg> offset) {
     INode* node = Resolve(n);
     CloneType type;
     if (mode == "copy") type = NODE_COPY;
     else if (mode == "instance") type = NODE_INSTANCE;
     else if (mode == "reference") type = NODE_REFERENCE;
     else throw BadParam("clone mode must be 'copy', 'instance' or 'reference', not '" + mode + "'");
-    Point3 shift = offset.is_none() ? Point3(0, 0, 0) : ToPoint3(offset, "offset");
+    Point3 shift = offset ? ToPoint3(offset->value, "offset") : Point3(0, 0, 0);
     INodeTab nodes, sources, clones;
     nodes.AppendNode(node);
     NoAnimate noAnimate;
@@ -320,7 +313,7 @@ void BindNodes(nb::module_& m) {
         }, nb::arg("other").none())
         .def("__hash__", [](const Node& n) { return (Py_hash_t)n.handle; });
 
-    m.def("node", &FindNode, "key"_a, "Node by name, handle or Node; NotFound or Ambiguous otherwise.");
+    m.def("node", [](NodeArg key) { return FindNode(key); }, "key"_a, "Node by name, handle or Node; NotFound or Ambiguous otherwise.");
     m.def("nodes", [](const std::optional<std::string>& pattern) {
         RequireMain();
         std::vector<Node> out;
@@ -331,10 +324,10 @@ void BindNodes(nb::module_& m) {
     m.def("create", &Create, "cls"_a, "name"_a = "", "pos"_a = nb::none(), "params"_a,
           "Create an object (geometry, shape, helper, light, camera) with parameters: "
           "create('Sphere', 'Ball', pos=(0, 0, 10), radius=10, segs=32).");
-    m.def("delete", [](nb::handle nodes) {
+    m.def("delete", [](NodesArg nodes) {
         for (INode* node : NodeList(nodes, "delete", true)) GetCOREInterface()->DeleteNode(node, FALSE);
     }, "nodes"_a, "Delete a node or a list of nodes; an empty list deletes nothing.");
-    m.def("select", [](nb::handle nodes, bool add) {
+    m.def("select", [](NodesArg nodes, bool add) {
         Interface* ip = GetCOREInterface();
         INodeTab tab;
         for (INode* node : NodeList(nodes, "select", true)) tab.AppendNode(node);

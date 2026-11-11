@@ -60,7 +60,7 @@ V3 Unit(const V3& a) {
 
 V3 FromP3(const Point3& p) { return {p.x, p.y, p.z}; }
 Point3 ToP3(const V3& v) { return Point3(float(v.x), float(v.y), float(v.z)); }
-nb::object Tuple(const V3& v) { return nb::make_tuple(v.x, v.y, v.z); }
+nb::object Tuple(const V3& v) { return MakePoint3(v.x, v.y, v.z); }
 double Radians(double degrees) { return degrees * (kPi / 180); }
 double Degrees(double radians) { return radians * (180 / kPi); }
 
@@ -2049,16 +2049,20 @@ void BindCurves(nb::module_& m) {
             new (k) Knot{ToPoint3(pos, "pos"), OptionalKnotType(type), OptionalPoint(in, "in_vec"),
                          OptionalPoint(out, "out_vec"), OptionalSegment(seg)};
         }, "pos"_a, "type"_a = nb::none(), "in_vec"_a = nb::none(), "out_vec"_a = nb::none(), "seg"_a = nb::none())
-        .def_prop_rw("pos", [](const Knot& k) { return FromPoint3(k.pos); },
-            [](Knot& k, nb::handle v) { k.pos = ToPoint3(v, "pos"); }, "World position (x, y, z).")
+        .def_prop_rw("pos", [](const Knot& k) { return AsPoint{k.pos}; },
+            [](Knot& k, PointArg v) { k.pos = ToPoint3(v.value, "pos"); }, "World position (x, y, z).")
         .def_prop_rw("type", [](const Knot& k) { return k.type; },
             [](Knot& k, const std::optional<std::string>& t) { k.type = OptionalKnotType(t); },
             "corner, smooth, bezier or bezier_corner (bounded when creating); None takes the call's default.")
-        .def_prop_rw("in_vec", [](const Knot& k) { return OptionalTuple(k.in); },
-            [](Knot& k, nb::handle v) { k.in = OptionalPoint(v, "in_vec"); },
+        .def_prop_rw("in_vec",
+            [](const Knot& k) { return k.in ? std::optional<AsPoint>(AsPoint{*k.in}) : std::nullopt; },
+            [](Knot& k, std::optional<PointArg> v) { k.in = v ? OptionalPoint(v->value, "in_vec") : std::nullopt; },
+            nb::for_setter(nb::arg("in_vec").none()),
             "Incoming handle position; kept by bezier and bezier_corner knots, computed for the others.")
-        .def_prop_rw("out_vec", [](const Knot& k) { return OptionalTuple(k.out); },
-            [](Knot& k, nb::handle v) { k.out = OptionalPoint(v, "out_vec"); },
+        .def_prop_rw("out_vec",
+            [](const Knot& k) { return k.out ? std::optional<AsPoint>(AsPoint{*k.out}) : std::nullopt; },
+            [](Knot& k, std::optional<PointArg> v) { k.out = v ? OptionalPoint(v->value, "out_vec") : std::nullopt; },
+            nb::for_setter(nb::arg("out_vec").none()),
             "Outgoing handle position; kept by bezier and bezier_corner knots, computed for the others.")
         .def_prop_rw("seg", [](const Knot& k) { return k.seg; },
             [](Knot& k, const std::optional<std::string>& s) { k.seg = OptionalSegment(s); },

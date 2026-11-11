@@ -146,12 +146,13 @@ static void RenameLayer(const LayerRef& r, const std::string& name) {
     if (LayerName(layer) != name) throw MaxError("3ds Max did not rename layer '" + old + "' to '" + name + "'");
 }
 
-static nb::object LayerColor(const LayerRef& r) {
+static AsColor LayerColor(const LayerRef& r) {
     const DWORD c = ResolveLayer(r)->GetWireColor();
-    return nb::make_tuple(GetRValue(c) / 255.0, GetGValue(c) / 255.0, GetBValue(c) / 255.0);
+    return {GetRValue(c) / 255.0f, GetGValue(c) / 255.0f, GetBValue(c) / 255.0f};
 }
 
-static void SetLayerColor(const LayerRef& r, nb::handle value) {
+static void SetLayerColor(const LayerRef& r, ColorArg color) {
+    const nb::handle value = color.value;
     ILayer* layer = ResolveLayer(r);
     const std::vector<float> rgb = Floats(value, 3, 3, "color");
     if (std::any_of(rgb.begin(), rgb.end(), [](float x) { return x < 0.0f || x > 1.0f; }))
@@ -272,7 +273,7 @@ static void BindLayers(nb::module_& m) {
             "Nodes on this layer, not on its child layers; mx.select(layer.nodes) selects them.")
         .def_prop_rw("current", [](const LayerRef& r) { return LayerManager()->GetCurrentLayer() == ResolveLayer(r); },
             &SetCurrentLayer, "Whether new objects go on this layer; assign True to make it current.")
-        .def("add", [](const LayerRef& r, nb::handle nodes) { MoveToLayer(ResolveLayer(r), NodeList(nodes, "layer.add")); },
+        .def("add", [](const LayerRef& r, NodesArg nodes) { MoveToLayer(ResolveLayer(r), NodeList(nodes, "layer.add")); },
             "nodes"_a, "Move nodes onto this layer: layer.add(mx.nodes('Wall*')).")
         .def("delete", &DeleteLayer, "Delete the layer; it must hold no nodes and not be current.")
         .def("__repr__", &LayerRepr)
@@ -350,7 +351,7 @@ static GroupRef ToGroup(nb::handle key) {
     throw BadParam(Quoted(node) + " is not a group head" + (group ? "; it is in group " + Quoted(group) + " (node.group)" : ""));
 }
 
-static GroupRef CreateGroup(nb::handle nodes, const std::string& name) {
+static GroupRef CreateGroup(NodesArg nodes, const std::string& name) {
     INodeTab tab = ToTab(NodeList(nodes, "group"));
     Interface* ip = GetCOREInterface();
     MSTR groupName(name.empty() ? L"Group" : Utf8ToWide(name).c_str());
@@ -386,7 +387,7 @@ static bool IsAncestor(INode* node, INode* of) {
     return false;
 }
 
-static void AddToGroup(const GroupRef& g, nb::handle nodes) {
+static void AddToGroup(const GroupRef& g, NodesArg nodes) {
     INode* head = ResolveGroup(g);
     std::vector<INode*> adding;
     for (INode* node : NodeList(nodes, "group.add")) {
@@ -406,7 +407,7 @@ static void AddToGroup(const GroupRef& g, nb::handle nodes) {
     CheckMembers(head, adding, true, "3ds Max did not add these to group " + Quoted(head) + ": ");
 }
 
-static void RemoveFromGroup(const GroupRef& g, nb::handle nodes) {
+static void RemoveFromGroup(const GroupRef& g, NodesArg nodes) {
     INode* head = ResolveGroup(g);
     const std::string name = Quoted(head);
     const std::vector<INode*> removing = NodeList(nodes, "group.remove");
@@ -557,7 +558,7 @@ static std::vector<INode*> SetNodes(int index) {
     return out;
 }
 
-static SelectionSetRef GetSelectionSet(const std::string& name, nb::handle nodes) {
+static SelectionSetRef GetSelectionSet(const std::string& name, NodesOrNone nodes) {
     if (nodes.is_none()) return SelectionSetRef{SetName(RequireSet(name))};
     if (name.empty()) throw BadParam("a selection set needs a name");
     INodeTab tab = ToTab(NodeList(nodes, "selection_set"));
@@ -569,7 +570,7 @@ static SelectionSetRef GetSelectionSet(const std::string& name, nb::handle nodes
     return SelectionSetRef{SetName(RequireSet(name))};
 }
 
-static void SetSetNodes(const SelectionSetRef& s, nb::handle nodes) {
+static void SetSetNodes(const SelectionSetRef& s, NodesArg nodes) {
     INodeTab tab = ToTab(NodeList(nodes, "selection set nodes"));
     if (!NamedSets()->ReplaceNamedSelSet(tab, RequireSet(s.name)))
         throw MaxError("3ds Max could not replace the nodes of selection set '" + s.name + "'");
@@ -610,7 +611,7 @@ static void BindSelectionSets(nb::module_& m) {
         }, nb::arg("other").none())
         .def("__hash__", [](const SelectionSetRef& s) { return (Py_hash_t)std::hash<std::string>()(s.name); });
 
-    m.def("selection_set", &GetSelectionSet, "name"_a, "nodes"_a = nb::none(),
+    m.def("selection_set", &GetSelectionSet, "name"_a, "nodes"_a.none() = nb::none(),
           "Named selection set by name; with nodes, create or replace it: selection_set('Lights', mx.nodes('Light*')).");
     m.def("selection_sets", [] {
         std::vector<SelectionSetRef> out;

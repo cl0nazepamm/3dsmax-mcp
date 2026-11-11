@@ -308,6 +308,7 @@ if(MCP_MX_PYTHON)
         # core: shared rules, values, MAXScript and the bridge's handlers
         mx/mx_module.cpp
         mx/mx_core.cpp
+        mx/mx_values.cpp
         mx/mx_maxscript.cpp
         mx/mx_native.cpp
         mx/mx_construction.cpp

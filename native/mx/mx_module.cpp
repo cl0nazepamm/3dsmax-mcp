@@ -57,7 +57,9 @@ static void Bind(nb::module_& m) {
     m.attr("BUILD") = MX_BUILD_ID;
     m.attr("MAX_VERSION") = MAX_SDK_VERSION;
 
-    // The object model first: domains add methods to its classes.
+    // Values first: every binding may return one. Then the object model:
+    // domains add methods to its classes.
+    BindValues(m);
     BindParams(m);
     BindNodes(m);
     BindModifiers(m);

@@ -9,6 +9,7 @@
 #include <maxscript/compiler/thunks.h>
 #include <maxscript/foundation/colors.h>
 #include <maxscript/foundation/3dmath.h>
+#include <maxscript/foundation/mxstime.h>
 
 #include <charconv>
 
@@ -109,7 +110,12 @@ static Value* ToMxs(nb::handle value, const std::string& what) {
         return new String(Utf8ToWide(text).c_str());
     }
     if (nb::isinstance<Node>(value)) return MAXNode::intern(Resolve(nb::cast<Node>(value)));
+    // A material, map or other object goes as MAXScript's own wrapper of it.
+    if (nb::isinstance<MaterialRef>(value) || nb::isinstance<TexmapRef>(value) || nb::isinstance<ObjectRef>(value))
+        return MAXClass::make_wrapper_for(PythonToRef(value, 0, what));
     if (IsSequence(value)) {
+        // Four rows are a matrix; three numbers a point.
+        if (nb::len(value) == 4 && IsSequence(nb::object(value[0]))) return new Matrix3Value(ToMatrix3(value, what));
         const auto xs = Floats(value, 3, 3, what);
         return new Point3Value(Point3(xs[0], xs[1], xs[2]));
     }
@@ -126,8 +132,11 @@ static nb::object FromMxs(Value* v) {
     if (is_point2(v)) { Point2 p = v->to_point2(); return nb::make_tuple(p.x, p.y); }
     if (is_color(v)) {
         AColor c = v->to_acolor();
-        return c.a == 1.0f ? nb::make_tuple(c.r, c.g, c.b) : nb::make_tuple(c.r, c.g, c.b, c.a);
+        return c.a == 1.0f ? MakeColor(c.r, c.g, c.b) : nb::object(nb::make_tuple(c.r, c.g, c.b, c.a));
     }
+    // A time is frames, as everywhere in _mx; MAXScript takes a number back as frames.
+    if (v->is_kind_of(class_tag(MSTime))) return nb::float_(TicksToFrame(v->to_timevalue()));
+    if (v->is_kind_of(class_tag(Matrix3Value))) return MakeMatrix(v->to_matrix3());
     if (is_string(v) || is_name(v)) return nb::str(WideToUtf8(v->to_string()).c_str());
     if (is_node(v)) {
         INode* node = v->to_node();
@@ -139,7 +148,13 @@ static nb::object FromMxs(Value* v) {
         for (int i = 0; i < array->size; ++i) items.append(FromMxs(array->data[i]));
         return items;
     }
-    // Anything else (controllers, gizmos, maps) is shown, not converted.
+    // A map, material, controller or any other object MAXScript wraps: the
+    // object itself, so it has parameters and goes back where it came from.
+    try {
+        if (ReferenceTarget* target = v->to_reftarg()) return RefToPython(target);
+    } catch (...) {
+    }
+    // Anything else is shown, not converted.
     return nb::str(MxsShown(v).c_str());
 }
 

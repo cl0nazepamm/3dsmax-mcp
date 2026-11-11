@@ -2,7 +2,7 @@
 
 3ds Max for agents, bound from the SDK: the scene's nodes, parameters, modifiers, materials and animation, and modeling, viewport, file and plugin work on them. Lights, cameras and renders are mx.render_setup, the same on every renderer.
 
-Build `b20261111161633`, 3ds Max SDK 2027.
+Build `b20261111164439`, 3ds Max SDK 2027.
 
 ## Functions
 
@@ -38,7 +38,7 @@ The State Sets that have a camera, by render start frame (sets without a render 
 
 Report: max_version, renderer, renderers, known plugins installed (tyflow, forest_pack, ...) and class counts.
 
-### `capture_isolated(nodes: object | None = None) -> list[_mx.Capture]`
+### `capture_isolated(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str] | None | None = None) -> list[_mx.Capture]`
 
 Capture each top-level hierarchy of the selection (or of nodes) alone, framed in the active view; instances share one image, and visibility and selection come back.
 
@@ -62,11 +62,11 @@ Classes whose parameters take nodes, materials, texmaps or other references: cla
 
 Registered classes by kind, wildcard name and plugin file: classes('modifier', '*Bend*'), classes(plugin='tyFlow*').
 
-### `contacts(nodes: object, against: object | None = None, tolerance: float = 0.0, near_gap: float = 0.0, include_separate: bool = False) -> dict`
+### `contacts(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str], against: _mx.Node | str | collections.abc.Sequence[_mx.Node | str] | None | None = None, tolerance: float = 0.0, near_gap: float = 0.0, include_separate: bool = False) -> dict`
 
 Evaluated meshes that penetrate, intersect, touch or nearly touch, worst first: contacts(legs, against=[floor, seat]) checks each leg against those only. tolerance and near_gap default to 0.1 mm and 10 mm in scene units; depth is a lower and gap an upper bound, both from vertices. Nodes without a mesh are listed in 'skipped'.
 
-### `create(cls: str, name: str = '', pos: object | None = None, **params) -> _mx.Node`
+### `create(cls: str, name: str = '', pos: _mx.Point3 | None = None, **params) -> _mx.Node`
 
 Create an object (geometry, shape, helper, light, camera) with parameters: create('Sphere', 'Ball', pos=(0, 0, 10), radius=10, segs=32).
 
@@ -82,7 +82,7 @@ Build a curve_model definition as an editable spline or quad cage centered on it
 
 Evaluate a curve_model definition without touching the scene: counts, bounds and per-curve QA. definition={'curves': {name: curve}, 'output': {'kind': 'curve' | 'sweep' | 'loft', ...}}.
 
-### `delete(nodes: object) -> None`
+### `delete(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str]) -> None`
 
 Delete a node or a list of nodes; an empty list deletes nothing.
 
@@ -106,7 +106,7 @@ Nodes matching every filter: find('Wall*', cls='Box', layer='Walls', uses='Turbo
 
 Current frame.
 
-### `group(nodes: object, name: str = '') -> _mx.Group`
+### `group(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str], name: str = '') -> _mx.Group`
 
 Group nodes under a new group head: group(mx.nodes('Chair*'), 'Chairs').
 
@@ -186,7 +186,7 @@ Merge a .max file's objects (all, or names) and return the new nodes. Name clash
 
 Run one of the bridge's handlers in-process: native('scene_delta', ...). Returns its reply as Python values.
 
-### `node(key: object) -> _mx.Node`
+### `node(key: _mx.Node | str | int) -> _mx.Node`
 
 Node by name, handle or Node; NotFound or Ambiguous otherwise.
 
@@ -266,7 +266,7 @@ Scan scene hygiene (names, transforms, hierarchy, groups, timeline; no mesh chec
 
 The .max files under folder with objects named like pattern: [{'path', 'objects', 'names'}], search_max_files('D:/lib', 'chair*'); then merge(hit['path'], hit['names']).
 
-### `select(nodes: object, add: bool = False) -> None`
+### `select(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str], add: bool = False) -> None`
 
 Select nodes, replacing the selection unless add=True; select([]) clears it.
 
@@ -274,7 +274,7 @@ Select nodes, replacing the selection unless add=True; select([]) clears it.
 
 Selected nodes.
 
-### `selection_set(name: str, nodes: object | None = None) -> _mx.SelectionSet`
+### `selection_set(name: str, nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str] | None | None = None) -> _mx.SelectionSet`
 
 Named selection set by name; with nodes, create or replace it: selection_set('Lights', mx.nodes('Light*')).
 
@@ -346,13 +346,13 @@ An action table: name, id, actions(pattern).
 The agent's floating AGENT VIEWPORT: navigate, pick and capture without touching the user's views.
 
 - `.capture(crop: object | None = None, method: str = 'auto', max_width: int = 1600, max_height: int = 0) -> _mx.Capture`: Save this view, or the VFB its V-Ray/Corona preview renders into, to an image; crop=(x, y, w, h) in VFB client pixels.
-- `.frame(nodes: object | None = None, padding: float = 1.15) -> None`: Fit nodes and their descendants (default: visible geometry, or the lights and cameras of a rig-only scene).
+- `.frame(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str] | None | None = None, padding: float = 1.15) -> None`: Fit nodes and their descendants (default: visible geometry, or the lights and cameras of a rig-only scene).
 - `.minimize() -> None`: Park the window; restore() it before navigating or capturing.
 - `.orbit(yaw: float = 0.0, pitch: float = 0.0) -> None`: Orbit the target by yaw and pitch degrees: orbit(30, 10).
 - `.pan(x: float = 0.0, y: float = 0.0) -> None`: Move the view and its target by x, y scene units in the view plane.
 - `.pick(x: float, y: float, capture: _mx.Capture | None = None) -> _mx.Hit | None`: The nearest surface under image point x, y (0-1 from the top-left) as a Hit, or None; capture refuses a view that changed since: pick(0.5, 0.4, cap).
 - `.project(points: object, capture: _mx.Capture | None = None) -> list`: Image positions (x, y, depth) of world points, x and y 0-1 from the top-left as pick takes them; None behind the eye; no occlusion test: project([(0, 0, 50)]...
-- `.ray(x: float, y: float, capture: _mx.Capture | None = None) -> tuple`: World ray (origin, direction) through image point x, y (0-1 from the top-left).
+- `.ray(x: float, y: float, capture: _mx.Capture | None = None) -> tuple[_mx.Point3, _mx.Point3]`: World ray (origin, direction) through image point x, y (0-1 from the top-left).
 - `.release() -> None`: Stop any preview, hide the window and give the panel back; agent_viewport() opens it again.
 - `.render(mode: str, renderer: str = 'activeshade') -> None`: Interactive preview here: activeshade, vray_ipr, vray_vfb, corona_vfb, or shaded to stop; previews are progressive and block pick/ray/project until shaded: r...
 - `.render_mode` (str): The preview: shaded, activeshade, vray_ipr, vray_vfb or corona_vfb.
@@ -378,6 +378,16 @@ A Boolean modifier (BooleanMod), a Modifier with an operand stack: b.operands, b
 - `.operands` (list[_mx.Operand]): Operands in stack order (the base object left out); index is what set_operand and friends take.
 - `.remove_operand(index: int) -> None`: Delete operand `index` from the stack; later indices shift down.
 - `.set_operand(index: int, *, operation: str | None = None, option: str | None = None, name: str | None = None, disabled: bool | None = None) -> None`: Retune operand `index`: b.set_operand(2, operation='union', option='imprint', name='Door', disabled=False).
+
+### Box
+
+An axis-aligned box as (min, max), two Point3: node.bbox. It is a tuple, so low, high = node.bbox unpacks it.
+
+- `.center` (_mx.Point3): The middle of the box.
+- `.contains(point: _mx.Point3) -> bool`: Whether a point lies inside the box or on its faces.
+- `.max` (_mx.Point3): The corner with the largest x, y and z.
+- `.min` (_mx.Point3): The corner with the smallest x, y and z.
+- `.size` (_mx.Point3): Its extent along x, y and z.
 
 ### Capture
 
@@ -421,6 +431,15 @@ A plugin class: name, kind, plugin, describe(), interfaces, schema(), nodes.
 - `.superclass` (str): MAXScript superclass name: GeometryClass, Modifier, ...
 - `.superclass_id` (int): The superclass's SClass_ID, like MAXScript's superClassID.
 
+### Color
+
+A color (r, g, b), each 0-1: layer.color. It is a tuple, and any (r, g, b) passes where a Color is asked for.
+
+- `.b` (float): Blue, 0-1.
+- `.g` (float): Green, 0-1.
+- `.hex` (str): The color as '#rrggbb', each channel clipped to 0-1.
+- `.r` (float): Red, 0-1.
+
 ### Controller
 
 A track's controller: track.controller. c.params holds its parameters (Noise frequency, constraint relative, ...).
@@ -463,11 +482,11 @@ An atmospheric or render effect: fx.active = False; fx.params.density = 20.
 
 A group: a Node whose members move with it. Group(node) wraps an existing group head (Node, name or handle).
 
-- `.add(nodes: object) -> None`: Add nodes to the group: group.add(mx.node('Lamp')).
+- `.add(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str]) -> None`: Add nodes to the group: group.add(mx.node('Lamp')).
 - `.delete() -> None`: Delete the group with all its members, nested groups included; ungroup() keeps them.
 - `.members` (list): Member nodes; a nested group is one member, as a Group.
 - `.open` (bool, settable): Whether the group is open, so its members can be picked and edited one by one.
-- `.remove(nodes: object) -> None`: Take nodes out of the group; they move to the scene root.
+- `.remove(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str]) -> None`: Take nodes out of the group; they move to the scene root.
 - `.ungroup() -> list`: Dissolve the group (its head is deleted); returns the former members.
 
 ### Hit
@@ -476,8 +495,8 @@ A pick on the evaluated surface (after modifiers, not the editable base): node, 
 
 - `.distance` (float): Distance from the eye along the ray.
 - `.node` (_mx.Node): The node hit.
-- `.normal` (object): World surface normal (x, y, z).
-- `.point` (object): World hit point (x, y, z).
+- `.normal` (_mx.Point3): World surface normal (x, y, z).
+- `.point` (_mx.Point3): World hit point (x, y, z).
 
 ### Interface
 
@@ -501,9 +520,9 @@ A key: frame, value, in_tangent, out_tangent (a snapshot).
 
 A spline knot value: Knot(pos, type, in_vec, out_vec, seg), world space. Handles are absolute positions; seg is the segment leaving the knot.
 
-- `.in_vec` (object, settable): Incoming handle position; kept by bezier and bezier_corner knots, computed for the others.
-- `.out_vec` (object, settable): Outgoing handle position; kept by bezier and bezier_corner knots, computed for the others.
-- `.pos` (object, settable): World position (x, y, z).
+- `.in_vec` (_mx.Point3 | None, settable): Incoming handle position; kept by bezier and bezier_corner knots, computed for the others.
+- `.out_vec` (_mx.Point3 | None, settable): Outgoing handle position; kept by bezier and bezier_corner knots, computed for the others.
+- `.pos` (_mx.Point3, settable): World position (x, y, z).
 - `.seg` (str | None, settable): line or curve: the segment leaving this knot; None on the last knot of an open spline.
 - `.type` (str | None, settable): corner, smooth, bezier or bezier_corner (bounded when creating); None takes the call's default.
 
@@ -511,13 +530,13 @@ A spline knot value: Knot(pos, type, in_vec, out_vec, seg), world space. Handles
 
 A scene layer: layer.add(nodes), layer.hidden = True, layer.parent = 'Building'.
 
-- `.add(nodes: object) -> None`: Move nodes onto this layer: layer.add(mx.nodes('Wall*')).
+- `.add(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str]) -> None`: Move nodes onto this layer: layer.add(mx.nodes('Wall*')).
 - `.all_edges` (bool, settable): Show every edge, hidden ones included.
 - `.backface_cull` (bool, settable): Hide back faces in the viewports.
 - `.box_mode` (bool, settable): Display its objects as bounding boxes.
 - `.cast_shadows` (bool, settable): Its objects cast shadows.
 - `.children` (list[_mx.Layer]): Child layers.
-- `.color` (object, settable): Wire color (r, g, b), 0-1.
+- `.color` (_mx.Color, settable): Wire color (r, g, b), 0-1.
 - `.current` (bool, settable): Whether new objects go on this layer; assign True to make it current.
 - `.delete() -> None`: Delete the layer; it must hold no nodes and not be current.
 - `.frozen` (bool, settable): Frozen; a frozen parent layer also freezes it.
@@ -539,7 +558,7 @@ A parametric quad loft's definition, stored on its node; node.loft_mesh.update(w
 
 - `.definition` (object): sections as written (numbers and expressions) and the profile_closed, close_path, caps, reverse options.
 - `.node` (_mx.Node): The node that carries this loft.
-- `.origin` (tuple): World point the initial sections were centered on; the cage follows the node's transform since.
+- `.origin` (_mx.Point3): World point the initial sections were centered on; the cage follows the node's transform since.
 - `.parameters` (object): The parameters that built the current cage, or None when the cage was edited by hand (update refuses then).
 - `.update(**parameters) -> dict`: Rebuild the cage for new parameter values, keeping vertex IDs, transform, modifiers and materials; returns {name: (before, after)} of what changed.
 
@@ -584,6 +603,18 @@ A material: mat.params.base_color = (1, 0, 0); node.material = mat.
 - `.set_sub_material(index: int, material: _mx.Material | None) -> None`: Put a material (None empties) in sub-material index, as sub_materials counts: multi.set_sub_material(0, brick) sets ID 1.
 - `.sub_materials` (list[_mx.Material | None]): Sub-materials, None where empty; for a Multi/Sub-Object entry i is material ID i+1.
 
+### Matrix
+
+A transform as four rows of Point3, the X, Y and Z axes then the position: node.transform. It is a tuple of its rows, and any four rows of (x, y, z) pass where a Matrix is asked for.
+
+- `.inverse() -> _mx.Matrix`: The transform that undoes this one: node.transform.inverse().transform_point(p) is world point p in the node's own space. ValueError when the axes span no vo...
+- `.pos` (_mx.Point3): The position.
+- `.transform_point(point: _mx.Point3) -> _mx.Point3`: A point given in this transform's own space, in the space the transform is in: node.transform.transform_point((0, 0, 10)) is 10 units up the node's Z, in wor...
+- `.transform_vector(vector: _mx.Point3) -> _mx.Point3`: A direction taken the same way as transform_point(), without the position.
+- `.x_axis` (_mx.Point3): The X axis: its direction, and its scale as its length.
+- `.y_axis` (_mx.Point3): The Y axis: its direction, and its scale as its length.
+- `.z_axis` (_mx.Point3): The Z axis: its direction, and its scale as its length.
+
 ### Modifier
 
 A modifier on a node's stack: m.params.angle = 30, m.enabled = False.
@@ -607,13 +638,13 @@ A scene node, held by handle; NotFound once deleted.
 
 - `.add_modifier(cls: str, name: str = '', **params) -> _mx.Modifier`: Add a modifier on top of the stack: add_modifier('Bend', angle=30, direction=90).
 - `.add_spline(points: object, closed: bool = False, knot: str = 'smooth', *, expected: str | None = None) -> _mx.Spline`: Add a spline from world points or Knots to an editable shape (a hole, another outline); returns it.
-- `.bbox` (object): World bounding box ((min), (max)) of the evaluated geometry, or None.
+- `.bbox` (_mx.Box | None): World bounding box ((min), (max)) of the evaluated geometry, or None.
 - `.boolean(operands: object | None = None, operation: str = 'subtract', *, cutters: object | None = None, repeat: object | None = None, operations: collections.abc.Sequence[str] | None = None, option: str = '', method: str | None = None, voxel_size: float | None = None, live: bool = False, use_operand_material: bool = True, new_modifier: bool = False, modifier_name: str = '') -> _mx.Boolean`: Cut or fuse with a Boolean modifier and return it: wall.boolean(['Door', 'Window']) subtracts both. operation: union, subtract, intersect, merge, attach, ins...
 - `.boolean_modifier` (_mx.Boolean | None): The topmost Boolean modifier on the stack, or None.
 - `.children` (list[_mx.Node]): The nodes parented to this one, one level down.
 - `.class_info` (_mx.ClassInfo): The object's class as a ClassInfo (a node's: its base object's): x.class_info.describe() lists what the class takes, x.class_info.plugin the DLL it comes from.
 - `.class_name` (str): Class of the base object: Sphere, Editable_Poly, ...
-- `.clone(mode: str = 'copy', name: str = '', offset: object | None = None) -> _mx.Node`: Copy, instance or reference the node (and its children), moved by offset.
+- `.clone(mode: str = 'copy', name: str = '', offset: _mx.Point3 | None = None) -> _mx.Node`: Copy, instance or reference the node (and its children), moved by offset.
 - `.conform_verts(target: object, indices: collections.abc.Sequence[int] | None = None, *, axes: str = 'xyz', axis: str = '', strength: float = 1.0, spline: int = 1, convert: bool = False) -> tuple[int, int]`: Pull base vertices onto a spline (closest point on spline number `spline`) or a surface (ray along axis: x/y/z both ways, +x/-x/... one way, default z); axes...
 - `.convert_to_poly() -> _mx.Poly`: Collapse the modifier stack into an Editable Poly (MAXScript convertToPoly) as one undo step; returns node.poly.
 - `.convert_to_spline() -> None`: Collapse a shape to an editable spline (convertToSplineShape), discarding its modifier stack.
@@ -623,7 +654,7 @@ A scene node, held by handle; NotFound once deleted.
 - `.delete() -> None`: Delete the node.
 - `.dependents` (list[_mx.Node]): Nodes whose references reach this one directly: constraint, look-at and skin users.
 - `.exists` (bool): False once the node is deleted.
-- `.faces() -> list`: Triangles of the evaluated mesh as 1-based vertex IDs into verts(): mx.create_mesh('Copy', n.verts(), n.faces()) copies it.
+- `.faces() -> list[tuple[int, int, int]]`: Triangles of the evaluated mesh as 1-based vertex IDs into verts(): mx.create_mesh('Copy', n.verts(), n.faces()) copies it.
 - `.get_verts(indices: collections.abc.Sequence[int] | None = None, *, bbox: object | None = None, near: object | None = None, radius: float = 0.0, convert: bool = False) -> dict`: World positions of the Editable Poly base's vertices as {index: (x, y, z)}, 1-based; filter by indices, bbox=((min), (max)) and near=(x, y, z) with radius. c...
 - `.group` (_mx.Group | None): The group this node is in, or None.
 - `.handle` (int): The node's animatable handle. In pymxs: rt.getAnimByHandle(node.handle), not maxOps.getNodeByHandle.
@@ -634,9 +665,9 @@ A scene node, held by handle; NotFound once deleted.
 - `.interfaces` (list[_mx.Interface]): Mixin interfaces of the node itself.
 - `.layer` (_mx.Layer, settable): The node's layer; assign a Layer or a layer name to move it: node.layer = 'Walls'.
 - `.loft_mesh` (_mx.LoftMesh | None): The node's parametric loft definition (LoftMesh), or None.
-- `.look_at(target: object, up: object | None = None) -> None`: Turn the node so its -Z axis, the way cameras and lights look, points at a world point: cam.look_at((0, 0, 100)). Position and scale stay; up defaults to wor...
+- `.look_at(target: _mx.Point3, up: _mx.Point3 | None = None) -> None`: Turn the node so its -Z axis, the way cameras and lights look, points at a world point: cam.look_at((0, 0, 100)). Position and scale stay; up defaults to wor...
 - `.material` (_mx.Material | None, settable): The node's material, or None.
-- `.mesh_counts` (object): (vertices, faces) of the evaluated, triangulated mesh, or None.
+- `.mesh_counts` (tuple[int, int] | None): (vertices, faces) of the evaluated, triangulated mesh, or None.
 - `.mesh_qa(limit: int = 12, area_epsilon: float = 0.0) -> dict`: Topology report of the evaluated mesh: boundary, non-manifold and winding-conflict edges, degenerate and duplicate triangles, isolated vertices and edge-conn...
 - `.modifiers` (list[_mx.Modifier]): Modifier stack, top first.
 - `.move_verts(offset: object, indices: collections.abc.Sequence[int] | None = None, *, falloff: float = 0.0, convert: bool = False) -> tuple[int, int]`: Move base vertices (all by default) by a world offset; falloff > 0 drags neighbours within that distance with (1 - d/falloff)^2 weight. Returns (moved, soft_...
@@ -646,17 +677,17 @@ A scene node, held by handle; NotFound once deleted.
 - `.parent` (_mx.Node | None, settable): Parent node or None; reparenting keeps the world transform.
 - `.path` (str): Hierarchy path from the scene root, '/Rig/Camera'; '/' in a name is written '~1' and '~' is '~0'.
 - `.poly` (_mx.Poly): The Editable Poly base cage beneath the modifiers (Poly), for component IDs and edits; BadParam for other bases.
-- `.pos` (object, settable): World position of the pivot (x, y, z).
+- `.pos` (_mx.Point3, settable): World position of the pivot (x, y, z).
 - `.references(depth: int = 3) -> dict`: Reference tree below the node: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'seen' marks a target listed above, and other nodes are not e...
-- `.rot` (object, settable): Rotation track as Euler degrees (x, y, z), relative to the parent; keeps winding past 360.
-- `.scale` (object, settable): Scale track (x, y, z), or one number for all axes.
+- `.rot` (_mx.Point3, settable): Rotation track as Euler degrees (x, y, z), relative to the parent; keeps winding past 360.
+- `.scale` (_mx.Point3, settable): Scale track (x, y, z), or one number for all axes.
 - `.selected` (bool, settable): Whether the node is selected; setting it adds to or removes from the selection.
 - `.set_verts(positions: dict, *, convert: bool = False) -> int`: Place base vertices at world positions: node.set_verts({1: (0, 0, 10), 4: (5, 0, 10)}); returns how many.
 - `.splines` (list[_mx.Spline]): The splines of an editable spline base (SplineShape or Line).
 - `.track(path: str) -> _mx.Track`: Transform track: 'pos', 'pos.x'..'pos.z', 'rot.x'..'rot.z' (degrees), 'scale'.
 - `.tracks(filter: str | None = None, depth: int = 6) -> list[_mx.Track]`: Every animatable track under the node as sub-anim path tracks, filtered by a substring of the path or controller class: node.tracks('radius').
-- `.transform` (object, settable): World matrix as four rows of (x, y, z): the node's X, Y and Z axes, then its position. Setting it raises when a controller keeps part of the transform.
-- `.verts(world: bool = True) -> list`: Vertex positions of the evaluated, triangulated mesh (after modifiers), world space unless world=False; its IDs are not the cage's.
+- `.transform` (_mx.Matrix, settable): World matrix as four rows of (x, y, z): the node's X, Y and Z axes, then its position. Setting it raises when a controller keeps part of the transform.
+- `.verts(world: bool = True) -> list[_mx.Point3]`: Vertex positions of the evaluated, triangulated mesh (after modifiers), world space unless world=False; its IDs are not the cage's.
 - `.wires(depth: int = 8) -> list[dict]`: The node's wired tracks: [{track, controller, driven, driver, two_way, links: [{param, node, expression}]}].
 
 ### Object
@@ -709,23 +740,36 @@ A loaded plugin DLL: name, path, description, classes, nodes.
 - `.nodes` (list[_mx.Node]): Scene nodes that use any of the plugin's classes.
 - `.path` (str): Full path of the DLL file.
 
+### Point3
+
+A point or vector (x, y, z). It is a tuple, and any (x, y, z) passes where a Point3 is asked for. + and - work per component with another point, * and / with a number: node.pos + (0, 0, 10), (a - b).length.
+
+- `.cross(other: _mx.Point3) -> _mx.Point3`: Cross product with another point or (x, y, z).
+- `.distance_to(other: _mx.Point3) -> float`: Distance to another point or (x, y, z).
+- `.dot(other: _mx.Point3) -> float`: Dot product with another point or (x, y, z).
+- `.length` (float): Its length.
+- `.normalized() -> _mx.Point3`: The same direction at length 1; a zero vector stays zero.
+- `.x` (float): The x component.
+- `.y` (float): The y component.
+- `.z` (float): The z component.
+
 ### Poly
 
 An Editable Poly base cage beneath the modifiers: 1-based vertex, edge and face IDs as polyop numbers them; positions are world space unless world=False.
 
 - `.capture(level: str, ids: collections.abc.Sequence[int] | None = None) -> dict`: Capture the AGENT VIEWPORT with up to 100 components labeled at their centers (F12, E3, V7); returns {'file', 'view', 'width', 'height', 'labels'}.
-- `.centers(level: str, ids: collections.abc.Sequence[int] | None = None, world: bool = True) -> list`: Centers (mean vertex position) of 'vertex', 'edge' or 'face' components, all or of the given IDs.
-- `.counts` (tuple): (vertices, edges, faces), counting deleted slots not yet collapsed, as polyop does.
-- `.edges(ids: collections.abc.Sequence[int] | None = None) -> list`: (v1, v2) vertex IDs of each edge, all or of the given IDs.
+- `.centers(level: str, ids: collections.abc.Sequence[int] | None = None, world: bool = True) -> list[_mx.Point3 | None]`: Centers (mean vertex position) of 'vertex', 'edge' or 'face' components, all or of the given IDs.
+- `.counts` (tuple[int, int, int]): (vertices, edges, faces), counting deleted slots not yet collapsed, as polyop does.
+- `.edges(ids: collections.abc.Sequence[int] | None = None) -> list[tuple[int, int] | None]`: (v1, v2) vertex IDs of each edge, all or of the given IDs.
 - `.edit(ops: object, expected: str = '', show: bool = False) -> dict`: Run ops as one undo step, rolled back if one fails: edit([{'op': 'extrude', 'selection': ids, 'amount': 10}], expected=token). Each op has op, level ('vertex...
-- `.faces(ids: collections.abc.Sequence[int] | None = None) -> list`: Vertex IDs of each face in winding order, all or of the given IDs.
+- `.faces(ids: collections.abc.Sequence[int] | None = None) -> list[list[int] | None]`: Vertex IDs of each face in winding order, all or of the given IDs.
 - `.find(level: str, ids: collections.abc.Sequence[int] | None = None, current: bool = False, bbox: object | None = None, near: object | None = None, radius: float | None = None, normal: object | None = None, angle: float | None = None, boundary: bool | None = None, sharp: float | None = None) -> list`: IDs passing every filter given: among ids, selected (current), world center in bbox or within radius of near, face normal within angle (default 10) of normal...
 - `.instances` (list[_mx.Node]): Nodes sharing this base, this one first; an edit changes them all.
 - `.node` (_mx.Node): The node whose base this is.
-- `.normals(ids: collections.abc.Sequence[int] | None = None, world: bool = True) -> list`: Unit face normals (Newell; (0, 0, 0) for a degenerate face), all or of the given face IDs.
+- `.normals(ids: collections.abc.Sequence[int] | None = None, world: bool = True) -> list[_mx.Point3 | None]`: Unit face normals (Newell; (0, 0, 0) for a degenerate face), all or of the given face IDs.
 - `.pick(x: float, y: float, view: str, level: str = 'edge', ids: collections.abc.Sequence[int] | None = None, tolerance: float = 0.025, limit: int = 5, prefer_surface: bool = True) -> dict`: Components near image point x, y (0-1, top-left) of the agent viewport capture whose token is view, within tolerance (fraction of the shorter side); ranked b...
 - `.token` (str): Hash of the cage and its transform: edit(ops, expected=token) refuses IDs read before the mesh changed.
-- `.verts(ids: collections.abc.Sequence[int] | None = None, world: bool = True) -> list`: Vertex positions, all or of the given IDs; None for a deleted slot.
+- `.verts(ids: collections.abc.Sequence[int] | None = None, world: bool = True) -> list[_mx.Point3 | None]`: Vertex positions, all or of the given IDs; None for a deleted slot.
 
 ### RenderJob
 
@@ -840,12 +884,12 @@ A viewport, resolved on every call: the user's active view, or the AGENT VIEWPOR
 - `.capture_frames(frames: object, view: object = 'current', subject: object | None = None, shading: str | None = None, edges: bool | None = None, method: str = 'auto', max_width: int = 1600, max_height: int = 0) -> _mx.Capture`: One view over time in one strip: a frame count spread over the range or up to 12 frame numbers; a named view is framed over all of them; the time slider come...
 - `.capture_views(views: object | None = None, subject: object | None = None, shading: str | None = None, edges: bool | None = None, method: str = 'auto', max_width: int = 1600, max_height: int = 0) -> _mx.Capture`: Up to 8 framed views in one grid (default front, right, back, top; also perspective, three_quarter, current, (x, y, z) eye directions); subject frames one hi...
 - `.edges` (bool): Whether edged faces show.
-- `.eye` (object): Eye position (x, y, z).
+- `.eye` (_mx.Point3): Eye position (x, y, z).
 - `.fov` (float | None): Horizontal field of view in degrees; None for orthographic views.
 - `.set(view: str = 'perspective', eye: object | None = None, target: object | None = None, frame: object | None = None, fov: float = 45.0, padding: float = 1.15, shading: str = 'smooth', edges: bool = False, grid: bool = False) -> None`: Set the whole view, defaults included: view (perspective, orthographic, front, back, left, right, top, bottom), eye/target, frame (nodes to fit), fov, shadin...
 - `.shading` (str): Visual style: smooth, flat, wireframe, clay, realistic, facets, hidden_line, ...
 - `.size` (tuple[int, int]): (width, height) in pixels.
-- `.target` (object): The point the view looks at and orbits: (x, y, z).
+- `.target` (_mx.Point3): The point the view looks at and orbits: (x, y, z).
 - `.type` (str): perspective, orthographic, front, back, left, right, top, bottom, camera, light or other.
 
 ## Errors
@@ -859,5 +903,5 @@ A viewport, resolved on every call: the user's active view, or the AGENT VIEWPOR
 
 ## Values
 
-- `BUILD` = 'b20261111161633'
+- `BUILD` = 'b20261111164439'
 - `MAX_VERSION` = 2027

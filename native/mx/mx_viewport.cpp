@@ -50,7 +50,7 @@ struct Hit {
 constexpr int kMaxWidth = 1600;
 
 nb::object TupleOf(const json& p) {
-    return nb::make_tuple(p.at(0).get<double>(), p.at(1).get<double>(), p.at(2).get<double>());
+    return MakePoint3(p.at(0).get<double>(), p.at(1).get<double>(), p.at(2).get<double>());
 }
 
 json JsonOf(const Point3& p) { return json::array({p.x, p.y, p.z}); }
@@ -521,7 +521,7 @@ std::pair<int, int> PngSize(const std::string& path) {
     return {word(16), word(20)};
 }
 
-std::vector<Capture> CaptureIsolated(nb::handle nodes) {
+std::vector<Capture> CaptureIsolated(NodesOrNone nodes) {
     RequireMain();
     if (AgentOpen())
         throw MaxError("capture_isolated hides the rest of the scene, which is off while the AGENT VIEWPORT is open; "
@@ -581,8 +581,8 @@ void BindViewport(nb::module_& m) {
 
     nb::class_<Hit>(m, "Hit", "A pick on the evaluated surface (after modifiers, not the editable base): node, point, normal, distance.")
         .def_ro("node", &Hit::node, "The node hit.")
-        .def_ro("point", &Hit::point, "World hit point (x, y, z).")
-        .def_ro("normal", &Hit::normal, "World surface normal (x, y, z).")
+        .def_prop_ro("point", [](const Hit& h) { return PointObject{h.point}; }, "World hit point (x, y, z).")
+        .def_prop_ro("normal", [](const Hit& h) { return PointObject{h.normal}; }, "World surface normal (x, y, z).")
         .def_ro("distance", &Hit::distance, "Distance from the eye along the ray.")
         .def("__repr__", &HitRepr);
 
@@ -619,8 +619,8 @@ void BindViewport(nb::module_& m) {
            "is framed over all of them; the time slider comes back: capture_frames(6), capture_frames([0, 10, 20], 'three_quarter').")
         .def_prop_ro("type", [](const ViewRef& v) { return InfoOf(v).type; },
             "perspective, orthographic, front, back, left, right, top, bottom, camera, light or other.")
-        .def_prop_ro("eye", [](const ViewRef& v) { return FromPoint3(InfoOf(v).eye); }, "Eye position (x, y, z).")
-        .def_prop_ro("target", [](const ViewRef& v) { return FromPoint3(InfoOf(v).target); },
+        .def_prop_ro("eye", [](const ViewRef& v) { return AsPoint{InfoOf(v).eye}; }, "Eye position (x, y, z).")
+        .def_prop_ro("target", [](const ViewRef& v) { return AsPoint{InfoOf(v).target}; },
             "The point the view looks at and orbits: (x, y, z).")
         .def_prop_ro("fov", [](const ViewRef& v) { return InfoOf(v).fov; },
             "Horizontal field of view in degrees; None for orthographic views.")
@@ -643,11 +643,11 @@ void BindViewport(nb::module_& m) {
             return CaptureAgent(v, crop, method, maxWidth, maxHeight);
         }, "crop"_a = nb::none(), "method"_a = "auto", "max_width"_a = kMaxWidth, "max_height"_a = 0,
            "Save this view, or the VFB its V-Ray/Corona preview renders into, to an image; crop=(x, y, w, h) in VFB client pixels.")
-        .def("frame", [](const AgentViewRef&, nb::handle nodes, double padding) {
+        .def("frame", [](const AgentViewRef&, NodesOrNone nodes, double padding) {
             json args = {{"padding", padding}};
             if (!nodes.is_none()) args["frame_names"] = FramingNames(nodes);
             Agent("frame", args);
-        }, "nodes"_a = nb::none(), "padding"_a = 1.15,
+        }, "nodes"_a.none() = nb::none(), "padding"_a = 1.15,
            "Fit nodes and their descendants (default: visible geometry, or the lights and cameras of a rig-only scene).")
         .def("orbit", [](const AgentViewRef&, double yaw, double pitch) { Agent("orbit", {{"yaw", yaw}, {"pitch", pitch}}); },
              "yaw"_a = 0.0, "pitch"_a = 0.0, "Orbit the target by yaw and pitch degrees: orbit(30, 10).")
@@ -669,7 +669,7 @@ void BindViewport(nb::module_& m) {
             json args = ImagePoint(x, y);
             Expect(args, capture);
             const json reply = Agent("ray", args);
-            return nb::make_tuple(TupleOf(reply.at("origin")), TupleOf(reply.at("direction")));
+            return std::make_pair(PointObject{TupleOf(reply.at("origin"))}, PointObject{TupleOf(reply.at("direction"))});
         }, "x"_a, "y"_a, "capture"_a = nb::none(),
            "World ray (origin, direction) through image point x, y (0-1 from the top-left).")
         .def("project", [](const AgentViewRef&, nb::handle points, const std::optional<Capture>& capture) {
@@ -735,7 +735,7 @@ void BindViewport(nb::module_& m) {
           "Save an open frame buffer or editor window (vray_vfb, corona_vfb, fstorm_vfb, tyflow_editor) to a JPEG, "
           "or the primary monitor with desktop=True (only when the user asked: it shows other applications); "
           "crop=(x, y, w, h) in its pixels: capture_screen('vray_vfb').");
-    m.def("capture_isolated", &CaptureIsolated, "nodes"_a = nb::none(),
+    m.def("capture_isolated", &CaptureIsolated, "nodes"_a.none() = nb::none(),
           "Capture each top-level hierarchy of the selection (or of nodes) alone, framed in the active view; instances "
           "share one image, and visibility and selection come back.");
 }

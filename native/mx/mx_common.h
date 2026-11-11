@@ -144,7 +144,48 @@ inline bool IsSequence(nb::handle v) { return nb::isinstance<nb::list>(v) || nb:
 
 std::vector<float> Floats(nb::handle value, size_t lo, size_t hi, const std::string& what);
 Point3 ToPoint3(nb::handle value, const std::string& what);
-inline nb::object FromPoint3(const Point3& p) { return nb::make_tuple(p.x, p.y, p.z); }
+
+// ── Value types (mx_values.cpp) ──────────────────────────────────
+// Point3, Box, Matrix and Color are Python classes of _mx: tuples with names
+// and a little vector math. A value still unpacks, compares and passes
+// wherever a plain (x, y, z) does, and any (x, y, z) passes where one is asked
+// for. A binding names the type it gives by returning one of the wrappers
+// below, and the type it takes with an Arg; ToPoint3 and friends then convert
+// arg.value under the argument's own name, so a wrong value is BadParam.
+
+nb::object MakePoint3(const Point3& p);
+// At double precision, for coordinates that never were a Point3.
+nb::object MakePoint3(double x, double y, double z);
+nb::object MakeBox(const Box3& box);
+nb::object MakeMatrix(const Matrix3& tm);
+nb::object MakeColor(float r, float g, float b);
+inline nb::object FromPoint3(const Point3& p) { return MakePoint3(p); }
+// Four rows of (x, y, z): the X, Y and Z axes, then the position.
+Matrix3 ToMatrix3(nb::handle value, const std::string& what);
+
+struct AsPoint { Point3 p; };
+struct AsBox { Box3 box; };
+struct AsMatrix { Matrix3 tm; };
+struct AsColor { float r = 0, g = 0, b = 0; };
+// A Point3 that already is a Python object (MakePoint3), named for the signature.
+struct PointObject { nb::object value; };
+struct PointArg { nb::handle value; };
+struct MatrixArg { nb::handle value; };
+struct ColorArg { nb::handle value; };
+// One number for every axis, or (x, y, z).
+struct ScaleArg { nb::handle value; };
+// A node, or its name or handle. These convert to the handle the lookups take.
+struct NodeArg {
+    nb::handle value;
+    operator nb::handle() const { return value; }
+};
+// A node or its name, or a list of them; NodesOrNone where None means "the default".
+struct NodesArg {
+    nb::handle value;
+    operator nb::handle() const { return value; }
+    bool is_none() const { return value.is_none(); }
+};
+struct NodesOrNone : NodesArg {};
 
 // ── Parameters (ParamBlock2) ─────────────────────────────────────
 
@@ -346,6 +387,7 @@ void AddProperty(const char* name, G&& getter, S&& setter, const char* doc) {
 
 // ── Bindings ─────────────────────────────────────────────────────
 
+void BindValues(nb::module_& m);       // mx_values.cpp
 void BindParams(nb::module_& m);       // mx_params.cpp
 void BindNodes(nb::module_& m);        // mx_nodes.cpp
 void BindModifiers(nb::module_& m);    // mx_modifiers.cpp
@@ -365,3 +407,79 @@ void BindPlugins(nb::module_& m);      // mx_plugins.cpp
 
 } // namespace MX_ABI_TAG
 } // namespace mx
+
+// How the value wrappers cross into Python, and what a signature calls them.
+namespace nanobind::detail {
+
+#define MX_VALUE_CASTER(Type, Text, Make)                                                        \
+    template <> struct type_caster<mx::Type> {                                                   \
+        NB_TYPE_CASTER(mx::Type, const_name(Text))                                               \
+        bool from_python(handle, uint32_t, cleanup_list*) noexcept { return false; }             \
+        static handle from_cpp(const mx::Type& v, rv_policy, cleanup_list*) noexcept {           \
+            try {                                                                                \
+                return (Make).release();                                                         \
+            } catch (python_error& error) {                                                      \
+                error.restore();                                                                 \
+                return handle();                                                                 \
+            }                                                                                    \
+        }                                                                                        \
+    };
+
+// An Arg takes any Python value; the binding converts it and names the argument.
+#define MX_ARG_CASTER(Type, Text)                                                                \
+    template <> struct type_caster<mx::Type> {                                                   \
+        NB_TYPE_CASTER(mx::Type, const_name(Text))                                               \
+        bool from_python(handle src, uint32_t, cleanup_list*) noexcept {                         \
+            value.value = src;                                                                   \
+            return true;                                                                         \
+        }                                                                                        \
+        static handle from_cpp(const mx::Type& v, rv_policy, cleanup_list*) noexcept {           \
+            return handle(v.value).inc_ref();                                                    \
+        }                                                                                        \
+    };
+
+// A Result is a Python object the binding already built; only its name is new.
+#define MX_RESULT_CASTER(Type, Text)                                                             \
+    template <> struct type_caster<mx::Type> {                                                   \
+        NB_TYPE_CASTER(mx::Type, const_name(Text))                                               \
+        bool from_python(handle, uint32_t, cleanup_list*) noexcept { return false; }             \
+        static handle from_cpp(const mx::Type& v, rv_policy, cleanup_list*) noexcept {           \
+            return handle(v.value).inc_ref();                                                    \
+        }                                                                                        \
+    };
+
+MX_VALUE_CASTER(AsPoint, "_mx.Point3", mx::MakePoint3(v.p))
+MX_VALUE_CASTER(AsBox, "_mx.Box", mx::MakeBox(v.box))
+MX_VALUE_CASTER(AsMatrix, "_mx.Matrix", mx::MakeMatrix(v.tm))
+MX_VALUE_CASTER(AsColor, "_mx.Color", mx::MakeColor(v.r, v.g, v.b))
+MX_RESULT_CASTER(PointObject, "_mx.Point3")
+MX_ARG_CASTER(PointArg, "_mx.Point3")
+MX_ARG_CASTER(MatrixArg, "_mx.Matrix")
+MX_ARG_CASTER(ColorArg, "_mx.Color")
+MX_ARG_CASTER(ScaleArg, "_mx.Point3 | float")
+MX_ARG_CASTER(NodeArg, "_mx.Node | str | int")
+MX_ARG_CASTER(NodesArg, "_mx.Node | str | collections.abc.Sequence[_mx.Node | str]")
+MX_ARG_CASTER(NodesOrNone, "_mx.Node | str | collections.abc.Sequence[_mx.Node | str] | None")
+
+} // namespace nanobind::detail
+
+// A binding file names a type of its own with these, at global scope before its
+// namespace: MX_ARG_TYPE(KeyValue, "float | _mx.Point3") declares mx::KeyValue,
+// an argument that holds any Python value in .value (and converts to nb::handle);
+// MX_RESULT_TYPE declares one that returns the nb::object in .value. The text is
+// what the signature shows, so it must say what the value really is.
+#define MX_ARG_TYPE(Type, Text)                                                                  \
+    namespace mx { inline namespace MX_ABI_TAG {                                                 \
+    struct Type {                                                                                \
+        nb::handle value;                                                                        \
+        operator nb::handle() const { return value; }                                            \
+        bool is_none() const { return value.is_none(); }                                         \
+    };                                                                                           \
+    } }                                                                                          \
+    namespace nanobind::detail { MX_ARG_CASTER(Type, Text) }
+
+#define MX_RESULT_TYPE(Type, Text)                                                               \
+    namespace mx { inline namespace MX_ABI_TAG {                                                 \
+    struct Type { nb::object value; };                                                           \
+    } }                                                                                          \
+    namespace nanobind::detail { MX_RESULT_CASTER(Type, Text) }

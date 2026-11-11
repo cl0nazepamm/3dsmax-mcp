@@ -202,7 +202,7 @@ HOMONYMS = {
 # dict, list or tuple as a result. Value types and typed results replace them. The
 # number only goes down: check() fails when the module has more, and when it has
 # fewer until this is lowered to match.
-UNTYPED_BUDGET = 133
+UNTYPED_BUDGET = 96
 
 _OBJECT = re.compile(r"\bobject\b")
 _BARE_RESULTS = frozenset({"dict", "list", "tuple"})
