@@ -151,6 +151,17 @@ def run_python(code: str, timeout_s: float = 300, where: str = "auto") -> dict:
       mx.Node are separate types; each side accepts the other's nodes. In pymxs a node is
       rt.getAnimByHandle(node.handle).
 
+    Parameters, one model for every class and plugin (objects, modifiers, materials, maps, controllers):
+      reflect, then set by name; never guess a parameter or its units. mx.params(class_name="Bend",
+      kind="modifier") lists a class's parameters before it exists: type, default, range, named choices,
+      UI label. mx.params(node, "modifiers[Bend]") (or "object", "material", "material.base_color_map",
+      "modifiers[1].gizmo", "transform") lists an instance's with values; mx.params(node, path,
+      {"BendAngle": 30, "BendAxis": "x"}) sets and reads back. The same {name: value} dict is the params
+      of mx.create, mx.add_modifier and mx.material. Values: degrees, percentages 0-100, colors 0-1 or
+      "#rrggbb", choice names, gizmos {"position", "rotation", "scale"}, map slots {"class": "Noise",
+      "params": {...}} built in place or {"params": {...}} to edit the one there. Inside Max the same on
+      sdk objects: node.params.describe(), sdk.class_info("Bend", "modifier").describe().
+
     Objects (return mx.Node): mx.box(name, width, length, height, pos=(x,y,z), pos_mode="ground"|"center"),
       mx.sphere(name, radius, pos, pos_mode), mx.cylinder(name, radius, height, pos, pos_mode),
       mx.plane(name, width, length, pos, pos_mode), mx.create(type, name, params, pos, ...), mx.get(name),
@@ -160,12 +171,12 @@ def run_python(code: str, timeout_s: float = 300, where: str = "auto") -> dict:
       Node: .name .handle .bbox (min, max) .center .size .info() .move(x,y,z) .rotate(x,y,z) degrees
       .scale(x,y,z) .set(property, value) .delete().
     Modeling: mx.boolean(target, operation="subtract"|"union"|"intersect", operands=[nodes], cutters=[specs]),
-      mx.add_modifier(target, modifier, params="segs:48"), mx.set_modifier(target, property_name,
+      mx.add_modifier(target, modifier, params={"segs": 48}), mx.set_modifier(target, property_name,
       property_value, modifier_index=1), mx.remove_modifier(target, modifier), mx.mesh(name, vertices, faces),
       mx.inspect_mesh(target), mx.mesh_edit(target, operations, expected_mesh), mx.spline(name, points,
       closed=False), mx.curve(definition, name, action="create"|"preview"), mx.loft(sections, name),
       mx.qa(target) -> {"counts": {...}, ...}, mx.contacts(names, against).
-    Shading: mx.material(targets, material_class="PhysicalMaterial", material_name, params),
+    Shading: mx.material(targets, material_class="PhysicalMaterial", material_name, params={...}),
       mx.share_material(targets, source), mx.set_material(target, property, value).
     Light and render, the same call on every renderer (Octane, FStorm, V-Ray, Corona, Scanline, ART):
       mx.render_setup() tells what the current renderer offers and what the scene has.

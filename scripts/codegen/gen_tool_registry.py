@@ -31,6 +31,8 @@ TYPE_MAP = {
     "FloatList": {"type": "array", "items": {"type": "number"}},
     "DictList": {"type": "array", "items": {"type": "object"}},
     "DictValue": {"type": "object"},
+    # {name: value} parameters, or the legacy "key:value" text.
+    "ParamValues": {"type": ["object", "string"]},
     "Any": {},
 }
 

@@ -132,6 +132,7 @@ set(MCP_CORE_SOURCES
     src/core/handlers/plugin_introspect_handlers.cpp
     src/core/plugin_access.cpp
     src/core/handlers/plugin_access_handlers.cpp
+    src/core/handlers/param_handlers.cpp
     src/core/handlers/organize_handlers.cpp
     src/core/handlers/learning_handlers.cpp
     src/core/handlers/effects_handlers.cpp

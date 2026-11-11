@@ -1,4 +1,5 @@
 #include "mcp_bridge/native_handlers.h"
+#include "mcp_bridge/param_codec.h"
 #include "mcp_bridge/handler_helpers.h"
 #include "mcp_bridge/core_bridge.h"
 
@@ -112,7 +113,14 @@ std::string NativeHandlers::AssignMaterial(const std::string& params, MCPBridgeG
         auto handles = p.value("handles", std::vector<unsigned long long>{});
         std::string matClass = p.value("material_class", "");
         std::string matName = p.value("material_name", "");
-        std::string matParams = p.value("params", "");
+        // params: {name: value} through the shared parameter codec, or the
+        // legacy MAXScript-style "key:value" text.
+        const json paramsValue = p.contains("params") ? p["params"] : json();
+        if (!paramsValue.is_null() && !ParamCodec::IsString(paramsValue) && !paramsValue.is_object())
+            ParamCodec::Fail("params must be an object {name: value}, or 'key:value' text");
+        const bool typedParams = paramsValue.is_object();
+        std::string matParams = ParamCodec::IsString(paramsValue) ? paramsValue.get<std::string>() : std::string();
+        json readback, codecWarnings = json::array();
 
         if (names.empty() && handles.empty()) throw std::runtime_error("names or handles is required");
         if (matClass.empty()) throw std::runtime_error("material_class is required");
@@ -176,6 +184,21 @@ std::string NativeHandlers::AssignMaterial(const std::string& params, MCPBridgeG
                 RunMAXScriptChecked("global __mcp_tmp_mtl = undefined; __mcp_tmp_mtl = " + script);
                 if (RunMAXScriptChecked("(superClassOf __mcp_tmp_mtl == material) as string") != "true")
                     throw std::runtime_error("the expression did not create a material");
+                if (typedParams) {
+                    Mtl* created = nullptr;
+                    EvaluateMAXScript(L"__mcp_tmp_mtl", [&](FPValue& value) {
+                        if (value.type == TYPE_MTL) created = value.mtl;
+                    });
+                    if (!created) throw std::runtime_error("the created material could not be read back");
+                    SuspendAnimate();
+                    try {
+                        ParamCodec::Apply(created, paramsValue, t, &readback, &codecWarnings);
+                        ResumeAnimate();
+                    } catch (...) {
+                        ResumeAnimate();
+                        throw;
+                    }
+                }
                 // Now assign via MAXScript too since we can't get the Mtl* back easily
                 int assignCount = 0;
                 json notFound = json::array();
@@ -232,7 +255,11 @@ std::string NativeHandlers::AssignMaterial(const std::string& params, MCPBridgeG
                 result["assigned"] = assigned;
                 result["assignedCount"] = assignCount;
                 result["notFound"] = notFound;
+                if (typedParams) result["params"] = readback;
+                if (!codecWarnings.empty()) result["warnings"] = codecWarnings;
                 return result.dump();
+            } catch (const ParamCodec::Error&) {
+                throw;
             } catch (const std::exception& e) {
                 std::string message = e.what();
                 json structured = json::parse(message, nullptr, false);
@@ -252,6 +279,17 @@ std::string NativeHandlers::AssignMaterial(const std::string& params, MCPBridgeG
         // Reject failed parameters before any node receives this new material.
         json appliedParameters = json::array();
         try {
+            if (typedParams) {
+                SuspendAnimate();
+                try {
+                    ParamCodec::Apply(mtl, paramsValue, t, &readback, &codecWarnings);
+                    ResumeAnimate();
+                } catch (...) {
+                    ResumeAnimate();
+                    throw;
+                }
+                for (auto it = paramsValue.begin(); it != paramsValue.end(); ++it) appliedParameters.push_back(it.key());
+            }
             if (!matParams.empty()) {
                 auto kvPairs = ParseMtlParams(matParams);
                 if (kvPairs.empty())
@@ -323,6 +361,8 @@ std::string NativeHandlers::AssignMaterial(const std::string& params, MCPBridgeG
         result["assignedCount"] = assignCount;
         result["notFound"] = notFound;
         result["appliedParameters"] = appliedParameters;
+        if (typedParams) result["params"] = readback;
+        if (!codecWarnings.empty()) result["warnings"] = codecWarnings;
         return result.dump();
     });
 }
@@ -333,7 +373,11 @@ std::string NativeHandlers::SetMaterialProperty(const std::string& params, MCPBr
         json p = json::parse(params, nullptr, false);
         std::string name = p.value("name", "");
         std::string prop = p.value("property", "");
-        std::string value = p.value("value", "");
+        // A JSON value (number, bool, list, object) goes through the shared
+        // parameter codec; a string stays a MAXScript-style literal.
+        const json valueJson = p.contains("value") ? p["value"] : json("");
+        const bool typedValue = !ParamCodec::IsString(valueJson);
+        std::string value = typedValue ? valueJson.dump() : valueJson.get<std::string>();
         int subMatIndex = p.value("sub_material_index", 0);
 
         if (prop.empty()) throw std::runtime_error("property is required");
@@ -363,6 +407,17 @@ std::string NativeHandlers::SetMaterialProperty(const std::string& params, MCPBr
             };
             return result.dump();
         };
+
+        if (typedValue) {
+            json warnings = json::array();
+            ParamCodec::Set(mtl, prop, valueJson, t, &warnings);
+            mtl->NotifyDependents(FOREVER, PART_ALL, REFMSG_CHANGE);
+            ip->RedrawViews(t);
+            json result = json::parse(propertyResult("Set " + WideToUtf8(mtl->GetName().data()) + "." + prop));
+            result["value"] = ParamCodec::Get(mtl, prop, t);
+            if (!warnings.empty()) result["warnings"] = warnings;
+            return result.dump();
+        }
 
         // Pure SDK path: try IParamBlock2 first
         if (SetParamByName((Animatable*)mtl, prop, value, t)) {
@@ -400,7 +455,8 @@ std::string NativeHandlers::SetMaterialProperties(const std::string& params, MCP
     return gup->GetExecutor().ExecuteSync([&params]() -> std::string {
         json p = json::parse(params, nullptr, false);
         std::string name = p.value("name", "");
-        auto properties = p.value("properties", std::map<std::string, std::string>{});
+        const json properties = p.value("properties", json::object());
+        if (!properties.is_object()) ParamCodec::Fail("properties must be an object {name: value}");
         int subMatIndex = p.value("sub_material_index", 0);
 
         if (properties.empty()) throw std::runtime_error("properties is required");
@@ -428,7 +484,23 @@ std::string NativeHandlers::SetMaterialProperties(const std::string& params, MCP
         else
             matExpr = "(getAnimByHandle " + std::to_string(NodeHandle(node)) + ").material";
 
-        for (auto& [prop, value] : properties) {
+        json values = json::object();
+        json notes = json::array();
+        for (auto item = properties.begin(); item != properties.end(); ++item) {
+            const std::string prop = item.key();
+            // A JSON value goes through the shared parameter codec; a string
+            // stays a MAXScript-style literal.
+            if (!ParamCodec::IsString(item.value())) {
+                try {
+                    ParamCodec::Set(mtl, prop, item.value(), t, &notes);
+                    values[prop] = ParamCodec::Get(mtl, prop, t);
+                    okList.push_back(prop);
+                } catch (const ParamCodec::Error& error) {
+                    errList.push_back(prop + ": " + error.text);
+                }
+                continue;
+            }
+            const std::string value = item.value().get<std::string>();
             // Try pure SDK IParamBlock2 first
             if (SetParamByName((Animatable*)mtl, prop, value, t)) {
                 okList.push_back(prop);
@@ -466,11 +538,13 @@ std::string NativeHandlers::SetMaterialProperties(const std::string& params, MCP
         };
         result["propertiesSet"] = okList;
         result["errors"] = errList;
+        if (!values.empty()) result["values"] = values;
         if (!errList.empty()) {
             result["status"] = "partial";
             result["warnings"] = json::array({std::to_string(errList.size()) + " of " +
                 std::to_string(properties.size()) + " material properties were not set; see errors."});
         }
+        for (const json& note : notes) result["warnings"].push_back(note);
         return result.dump();
     });
 }

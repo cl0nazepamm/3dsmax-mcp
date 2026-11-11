@@ -1,9 +1,11 @@
-from typing import Optional
+from typing import Any, Optional
 import json as _json
 from ...server import mcp, client
-from ...core.coerce import StrList
+from ...core.coerce import ParamValues, StrList
 from ...core.maxscript import (
     NODE_LOOKUP_FNS,
+    maxscript_literal,
+    maxscript_params,
     node_by_name,
     report_ambiguous,
     safe_string,
@@ -14,7 +16,7 @@ from ...core.maxscript import (
 def _modifier_property_payload(
     *,
     property_name: str,
-    property_value: str,
+    property_value: Any,
     name: str = "",
     names: Optional[StrList] = None,
     selection_only: bool = False,
@@ -69,8 +71,14 @@ def _format_modifier_property_result(
 
 
 @mcp.tool()
-def add_modifier(name: str = "", modifier: str = "", params: str = "", handle: int = 0) -> str:
-    """Add a modifier to an object."""
+def add_modifier(name: str = "", modifier: str = "", params: ParamValues = "", handle: int = 0) -> str:
+    """Add a modifier to an object, with its parameters set in the same step.
+
+    params: {name: value} in MAXScript units (degrees, 0-1 colors, choice names
+    such as {"BendAxis": "x"}, transforms such as {"gizmo": {"rotation": [0, 0, 45]}});
+    the reply reads each one back. parameters(class_name=..., kind="modifier")
+    lists what a modifier takes. Legacy "key:value" text is still accepted.
+    """
     if client.native_available:
         try:
             body = {"name": name, "modifier": modifier, "params": params}
@@ -90,7 +98,7 @@ def add_modifier(name: str = "", modifier: str = "", params: str = "", handle: i
         local obj = {node_by_name(name, missing_ok=True)}
         if obj != undefined then (
             try (
-                local m = {modifier} {params}
+                local m = {modifier} {maxscript_params(params) if isinstance(params, dict) else params}
                 addModifier obj m
                 "Added " + (classOf m as string) + " to " + obj.name
             ) catch (
@@ -312,7 +320,7 @@ def make_modifier_unique(name: str = "", modifier_index: int = 0, handle: int = 
 @mcp.tool()
 def set_modifier_property(
     property_name: str,
-    property_value: str,
+    property_value: Any,
     name: str = "",
     names: Optional[StrList] = None,
     selection_only: bool = False,
@@ -330,8 +338,12 @@ def set_modifier_property(
     - `modifier_name` — match by modifier stack entry name
     - `modifier_class` — every modifier of that class on each scoped object (batch)
 
+    property_value: a typed value (number, bool, [x, y, z], 0-1 color, choice name,
+    {"rotation": [...]} for a gizmo) is set through the parameter model and read
+    back per hit; a string is a MAXScript literal ("2", "true", "#z").
+
     Examples:
-    - One TurboSmooth on Box001: name="Box001", modifier_index=1, property_name="iterations", property_value="2"
+    - One TurboSmooth on Box001: name="Box001", modifier_index=1, property_name="iterations", property_value=2
     - All Smooth modifiers on selection: selection_only=true, modifier_class="Smooth", property_name="autosmooth", property_value="true"
     """
     payload = _modifier_property_payload(
@@ -373,7 +385,8 @@ def set_modifier_property(
             })
 
     safe_prop = safe_string(property_name)
-    ms_value = _maxscript_property_value(str(property_value))
+    ms_value = (_maxscript_property_value(property_value) if isinstance(property_value, str)
+                else maxscript_literal(property_value))
 
     if target_names:
         # Missing names are skipped; shared names are skipped and reported.

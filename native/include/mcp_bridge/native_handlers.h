@@ -6,6 +6,8 @@ class MCPBridgeGUP;
 namespace NativeHandlers {
     std::string PluginInspect(const std::string& params, MCPBridgeGUP* gup);
     std::string PluginPatch(const std::string& params, MCPBridgeGUP* gup);
+    // Parameters of any owner a node carries, or of a class (param_handlers.cpp).
+    std::string Parameters(const std::string& params, MCPBridgeGUP* gup);
     std::string LightingContext(const std::string& params, MCPBridgeGUP* gup);
     std::string AssignRenderer(const std::string& params, MCPBridgeGUP* gup);
     // Scene reads

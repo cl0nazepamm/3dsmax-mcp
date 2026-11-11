@@ -36,6 +36,35 @@ def safe_value(val: str) -> str:
     return val
 
 
+def maxscript_literal(value: object) -> str:
+    """A typed parameter value as a MAXScript literal, for the TCP fallbacks.
+
+    The native bridge takes these values as JSON; this covers the paths that
+    still build MAXScript text. Strings become string literals ("#name" a name),
+    lists of 2-4 numbers become point/vector literals.
+    """
+    if value is None:
+        return "undefined"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, str):
+        if value.startswith("#") and value[1:].replace("_", "").isalnum():
+            return value
+        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    if isinstance(value, (list, tuple)) and 2 <= len(value) <= 4 and all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) for v in value):
+        return "[" + ",".join(repr(v) for v in value) + "]"
+    raise TypeError(f"{value!r} needs the native bridge; the MAXScript fallback takes numbers, booleans, "
+                    "strings and lists of 2-4 numbers")
+
+
+def maxscript_params(values: dict) -> str:
+    """{name: value} as MAXScript constructor arguments ("radius:10 segs:32")."""
+    return " ".join(f"{key}:{maxscript_literal(value)}" for key, value in values.items())
+
+
 # ── Node lookup by name ─────────────────────────────────────────
 # 3ds Max lets several objects share a name, and getNodeByName then returns
 # whichever one it meets first; with its default exact:false it also matches

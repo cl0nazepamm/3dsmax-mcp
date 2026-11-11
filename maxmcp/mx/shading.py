@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from ._runtime import Node, call, ms_value, node_name
+from ._runtime import Node, call, node_name
 
 __all__ = [
     "material",
@@ -28,6 +28,11 @@ def _names_handles(targets: Node | str | Iterable[Node | str]) -> tuple[list[str
     return names or None, handles or None
 
 
+def _typed(value: Any) -> Any:
+    """A Python value as JSON for the parameter model; tuples become lists."""
+    return list(value) if isinstance(value, tuple) else value
+
+
 def _material_target(target: Node | str) -> dict[str, Any]:
     if isinstance(target, Node) and target.handle:
         return {"handle": target.handle}
@@ -35,10 +40,13 @@ def _material_target(target: Node | str) -> dict[str, Any]:
 
 
 def material(targets: Node | str | Iterable[Node | str], material_class: str = "", material_name: str = "",
-             params: str = "") -> Any:
+             params: dict[str, Any] | str = "") -> Any:
     """Create a material and assign it to targets (assign_material).
 
-    params: MAXScript constructor arguments, e.g. 'base_color:(color 200 30 30) roughness:0.4'.
+    params: {name: value}, e.g. {"base_color": [0.8, 0.1, 0.1], "roughness": 0.4,
+    "base_color_map": {"class": "Bitmaptexture", "params": {"filename": path}}}; colors are 0-1
+    or "#rrggbb". mx.params(class_name=material_class, kind="material") lists them.
+    MAXScript text ('base_color:(color 200 30 30)') is still accepted.
     """
     names, handles = _names_handles(targets)
     return call("assign_material", names=names, handles=handles, material_class=material_class,
@@ -56,16 +64,17 @@ def share_material(targets: Node | str | Iterable[Node | str], source: Node | st
 def set_material(target: Node | str, property: str, value: Any, sub_material_index: int = 0) -> Any:  # noqa: A002
     """Set one property on the target's material or sub-material (set_material_property).
 
-    value: MAXScript value text, e.g. '0.5' or '(color 255 0 0)'.
+    value: a Python value (0.5, [1, 0, 0], "#ff0000", a choice name, {"class": ..., "params": ...}
+    for a map slot), read back in the reply; a string is otherwise MAXScript text.
     """
-    return call("set_material_property", **_material_target(target), property=property, value=ms_value(value),
-                sub_material_index=sub_material_index)
+    return call("set_material_property", **_material_target(target), property=property,
+                value=_typed(value), sub_material_index=sub_material_index)
 
 
 def set_material_properties(target: Node | str, properties: dict[str, Any], sub_material_index: int = 0) -> Any:
     """Set several properties on the target's material in one call (set_material_properties)."""
     return call("set_material_properties", **_material_target(target),
-                properties={key: ms_value(v) for key, v in properties.items()},
+                properties={key: _typed(v) for key, v in properties.items()},
                 sub_material_index=sub_material_index)
 
 

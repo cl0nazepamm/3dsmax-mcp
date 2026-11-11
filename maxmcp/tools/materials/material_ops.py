@@ -10,9 +10,9 @@ and any MAXScript-creatable class.
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 from ...server import mcp, client
-from ...core.coerce import IntList, StrList
+from ...core.coerce import IntList, StrList, ParamValues
 from ...core.maxscript import (
     NODE_LOOKUP_FNS,
     node_by_name,
@@ -21,6 +21,8 @@ from ...core.maxscript import (
     safe_string,
     safe_value,
     split_ambiguous_reply,
+    maxscript_literal,
+    maxscript_params,
 )
 from ._material_assign import existing_material_script, existing_material_result
 from ...core.native_compat import is_missing_native_route_error
@@ -185,12 +187,18 @@ def assign_material(
     names: StrList | None = None,
     material_class: str = "",
     material_name: str = "",
-    params: str = "",
+    params: ParamValues = "",
     handles: IntList | None = None,
     source_name: str = "",
     source_handle: int = 0,
 ) -> str | dict:
     """Create a material, or share an existing object's material with targets.
+
+    params: {name: value} in MAXScript units: colors [r, g, b] as 0-1 floats or
+    "#rrggbb", choice names, and maps built in place
+    ({"base_color_map": {"class": "Bitmaptexture", "params": {"filename": "..."}}}).
+    The reply reads each one back. parameters(class_name=..., kind="material")
+    lists what a material takes. Legacy "key:value" text is still accepted.
 
     Existing material: pass source_name/source_handle (the OBJECT that wears it, not
     the material's name) instead of material_class, material_name and params. Both
@@ -233,7 +241,7 @@ def assign_material(
                 obj = {node_by_name_expr("n", missing_ok=True)}
                 if obj != undefined then appendIfUnique targets obj else append notFound n
             )
-            mat = {material_class}{name_param} {params}
+            mat = {material_class}{name_param} {maxscript_params(params) if isinstance(params, dict) else params}
             for obj in targets do obj.material = mat
             assignCount = targets.count
             msg = "Created " + (classof mat) as string + " \\\"" + mat.name + "\\\" and assigned to " + (assignCount as string) + " object(s)"
@@ -251,11 +259,16 @@ def assign_material(
 def set_material_property(
     name: str = "",
     property: str = "",
-    value: str = "",
+    value: Any = "",
     sub_material_index: int = 0,
     handle: int = 0,
 ) -> str:
-    """Set a property on an object's material (or sub-material)."""
+    """Set a property on an object's material (or sub-material).
+
+    value: a typed value (number, bool, 0-1 color list or "#rrggbb" for a color,
+    choice name, {"class": ..., "params": {...}} for a map slot) goes through the
+    parameter model and is read back; a string is a MAXScript literal.
+    """
     if client.native_available:
         payload = {
             "name": name,
@@ -293,7 +306,7 @@ def set_material_property(
                 "Error: Sub-material index {sub_material_index} not found on {safe}"
             ) else (
                 try (
-                    mat.{safe_prop} = {safe_value(value)}
+                    mat.{safe_prop} = {safe_value(value) if isinstance(value, str) else maxscript_literal(value)}
                     readback = (getproperty mat #{safe_prop}) as string
                     "Set " + mat.name + ".{safe_prop} = " + readback
                 ) catch (
@@ -309,11 +322,15 @@ def set_material_property(
 @mcp.tool()
 def set_material_properties(
     name: str = "",
-    properties: dict[str, str] | None = None,
+    properties: dict[str, Any] | None = None,
     sub_material_index: int = 0,
     handle: int = 0,
 ) -> str:
-    """Set multiple properties on an object's material in a single call."""
+    """Set multiple properties on an object's material in a single call.
+
+    Typed values go through the parameter model and are read back in `values`;
+    string values are MAXScript literals.
+    """
     properties = properties or {}
     if client.native_available:
         payload = {
@@ -341,7 +358,7 @@ def set_material_properties(
     for prop, val in properties.items():
         safe_prop = safe_string(prop)
         set_lines.append(
-            f'try (mat.{safe_prop} = {safe_value(val)}; append okList "{safe_prop}") '
+            f'try (mat.{safe_prop} = {safe_value(val) if isinstance(val, str) else maxscript_literal(val)}; append okList "{safe_prop}") '
             f'catch (append errList ("{safe_prop}: " + (getCurrentException())))'
         )
     set_block = "\n            ".join(set_lines)

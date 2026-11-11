@@ -20,6 +20,7 @@ __all__ = [
     "clone",
     "parent",
     "select",
+    "params",
 ]
 
 Vec3 = Sequence[float]
@@ -32,7 +33,7 @@ def _list(value: Vec3 | None) -> list[float] | None:
 def create(
     type: str,  # noqa: A002 - tool argument name
     name: str | None = None,
-    params: str | None = None,
+    params: dict[str, Any] | str | None = None,
     pos: Vec3 | None = None,
     pos_mode: str | None = None,
     length: float | None = None,
@@ -47,7 +48,9 @@ def create(
 ) -> Node:
     """Create any create_object type (Teapot, Tube, ChamferBox, ...) and return its Node.
 
-    pos_mode: ground (default, pos is the bbox bottom-center), center, or pivot.
+    params: {name: value} for any of the class's parameters (mx.params(class_name=type)
+    lists them), in degrees, 0-1 colors and choice names. pos_mode: ground (default,
+    pos is the bbox bottom-center), center, or pivot.
     """
     return Node.from_result(call(
         "create_object", type=type, name=name, params=params, pos=_list(pos), pos_mode=pos_mode,
@@ -187,3 +190,48 @@ def select(
         class_name=class_name,
         all=all,
     )
+
+
+def params(
+    target: Node | str | None = None,
+    path: str = "object",
+    values: dict[str, Any] | None = None,
+    *,
+    class_name: str | None = None,
+    kind: str | None = None,
+    names: list[str] | None = None,
+    query: str | None = None,
+    offset: int | None = None,
+    **set_values: Any,
+) -> Any:
+    """Describe, read or set the parameters of anything a node carries, or of a class (parameters).
+
+    mx.params(node, "modifiers[Bend]")                    -> every parameter: type, value, default,
+                                                            range, named choices, label
+    mx.params(node, "modifiers[Bend]", {"BendAngle": 30, "BendAxis": "x"})  -> readback in ["values"]
+    mx.params(node, "material", base_color_map={"class": "Noise", "params": {"size": 4}})
+    mx.params(node, "material.base_color_map", names=["size"])               -> {"values": {...}}
+    mx.params(class_name="Lathe", kind="modifier")        -> before any instance exists
+
+    path: object | modifiers[<name, class or 1-based position>] | material | material[2] |
+    transform | node, then .<map slot or subanim> (material.base_color_map, modifiers[Bend].gizmo).
+    Values: degrees, percentages 0-100, colors 0-1 or "#rrggbb", choice names, transforms as
+    {"position", "rotation", "scale"}, map slots as {"class": ..., "params": {...}}.
+    """
+    merged = dict(values or {})
+    merged.update(set_values)
+    if class_name is not None:
+        if merged or names:
+            raise ValueError("class_name describes a class; set or get on a node and path")
+        return call("parameters", action="describe", class_name=class_name, kind=kind, query=query, offset=offset)
+    if target is None:
+        raise ValueError("pass a node (or name), or class_name=... to describe a class")
+    selector: dict[str, Any] = (
+        {"handle": target.handle} if isinstance(target, Node) and target.handle
+        else {"handle": getattr(target, "handle")} if not isinstance(target, str) and getattr(target, "handle", None)
+        else {"name": node_name(target)})
+    if merged:
+        return call("parameters", action="set", path=path, values=merged, **selector)
+    if names:
+        return call("parameters", action="get", path=path, names=list(names), **selector)
+    return call("parameters", action="describe", path=path, query=query, offset=offset, **selector)

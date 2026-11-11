@@ -2,7 +2,7 @@
 
 3ds Max for agents, bound from the SDK: the scene's nodes, parameters, modifiers, materials and animation, and modeling, viewport, file and plugin work on them. Lights, cameras and renders are mx.render_setup, the same on every renderer.
 
-Build `b20261110083842`, 3ds Max SDK 2027.
+Build `b20261111153725`, 3ds Max SDK 2027.
 
 ## Functions
 
@@ -410,7 +410,7 @@ A plugin class: name, kind, plugin, describe(), interfaces, schema(), nodes().
 - `.category` (str): Create-panel category.
 - `.class_id` (tuple[int, int]): Class_ID as (a, b), like MAXScript's classID.
 - `.creatable` (bool): Whether scripts can create it (public and not marked no-create).
-- `.describe() -> list[str]`: Header plus one line per parameter: 'radius: distance = 25.0 [0.0, 1e+30] +anim' (MAXScript units).
+- `.describe() -> list[str]`: Header plus one line per parameter with its default, range, {named choices}, "UI label" and +anim (MAXScript units); subanims (gizmo, center) and MAXScript p...
 - `.interfaces` (list[_mx.Interface]): Interfaces the class publishes; static ones are callable, mixins need an object.
 - `.kind` (str): 'geometry', 'modifier', 'material', ... or the MAXScript superclass name.
 - `.label` (str): Localized UI name.
@@ -648,12 +648,13 @@ A Boolean operand (a snapshot): index, name, kind, operation, option, disabled.
 
 ### Params
 
-Parameters by name: p.radius, p['radius'] = 10. Angles in degrees, percentages 0-100, colors 0-1.
+Parameters by name: p.radius, p['radius'] = 10. Angles in degrees, percentages 0-100, colors 0-1, named choices by name (p.BendAxis = 'x'), gizmos as {'position', 'rotation', 'scale'}. p.describe() lists them with ranges and choices.
 
-- `.describe() -> list[str]`: One line per parameter: name, type, value, +anim when animatable.
+- `.describe(query: str = '') -> list[str]`: One line per parameter: name, type, value, range, {named choices}, "UI label", +anim; subanims (gizmo, center) and MAXScript properties after. query filters...
+- `.info(query: str = '') -> object`: describe() as a list of dicts: name, type, value, default, range, choices, label, animatable, source.
 - `.interface(name: str) -> _mx.Interface`: A mixin interface of the object by name: mod.params.interface('unwrap2').
 - `.interfaces` (list[_mx.Interface]): Mixin interfaces of the object these parameters belong to.
-- `.keys() -> list[str]`: Parameter names, then MAXScript properties that are not parameters.
+- `.keys() -> list[str]`: Parameter names, then transform/point subanims (gizmo, center), then MAXScript properties that are not parameters.
 - `.patch(schema: dict, all_instances: bool = False, **values) -> dict`: Guarded edit, one undo step, refused if anything inspected changed: p.patch(s, multiplier=2.0). Enums take their names; all_instances=True allows editing a s...
 - `.schema(*fields, query: str = '', offset: int = 0, limit: int = 256) -> object`: Plugin inspector report with live values and the schema and state tokens patch() needs: p.schema('multiplier').
 - `.to_dict() -> dict`: Every parameter and its value.
@@ -816,5 +817,5 @@ A viewport, resolved on every call: the user's active view, or the AGENT VIEWPOR
 
 ## Values
 
-- `BUILD` = 'b20261110083842'
+- `BUILD` = 'b20261111153725'
 - `MAX_VERSION` = 2027

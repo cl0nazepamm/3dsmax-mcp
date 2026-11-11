@@ -3,6 +3,7 @@
 #include "mcp_bridge/spatial_snapshot.h"
 #include "mcp_bridge/core_bridge.h"
 #include "mcp_bridge/modifier_helpers.h"
+#include "mcp_bridge/param_codec.h"
 
 #include <iInstanceMgr.h>
 #include <modstack.h>
@@ -66,7 +67,12 @@ std::string NativeHandlers::AddModifier(const std::string& params, MCPBridgeGUP*
         json p = json::parse(params, nullptr, false);
         std::string name = p.value("name", "");
         std::string modClass = p.value("modifier", "");
-        std::string modParams = p.value("params", "");
+        // params: {name: value} through the shared parameter codec, or the
+        // legacy MAXScript-style "key:value" text.
+        const json paramsValue = p.contains("params") ? p["params"] : json();
+        if (!paramsValue.is_null() && !ParamCodec::IsString(paramsValue) && !paramsValue.is_object())
+            ParamCodec::Fail("params must be an object {name: value}, or 'key:value' text");
+        std::string modParams = ParamCodec::IsString(paramsValue) ? paramsValue.get<std::string>() : std::string();
 
         if (modClass.empty()) throw std::runtime_error("modifier is required");
 
@@ -125,8 +131,25 @@ std::string NativeHandlers::AddModifier(const std::string& params, MCPBridgeGUP*
             dobj->AddModifier(mod);
         }
 
+        // Parameters by name after the modifier is on the stack (some initialize
+        // on apply), never keyed; a rejected one takes the modifier off again.
+        json readback, warnings = json::array();
+        if (paramsValue.is_object()) {
+            SuspendAnimate();
+            try {
+                ParamCodec::Apply(mod, paramsValue, t, &readback, &warnings);
+                ResumeAnimate();
+            } catch (...) {
+                ResumeAnimate();
+                GetCOREInterface7()->DeleteModifier(*node, *mod);
+                throw;
+            }
+        }
+
         ip->RedrawViews(t);
         json result = NodeIdentityJson(node);
+        if (paramsValue.is_object()) result["params"] = readback;
+        if (!warnings.empty()) result["warnings"] = warnings;
         result["message"] = "Added " + WideToUtf8(mod->ClassName().data()) + " to " + WideToUtf8(node->GetName());
         result["addedModifier"] = {
             {"name", WideToUtf8(mod->GetName(false).data())},
@@ -415,12 +438,13 @@ std::string NativeHandlers::SetModifierProperty(const std::string& params, MCPBr
         if (p.find("property_value") == p.end()) {
             throw std::runtime_error("property_value is required");
         }
-        std::string propValue;
-        if (p["property_value"].type() == json::value_t::string) {
-            propValue = p["property_value"].get<std::string>();
-        } else {
-            propValue = p["property_value"].dump();
-        }
+        // A JSON value (number, bool, list, object) goes through the shared
+        // parameter codec; a string stays a MAXScript-style literal.
+        const json propJson = p["property_value"];
+        const bool typedValue = !ParamCodec::IsString(propJson);
+        std::string propValue = typedValue ? propJson.dump() : propJson.get<std::string>();
+        json codecWarnings = json::array();
+        std::string lastRejection;
 
         if (modIndex <= 0 && modName.empty() && modClassName.empty()) {
             throw std::runtime_error(
@@ -503,7 +527,18 @@ std::string NativeHandlers::SetModifierProperty(const std::string& params, MCPBr
                     _stricmp(MaxScriptVisibleClassName(mod).c_str(), modClassName.c_str()) != 0)
                     return;
                 classMatched = true;
-                if (!ModifierHelpers::SetParameter(mod, propName, propValue, t)) {
+                if (typedValue) {
+                    try {
+                        ParamCodec::Set(mod, propName, propJson, t, &codecWarnings);
+                    } catch (const ParamCodec::Error& error) {
+                        // One named object: the codec's own message names the parameters and choices.
+                        if (explicitScope && targets.size() == 1) throw;
+                        lastRejection = error.text;
+                        rejected = true;
+                        rejectedValues++;
+                        return;
+                    }
+                } else if (!ModifierHelpers::SetParameter(mod, propName, propValue, t)) {
                     rejected = true;
                     rejectedValues++;
                     return;
@@ -518,6 +553,7 @@ std::string NativeHandlers::SetModifierProperty(const std::string& params, MCPBr
                     {"index", idx + 1},
                     {"class", WideToUtf8(mod->ClassName().data())},
                 });
+                if (typedValue) hits.back()["value"] = ParamCodec::Get(mod, propName, t);
             };
 
             std::string missReason;
@@ -559,6 +595,7 @@ std::string NativeHandlers::SetModifierProperty(const std::string& params, MCPBr
             if (!resolved.ambiguous.empty()) hint["ambiguous"] = resolved.ambiguous;
             if (!skipped.empty()) hint["skipped"] = skipped;
             if (rejectedValues) hint["rejectedValues"] = rejectedValues;
+            if (!lastRejection.empty()) hint["reason"] = lastRejection;
             throw std::runtime_error(StructuredErrorPayload(
                 "BAD_PARAM",
                 "No modifiers updated — check object names, modifier target, and property name",
@@ -568,7 +605,7 @@ std::string NativeHandlers::SetModifierProperty(const std::string& params, MCPBr
         json out = {
             {"modified", modCount},
             {"property", propName},
-            {"value", propValue},
+            {"value", typedValue ? propJson : json(propValue)},
             {"hits", hits},
         };
         json warnings = json::array();
@@ -591,6 +628,8 @@ std::string NativeHandlers::SetModifierProperty(const std::string& params, MCPBr
             out["status"] = "partial";
             out["warnings"] = warnings;
         }
+        // Range notes describe values that were set; they never make the result partial.
+        for (const json& note : codecWarnings) out["warnings"].push_back(note);
         AddAmbiguousNamesWarning(out, resolved.ambiguous);
         return out.dump();
     });

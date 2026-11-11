@@ -2,9 +2,9 @@ import json as _json
 import re
 
 from ...server import mcp, client
-from ...core.coerce import FloatList, IntList, StrList
+from ...core.coerce import FloatList, IntList, ParamValues, StrList
 from ...core.max_client import MaxBridgeError
-from ...core.maxscript import safe_string, node_by_name, node_by_name_expr, node_script_ref
+from ...core.maxscript import maxscript_params, safe_string, node_by_name, node_by_name_expr, node_script_ref
 from ._spatial import (
     apply_pos_mode_fix_maxscript,
     build_create_object_maxscript,
@@ -274,11 +274,21 @@ def _merge_create_object_params(
     return merged
 
 
+def _typed_create_params(values: dict, **conveniences: object) -> dict:
+    """The params dict with the convenience arguments filling keys it lacks (any case)."""
+    merged = dict(values)
+    present = {key.lower() for key in merged}
+    for key, value in conveniences.items():
+        if value is not None and key not in present and not (key == "pos" and "position" in present):
+            merged[key] = list(value) if isinstance(value, (list, tuple)) else value
+    return merged
+
+
 @mcp.tool()
 def create_object(
     type: str,
     name: str = "",
-    params: str = "",
+    params: ParamValues = "",
     pos: FloatList | None = None,
     pos_mode: str = "ground",
     length: float | None = None,
@@ -298,8 +308,28 @@ def create_object(
     - center: pos targets the bbox geometric center.
     - pivot: pos sets the node pivot directly (legacy/advanced).
 
+    params: {name: value} for any class's parameters in MAXScript units (degrees,
+    0-1 colors, choice names); the reply reads each one back under "params".
+    parameters(class_name=type) lists what a class takes. Legacy "key:value"
+    text is still accepted.
+
     Returns JSON with name, class, placement, bbox, axes, pivot, and localAxesWorld.
     """
+    if isinstance(params, dict):
+        typed = _typed_create_params(
+            params, pos=pos, length=length, width=width, height=height, depth=depth, radius=radius,
+            radius1=radius1, radius2=radius2, fillet=fillet, capheight=capheight)
+        mode = normalize_pos_mode(pos_mode)
+        if client.native_available:
+            p = {"type": type, "pos_mode": mode, "params": typed}
+            if name:
+                p["name"] = name
+            response = client.send_command(_json.dumps(p, allow_nan=False), cmd_type="native:create_object")
+            return _finalize_create_result(response.get("result", ""), type=type, pos=pos, pos_mode=mode)
+        # MAXScript fallback: the same values as constructor text.
+        params = maxscript_params({k: v for k, v in typed.items() if k.lower() not in ("pos", "position")})
+        if pos is None:
+            pos = typed.get("pos", typed.get("position"))
     params = _merge_create_object_params(
         type,
         params,

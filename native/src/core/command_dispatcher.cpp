@@ -148,6 +148,7 @@ static bool IsMutatingNativeHandler(const std::string& cmd_type) {
         "native:run_macroscript",
         "native:scene_patch",
         "native:plugin_patch",
+        "native:parameters",
         "native:scene_qa_fix",
         "native:mesh_script",
         "native:tyflow_operator",
@@ -160,6 +161,13 @@ static bool RequestIsReadOnlyAction(const std::string& cmd_type, const std::stri
     // Reads must remain available while the user owns an undo hold.
     const bool organization = cmd_type == "native:manage_layers" ||
         cmd_type == "native:manage_groups" || cmd_type == "native:manage_selection_sets";
+    if (cmd_type == "native:parameters") {
+        json payload = json::parse(command, nullptr, false);
+        if (!payload.is_object()) return false;
+        std::string action = payload.value("action", "describe");
+        std::transform(action.begin(), action.end(), action.begin(), ::tolower);
+        return action != "set";
+    }
     if (cmd_type == "native:tyflow_operator") {
         json payload = json::parse(command, nullptr, false);
         if (!payload.is_object()) return false;
@@ -487,6 +495,8 @@ std::string CommandDispatcher::Dispatch(
             result = NativeHandlers::PluginInspect(command, gup);
         } else if (cmd_type == "native:plugin_patch") {
             result = NativeHandlers::PluginPatch(command, gup);
+        } else if (cmd_type == "native:parameters") {
+            result = NativeHandlers::Parameters(command, gup);
         } else if (cmd_type == "native:lighting_context") {
             result = NativeHandlers::LightingContext(command, gup);
         } else if (cmd_type == "native:assign_renderer") {

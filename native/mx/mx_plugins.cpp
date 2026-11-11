@@ -8,6 +8,7 @@
 // MAXScript's own function-publishing marshalling: arguments follow MAXScript
 // (degrees, 1-based indices and bitarrays, enums by name).
 #include "mx_common.h"
+#include "mcp_bridge/param_codec.h"
 
 #include <actiontable.h>
 #include <iInstanceMgr.h>
@@ -211,111 +212,12 @@ static std::string CreateHint(SClass_ID sid, const std::string& name) {
     }
 }
 
-// ── Provider enums ───────────────────────────────────────────────
-// Named values of int parameters whose plugins publish no enum, taken from the
-// providers' own scripts and UI (the same table as maxmcp/tools/inspection/_plugin_semantics.py).
-
-struct Choice { const char* name; int value; };
-
-struct ProviderDomain {
-    SClass_ID sid;
-    ULONG a, b;
-    int block, param;
-    const char* name;
-    std::vector<Choice> choices;
-    bool complete;
-    const char* evidence;
-};
-
-static const std::vector<ProviderDomain>& ProviderDomains() {
-    static const char* const vrayLights = "Chaos VRay-VRayLightLister.mcr";
-    static const char* const vrayBitmap =
-        "V-Ray 7 update 3 VRayBitmap Qt combo item data (mapping, transfer function and RGB primaries)";
-    static const char* const coronaLight =
-        "Chaos coronaConverter.ms shipped with Corona 15 (units L3354, colorMode L3379, shape L3410-3546)";
-    static const std::vector<ProviderDomain> domains = {
-        {LIGHT_CLASS_ID, 1012233633u, 1607860959u, 0, 1, "type",
-         {{"rectangle", 0}, {"dome", 1}, {"sphere", 2}, {"mesh", 3}, {"disk", 4}}, true, vrayLights},
-        {LIGHT_CLASS_ID, 1012233633u, 1607860959u, 0, 12, "normalizeColor",
-         {{"renderer", 0}, {"lm", 1}, {"cd/m2", 2}, {"W", 3}, {"W/m2/sr", 4}}, true, vrayLights},
-        {LIGHT_CLASS_ID, 1012233633u, 1607860959u, 0, 39, "color_mode", {{"rendering_rgb", 0}, {"kelvin", 1}}, true, vrayLights},
-        {LIGHT_CLASS_ID, 592523983u, 1640440069u, 0, 14768, "analyticLightType",
-         {{"rectangle", 0}, {"disk", 1}, {"sphere", 3}, {"cylinder", 4}}, true,
-         "Octane 2026.3 Type combo item data (Quad=0, Disc=1, Sphere=3, Tube=4)"},
-        {TEXMAP_CLASS_ID, 1734939723u, 46203261u, 0, 2, "mapType",
-         {{"angular", 0}, {"cubic", 1}, {"spherical", 2}, {"mirrored_ball", 3}, {"max_standard", 4}}, true, vrayBitmap},
-        {TEXMAP_CLASS_ID, 1734939723u, 46203261u, 0, 25, "color_space",
-         {{"none", 0}, {"inverse_gamma", 1}, {"srgb", 2}, {"from_max", 3}, {"auto", 4}}, true, vrayBitmap},
-        {TEXMAP_CLASS_ID, 1734939723u, 46203261u, 3, 41, "rgbColorSpace",
-         {{"default", 0}, {"srgb", 1}, {"acescg", 2}, {"raw", 3}}, true, vrayBitmap},
-        {LIGHT_CLASS_ID, 1110459877u, 692869241u, 0, 121, "shape",
-         {{"sphere", 0}, {"rectangle", 1}, {"disk", 2}, {"cylinder", 3}}, true, coronaLight},
-        {LIGHT_CLASS_ID, 1110459877u, 692869241u, 0, 132, "colorMode",
-         {{"rendering_rgb", 0}, {"kelvin", 1}, {"texmap", 2}}, true, coronaLight},
-        {LIGHT_CLASS_ID, 1110459877u, 692869241u, 0, 136, "intensityUnits",
-         {{"renderer", 0}, {"lm", 1}, {"cd", 2}, {"lx", 3}}, true, coronaLight},
-        {LIGHT_CLASS_ID, 2084191360u, 164583279u, 0, 107, "colorMode",
-         {{"rendering_rgb", 0}, {"kelvin", 1}, {"realistic", 2}}, true,
-         "Chaos coronaConverter.ms shipped with Corona 15 (L3744-3746: colorMode 0 = direct colour; PB2 default 2 = realistic)"},
-        {TEXMAP_CLASS_ID, 2881116036u, 1699234372u, 0, 102, "enviroMapping", {{"spherical", 0}, {"screen", 1}}, false,
-         "Chaos coronaConverter.ms shipped with Corona 15 (L45-46: CORONA_BITMAP_MAPPING_SPHERICAL=0, SCREEN=1)"},
-    };
-    return domains;
-}
-
-static const ProviderDomain* FindDomain(SClass_ID sid, ULONG a, ULONG b, int block, int param, const std::string& name) {
-    for (const ProviderDomain& d : ProviderDomains())
-        if (d.sid == sid && d.a == a && d.b == b && d.block == block && d.param == param && name == d.name) return &d;
-    return nullptr;
-}
-
-static std::string ChoicesText(const ProviderDomain& d) {
-    std::string out = "{";
-    for (size_t i = 0; i < d.choices.size(); ++i)
-        out += (i ? ", " : "") + std::string(d.choices[i].name) + "=" + std::to_string(d.choices[i].value);
-    return out + "}";
-}
-
 // ── Class descriptions ───────────────────────────────────────────
-
-static nb::object DefaultValue(int type, const PB2Value& v) {
-    switch (type) {
-    case TYPE_FLOAT: case TYPE_WORLD: case TYPE_ANGLE: case TYPE_PCNT_FRAC: case TYPE_COLOR_CHANNEL:
-        return nb::float_(v.f * ParamScale(type));
-    case TYPE_INT: case TYPE_INDEX: case TYPE_RADIOBTN_INDEX: return nb::int_(v.i);
-    case TYPE_BOOL: return nb::bool_(v.i != 0);
-    case TYPE_TIMEVALUE: return nb::float_(TicksToFrame(v.i));
-    case TYPE_POINT3: case TYPE_RGBA: return v.p ? FromPoint3(*v.p) : nb::none();
-    case TYPE_POINT4: case TYPE_FRGBA: return v.p4 ? nb::object(nb::make_tuple(v.p4->x, v.p4->y, v.p4->z, v.p4->w)) : nb::none();
-    default: return nb::none();
-    }
-}
-
-static std::string RangeText(int type, const ParamDef& def) {
-    auto pair = [](nb::object lo, nb::object hi) { return "[" + ReprOf(lo) + ", " + ReprOf(hi) + "]"; };
-    switch (type) {
-    case TYPE_FLOAT: case TYPE_WORLD: case TYPE_ANGLE: case TYPE_PCNT_FRAC: case TYPE_COLOR_CHANNEL:
-        return pair(nb::float_(def.range_low.f * ParamScale(type)), nb::float_(def.range_high.f * ParamScale(type)));
-    case TYPE_INT: case TYPE_INDEX: case TYPE_RADIOBTN_INDEX: return pair(nb::int_(def.range_low.i), nb::int_(def.range_high.i));
-    case TYPE_TIMEVALUE: return pair(nb::float_(TicksToFrame(def.range_low.i)), nb::float_(TicksToFrame(def.range_high.i)));
-    default: return {};
-    }
-}
-
-// "radius: distance = 25.0 [0.0, 1e+30] +anim", in MAXScript units.
-static std::string ParamLine(const ClassInfo& c, ParamBlockDesc2* desc, const ParamDef& def) {
-    const int type = BaseType(def.type);
-    const std::string name = WideToUtf8(def.int_name);
-    std::string line = name + ": " + TypeName(type) + (def.type & TYPE_TAB ? "[]" : "");
-    if (def.flags & P_HAS_DEFAULT)
-        if (nb::object value = DefaultValue(type, def.def); !value.is_none()) line += " = " + ReprOf(value);
-    if (def.flags & P_HAS_RANGE)
-        if (const std::string range = RangeText(type, def); !range.empty()) line += " " + range;
-    if (const ProviderDomain* domain = FindDomain(c.sid, c.a, c.b, desc->ID, def.ID, name)) line += " " + ChoicesText(*domain);
-    if (def.flags & P_ANIMATABLE) line += " +anim";
-    if (def.flags & P_READ_ONLY) line += " read-only";
-    return line;
-}
+// The parameters come from the shared parameter codec (param_codec.h), the
+// same model the bridge's parameters tool uses: defaults, ranges, named
+// choices (published, provider references, rollout radio buttons and
+// dropdowns), labels, plus the subanims and MAXScript properties a temporary
+// instance shows.
 
 static std::vector<std::string> DescribeClass(const ClassInfo& c) {
     ClassEntry& entry = Entry(c);
@@ -331,14 +233,14 @@ static std::vector<std::string> DescribeClass(const ClassInfo& c) {
     std::vector<std::string> lines{header};
 
     ClassDesc* cd = Descriptor(c);
-    for (int b = 0; b < cd->NumParamBlockDescs(); ++b) {
-        ParamBlockDesc2* desc = cd->GetParamBlockDesc(b);
-        for (int i = 0; desc && i < desc->count; ++i) {
-            const ParamDef& def = desc->GetParamDef(desc->IndextoID(i));
-            if (def.int_name && *def.int_name) lines.push_back(ParamLine(c, desc, def));
-        }
+    json described;
+    try {
+        described = ParamCodec::DescribeClass(cd, Now());
+    } catch (const ParamCodec::Error& error) {
+        throw BadParam(error.text);
     }
-    if (lines.size() == 1) lines.push_back("no ParamBlock2 parameters; an instance's params.keys() lists its MAXScript properties");
+    for (const json& param : described["params"]) lines.push_back(ParamCodec::Line(param));
+    if (lines.size() == 1) lines.push_back("no parameters");
 
     std::vector<std::string> interfaces;
     for (int i = 0; i < cd->NumInterfaces(); ++i) {
@@ -1031,12 +933,13 @@ static void ToScriptUnits(json& property) {
 static void Annotate(const json& identity, json& property) {
     if (property.value("type", "") != "int" || !identity.contains("class_id") || !property.contains("property_ref")) return;
     const json& ref = property["property_ref"];
-    const ProviderDomain* d = FindDomain((SClass_ID)identity.value("superclass_id", 0ull), identity["class_id"][0].get<ULONG>(),
-                                         identity["class_id"][1].get<ULONG>(), ref.value("block_id", -1),
-                                         ref.value("param_id", -1), property.value("name", ""));
+    const ParamCodec::ProviderDomain* d = ParamCodec::FindProviderDomain(
+        (SClass_ID)identity.value("superclass_id", 0ull),
+        Class_ID(identity["class_id"][0].get<ULONG>(), identity["class_id"][1].get<ULONG>()),
+        ref.value("block_id", -1), ref.value("param_id", -1), property.value("name", ""));
     if (!d) return;
     json choices = json::array();
-    for (const Choice& c : d->choices) choices.push_back({{"name", c.name}, {"value", c.value}});
+    for (const auto& [label, value] : d->choices) choices.push_back({{"name", label}, {"value", value}});
     property["domain"] = {{"kind", "enum"}, {"choices", choices}, {"complete", d->complete},
                           {"source", "provider_reference"}, {"evidence", d->evidence}};
 }
@@ -1617,7 +1520,8 @@ static void BindClasses(nb::module_& m) {
         .def_prop_ro("creatable", &Creatable, "Whether scripts can create it (public and not marked no-create).")
         .def_prop_ro("interfaces", &ClassInterfaces, "Interfaces the class publishes; static ones are callable, mixins need an object.")
         .def("describe", &DescribeClass,
-            "Header plus one line per parameter: 'radius: distance = 25.0 [0.0, 1e+30] +anim' (MAXScript units).")
+            "Header plus one line per parameter with its default, range, {named choices}, \"UI label\" and +anim "
+            "(MAXScript units); subanims (gizmo, center) and MAXScript properties after, from a temporary instance.")
         .def("schema", &ClassSchema, "fields"_a, "query"_a = "", "offset"_a = 0, "limit"_a = 256,
             "Plugin inspector metadata: property refs, labels, units, domains, coverage: schema('radius').")
         .def("nodes", [](const ClassInfo& c) {

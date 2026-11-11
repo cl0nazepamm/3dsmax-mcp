@@ -1,5 +1,10 @@
-// ParamBlock2 parameters by name, for base objects, modifiers and materials.
+// Parameters by name, for base objects, modifiers, materials and maps:
+// ParamBlock2 parameters, transform and point subanims (gizmo, center, Lathe's
+// axis), then MAXScript properties. Descriptions, named choices and subanim
+// values come from the shared parameter codec (param_codec.h), the model the
+// bridge's tools use; reads and writes of plain values stay native Python here.
 #include "mx_common.h"
+#include "mcp_bridge/param_codec.h"
 
 namespace mx {
 inline namespace MX_ABI_TAG {
@@ -65,15 +70,21 @@ std::vector<std::string> ParamNames(Animatable* owner) {
     return names;
 }
 
-// Parameter names plus the MAXScript properties that are not parameters.
-std::vector<std::string> AllNames(Animatable* owner) {
-    std::vector<std::string> names = ParamNames(owner);
-    for (const std::string& extra : MxsPropNames(owner)) {
-        const bool known = std::any_of(names.begin(), names.end(),
-            [&](const std::string& name) { return _stricmp(name.c_str(), extra.c_str()) == 0; });
-        if (!known) names.push_back(extra);
+// A codec call with its errors as _mx's own.
+template <typename F>
+static auto Codec(F&& f) -> decltype(f()) {
+    try {
+        return f();
+    } catch (const ParamCodec::Error& error) {
+        if (error.unknown) throw UnknownParam(error.text);
+        if (error.code == "AMBIGUOUS") throw Ambiguous(error.text);
+        throw BadParam(error.text);
     }
-    return names;
+}
+
+// Parameter names, then transform/point subanims, then the MAXScript properties that are not parameters.
+std::vector<std::string> AllNames(Animatable* owner) {
+    return Codec([&] { return ParamCodec::AllNames(owner); });
 }
 
 // By MAXScript name or internal name, ignoring case.
@@ -104,9 +115,11 @@ ParamRef RequireParam(Animatable* owner, const std::string& name) {
     ThrowUnknown(owner, name);
 }
 
-// A parameter, else a MAXScript property, else UnknownParam.
+// A parameter, else a transform/point subanim, else a MAXScript property, else UnknownParam.
 nb::object GetValue(Animatable* owner, const std::string& name, TimeValue t) {
     if (auto ref = FindParam(owner, name)) return GetParam(*ref, t);
+    if (Control* control = ParamCodec::FindSubControl(owner, name))
+        return ToPython(Codec([&] { return ParamCodec::SubControlGet(control, t); }));
     if (auto value = MxsGet(owner, name, t)) return *value;
     ThrowUnknown(owner, name);
 }
@@ -182,6 +195,16 @@ static void SetOne(const ParamRef& ref, TimeValue t, nb::handle value, int index
             if (nb::isinstance<nb::bool_>(value)) throw nb::cast_error();
             ok = pb->SetValue(id, t, float(nb::cast<double>(value) / ParamScale(type)), index); break;
         case TYPE_INT: case TYPE_INDEX: case TYPE_RADIOBTN_INDEX:
+            if (nb::isinstance<nb::str>(value)) {   // a named choice: BendAxis = "x"
+                ParamBlockDesc2* desc = pb->GetDesc();
+                const auto choices = ParamCodec::ChoicesOf(desc ? desc->cd : nullptr, desc, *ref.def, what);
+                const std::string label = nb::cast<std::string>(value);
+                const auto chosen = choices ? ParamCodec::ChoiceValue(*choices, label) : std::nullopt;
+                if (!chosen)
+                    throw BadParam(choices ? what + " has no choice '" + label + "'. Choices: " + ParamCodec::ChoiceNames(*choices)
+                                           : what + " expects an int; it publishes no named choices");
+                ok = pb->SetValue(id, t, *chosen, index); break;
+            }
             if (nb::isinstance<nb::float_>(value) || nb::isinstance<nb::bool_>(value)) throw nb::cast_error();
             ok = pb->SetValue(id, t, nb::cast<int>(value), index); break;
         case TYPE_BOOL: {
@@ -224,6 +247,12 @@ static void SetOne(const ParamRef& ref, TimeValue t, nb::handle value, int index
 void SetParam(Animatable* owner, const std::string& name, nb::handle value, TimeValue t) {
     const std::optional<ParamRef> found = FindParam(owner, name);
     if (!found) {
+        if (Control* control = ParamCodec::FindSubControl(owner, name)) {
+            const nlohmann::json input = FromPython(value);
+            Codec([&] { ParamCodec::SubControlSet(control, input, t, name); return 0; });
+            if (auto* target = ParamCodec::AsRefTarget(owner)) target->NotifyDependents(FOREVER, PART_ALL, REFMSG_CHANGE);
+            return;
+        }
         if (MxsSet(owner, name, value, t)) return;
         ThrowUnknown(owner, name);
     }
@@ -254,24 +283,28 @@ static std::string ParamsRepr(const Params& p) {
     return out + ">";
 }
 
-// One line per parameter: "radius: distance = 25.0 +anim".
-static std::vector<std::string> Describe(const Params& p) {
+// The codec's description of every parameter, subanim and MAXScript property.
+static nlohmann::json Described(const Params& p, const std::string& query) {
     Animatable* owner = ParamOwner(p);
+    ParamCodec::DescribeOptions options;
+    options.query = query;
+    options.limit = 100000;
+    return Codec([&] { return ParamCodec::Describe(owner, Now(), options); });
+}
+
+// One line per parameter: "radius: distance = 25.0 [0.0, 1e+30] +anim", choices as {x=0, y=1}.
+static std::vector<std::string> Describe(const Params& p, const std::string& query) {
     std::vector<std::string> lines;
-    const TimeValue t = Now();
-    ForEachParam(owner, [&](IParamBlock2* block, const ParamDef& def) {
-        std::string line = ParamName(block, def) + ": " + TypeName(def.type);
-        if (def.type & TYPE_TAB) line += "[]";
-        line += " = " + ReprOf(GetParam(ParamRef{block, &def}, t));
-        if (def.flags & P_ANIMATABLE) line += " +anim";
-        lines.push_back(line);
-    });
+    const nlohmann::json described = Described(p, query);   // kept alive for the loop
+    for (const nlohmann::json& entry : described["params"]) lines.push_back(ParamCodec::Line(entry));
     return lines;
 }
 
 void BindParams(nb::module_& m) {
     nb::class_<Params>(m, "Params",
-        "Parameters by name: p.radius, p['radius'] = 10. Angles in degrees, percentages 0-100, colors 0-1.")
+        "Parameters by name: p.radius, p['radius'] = 10. Angles in degrees, percentages 0-100, colors 0-1, "
+        "named choices by name (p.BendAxis = 'x'), gizmos as {'position', 'rotation', 'scale'}. "
+        "p.describe() lists them with ranges and choices.")
         .def("__getattr__", [](const Params& p, const std::string& name) -> nb::object {
             if (name.size() > 1 && name[0] == '_' && name[1] == '_') throw nb::attribute_error(name.c_str());
             return GetValue(ParamOwner(p), name, Now());
@@ -287,10 +320,11 @@ void BindParams(nb::module_& m) {
         })
         .def("__contains__", [](const Params& p, const std::string& name) {
             Animatable* owner = ParamOwner(p);
-            return FindParam(owner, name).has_value() || MxsGet(owner, name, Now()).has_value();
+            return FindParam(owner, name).has_value() || ParamCodec::FindSubControl(owner, name) != nullptr ||
+                   MxsGet(owner, name, Now()).has_value();
         })
         .def("keys", [](const Params& p) { return AllNames(ParamOwner(p)); },
-            "Parameter names, then MAXScript properties that are not parameters.")
+            "Parameter names, then transform/point subanims (gizmo, center), then MAXScript properties that are not parameters.")
         .def("to_dict", [](const Params& p) {
             nb::dict out;
             const TimeValue t = Now();
@@ -304,14 +338,19 @@ void BindParams(nb::module_& m) {
             const TimeValue t = Now();
             for (auto [key, value] : values) SetParam(owner, nb::cast<std::string>(key), value, t);
         }, "values"_a, "Set several parameters: p.update(radius=10, segs=32).")
-        .def("describe", &Describe, "One line per parameter: name, type, value, +anim when animatable.")
+        .def("describe", &Describe, "query"_a = "",
+            "One line per parameter: name, type, value, range, {named choices}, \"UI label\", +anim; "
+            "subanims (gizmo, center) and MAXScript properties after. query filters by name or label.")
+        .def("info", [](const Params& p, const std::string& query) { return ToPython(Described(p, query)["params"]); },
+            "query"_a = "",
+            "describe() as a list of dicts: name, type, value, default, range, choices, label, animatable, source.")
         .def("track", [](const Params& p, const std::string& name) {
             const ParamRef ref = RequireParam(ParamOwner(p), name);
             return Track{p.node, p.owner, ParamName(ref.block, *ref.def), true};
         }, "name"_a, "The parameter's animation track.")
         .def("__dir__", [](const Params& p) {
             std::vector<std::string> names = AllNames(ParamOwner(p));
-            for (const char* method : {"describe", "keys", "to_dict", "track", "update"}) names.push_back(method);
+            for (const char* method : {"describe", "info", "keys", "to_dict", "track", "update"}) names.push_back(method);
             return names;
         })
         .def("__repr__", &ParamsRepr);

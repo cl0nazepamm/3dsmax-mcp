@@ -87,10 +87,12 @@ def boolean(
     )
 
 
-def add_modifier(target: Node | str, modifier: str, params: str = "") -> Any:
-    """Add a modifier by class name; returns the tool's message.
+def add_modifier(target: Node | str, modifier: str, params: dict[str, Any] | str = "") -> Any:
+    """Add a modifier by class name with its parameters; returns the tool's result.
 
-    params is MAXScript constructor text, e.g. "iterations:2".
+    params: {name: value}, e.g. {"iterations": 2} or {"BendAxis": "x", "BendAngle": 45};
+    mx.params(class_name=modifier, kind="modifier") lists them. MAXScript text
+    ("iterations:2") is still accepted.
     """
     return call("add_modifier", **_target(target), modifier=modifier, params=params)
 
@@ -107,12 +109,14 @@ def set_modifier(
 ) -> Any:
     """Set one modifier property via set_modifier_property; pick the modifier by index, name or class.
 
-    property_value is a string as the tool takes it: "2", "true", "0.5".
+    property_value: a Python value (2, True, 0.5, "x" for a choice, {"rotation": [0, 0, 45]} for a
+    gizmo) set through the parameter model and read back per hit; a string that is not a choice
+    name is taken as MAXScript text.
     """
     return call(
         "set_modifier_property",
         property_name=property_name,
-        property_value=ms_value(property_value),
+        property_value=list(property_value) if isinstance(property_value, tuple) else property_value,
         name=None if target is None else node_name(target),
         names=_names(names),
         selection_only=selection_only,

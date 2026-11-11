@@ -1,4 +1,5 @@
 #include "mcp_bridge/native_handlers.h"
+#include "mcp_bridge/param_codec.h"
 #include "mcp_bridge/handler_helpers.h"
 #include "mcp_bridge/spatial_snapshot.h"
 #include "mcp_bridge/core_bridge.h"
@@ -507,7 +508,47 @@ std::string NativeHandlers::CreateObject(const std::string& params, MCPBridgeGUP
         Point3 posOverride(0, 0, 0);
         bool hasPos = false;
         bool anyParamFailed = false;
-        auto kvPairs = BuildCreateObjectParams(p, type);
+        json readback, warnings = json::array();
+        const bool typedParams = p.contains("params") && p["params"].is_object();
+        auto kvPairs = typedParams ? std::vector<std::pair<std::string, std::string>>{} : BuildCreateObjectParams(p, type);
+
+        if (typedParams) {
+            // {name: value} through the shared parameter codec. Keys the payload
+            // carries beside params and the primitive's defaults fill what it lacks.
+            json values = p["params"];
+            auto hasKey = [&](const std::string& key) {
+                for (auto it = values.begin(); it != values.end(); ++it)
+                    if (ToLowerCopy(it.key()) == ToLowerCopy(key)) return true;
+                return false;
+            };
+            for (auto it = p.begin(); it != p.end(); ++it) {
+                const std::string lkey = ToLowerCopy(it.key());
+                if (lkey == "type" || lkey == "name" || lkey == "params" || lkey == "pos_mode" || lkey == "handle") continue;
+                if (!hasKey(it.key())) values[it.key()] = it.value();
+            }
+            for (const auto& [key, val] : ParseParamString(DefaultCreateObjectParams(type))) {
+                const json parsed = json::parse(val, nullptr, false);
+                if (!hasKey(key) && ParamCodec::IsNumber(parsed)) values[key] = parsed;
+            }
+            for (const char* key : {"pos", "position"}) {
+                for (auto it = values.begin(); it != values.end(); ++it) {
+                    if (ToLowerCopy(it.key()) != key) continue;
+                    posOverride = ParamCodec::PointOf(it.value(), key);
+                    hasPos = true;
+                    values.erase(it);
+                    break;
+                }
+            }
+            SuspendAnimate();
+            try {
+                ParamCodec::Apply(obj, values, t, &readback, &warnings);
+                ResumeAnimate();
+            } catch (...) {
+                ResumeAnimate();
+                ip->DeleteNode(node);   // a rejected parameter leaves no half-built object
+                throw;
+            }
+        }
 
         if (!kvPairs.empty()) {
             for (auto& [key, val] : kvPairs) {
@@ -550,8 +591,10 @@ std::string NativeHandlers::CreateObject(const std::string& params, MCPBridgeGUP
         obj->NotifyDependents(FOREVER, PART_ALL, REFMSG_CHANGE);
         ip->RedrawViews(t);
 
-        return SpatialSnapshot::BuildCreateObjectResult(
-            node, t, type, posOverride, hasPos, posMode).dump();
+        json created = SpatialSnapshot::BuildCreateObjectResult(node, t, type, posOverride, hasPos, posMode);
+        if (typedParams) created["params"] = readback;
+        if (!warnings.empty()) created["warnings"] = warnings;
+        return created.dump();
     });
 }
 
