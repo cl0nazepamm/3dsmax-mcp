@@ -202,26 +202,46 @@ HOMONYMS = {
 # dict, list or tuple as a result. Value types and typed results replace them. The
 # number only goes down: check() fails when the module has more, and when it has
 # fewer until this is lowered to match.
-UNTYPED_BUDGET = 96
+UNTYPED_BUDGET = 43
 
 _OBJECT = re.compile(r"\bobject\b")
 _BARE_RESULTS = frozenset({"dict", "list", "tuple"})
 
+# A report is a dict whose description ends with its top-level keys: "Keys: {'a', 'b', 'c'?}."
+# A ? follows a key that is not always there. Such a dict says what it holds, so it is
+# not counted as untyped, and the live sweep (scripts/live/run_sdk_sweep.py) compares the
+# list with what the call returns.
+_KEYS = re.compile(r"Keys: \{([^{}]*)\}")
+_KEY = re.compile(r"'([^']+)'(\?)?")
 
-def _untyped(annotations: str, result: str) -> str:
+
+def report_keys(text: str | None) -> tuple[set[str], set[str]] | None:
+    """(keys always there, keys sometimes there) that a description names, or None when it names none."""
+    match = _KEYS.search(text or "")
+    if not match:
+        return None
+    required: set[str] = set()
+    optional: set[str] = set()
+    for name, mark in _KEY.findall(match.group(1)):
+        (optional if mark else required).add(name)
+    return (required, optional) if required or optional else None
+
+
+def _untyped(annotations: str, result: str, text: str = "") -> str:
     """Why a signature's annotations are untyped, or "" when they say what the values are."""
     why = []
     count = len(_OBJECT.findall(annotations))
     if count:
         why.append("`object`" + (f" x{count}" if count > 1 else ""))
-    if result.strip() in _BARE_RESULTS:
-        why.append(f"a bare {result.strip()} result")
+    bare = result.strip()
+    if bare in _BARE_RESULTS and not (bare == "dict" and report_keys(text)):
+        why.append(f"a bare {bare} result")
     return " and ".join(why)
 
 
-def _signature_untyped(signature: str) -> str:
+def _signature_untyped(signature: str, text: str = "") -> str:
     _, arrow, result = signature.rpartition(" -> ")
-    return _untyped(signature, result if arrow else "")
+    return _untyped(signature, result if arrow else "", text)
 
 
 def lint(module: Any) -> dict[str, list[str]]:
@@ -230,7 +250,8 @@ def lint(module: Any) -> dict[str, list[str]]:
     doc: a function, class, property or method without a description.
     object: a plugin-object wrapper (a class with params) that lacks one of OBJECT_MEMBERS.
     shape: a name that is a property on one class and a method on another (HOMONYMS excepted).
-    untyped: a signature with an untyped annotation (see UNTYPED_BUDGET).
+    untyped: a signature with an untyped annotation (see UNTYPED_BUDGET). A dict result whose
+        description names its keys (report_keys) is a report, not an untyped value.
     """
     found: dict[str, list[str]] = {"doc": [], "object": [], "shape": [], "untyped": []}
     shapes: dict[str, dict[str, list[str]]] = {}
@@ -246,7 +267,7 @@ def lint(module: Any) -> dict[str, list[str]]:
             signatures, text = _split(value.__doc__)
             if not text:
                 found["doc"].append(f"{name}(): no description")
-            note_untyped(f"{name}()", " and ".join(filter(None, map(_signature_untyped, signatures[:1]))))
+            note_untyped(f"{name}()", _signature_untyped(signatures[0], text) if signatures else "")
         elif kind in ("class", "exception"):
             if not (value.__doc__ or "").strip():
                 found["doc"].append(f"{name}: no description")
@@ -263,14 +284,13 @@ def lint(module: Any) -> dict[str, list[str]]:
                     if not _property_doc(attribute):
                         found["doc"].append(f"{name}.{member}: no description")
                     kind_text = _property_type(value, member, attribute)
-                    note_untyped(f"{name}.{member}", _untyped(kind_text, kind_text))
+                    note_untyped(f"{name}.{member}", _untyped(kind_text, kind_text, _property_doc(attribute)))
                 elif callable(attribute) and not inspect.isclass(attribute):
                     shape = "method"
                     signatures, text = _split(getattr(attribute, "__doc__", None))
                     if not text:
                         found["doc"].append(f"{name}.{member}(): no description")
-                    note_untyped(f"{name}.{member}()",
-                                 " and ".join(filter(None, map(_signature_untyped, signatures[:1]))))
+                    note_untyped(f"{name}.{member}()", _signature_untyped(signatures[0], text) if signatures else "")
                 else:
                     continue
                 shapes.setdefault(member, {}).setdefault(shape, []).append(name)

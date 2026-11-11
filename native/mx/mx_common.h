@@ -459,7 +459,8 @@ MX_ARG_CASTER(ColorArg, "_mx.Color")
 MX_ARG_CASTER(ScaleArg, "_mx.Point3 | float")
 MX_ARG_CASTER(NodeArg, "_mx.Node | str | int")
 MX_ARG_CASTER(NodesArg, "_mx.Node | str | collections.abc.Sequence[_mx.Node | str]")
-MX_ARG_CASTER(NodesOrNone, "_mx.Node | str | collections.abc.Sequence[_mx.Node | str] | None")
+// The OrNone types go on arguments declared with .none(), which adds "| None" to the signature itself.
+MX_ARG_CASTER(NodesOrNone, "_mx.Node | str | collections.abc.Sequence[_mx.Node | str]")
 
 } // namespace nanobind::detail
 
@@ -483,3 +484,9 @@ MX_ARG_CASTER(NodesOrNone, "_mx.Node | str | collections.abc.Sequence[_mx.Node |
     struct Type { nb::object value; };                                                           \
     } }                                                                                          \
     namespace nanobind::detail { MX_RESULT_CASTER(Type, Text) }
+
+// Shared by several files: a point or a box that may be left out. Declare the
+// argument with .none(): an explicit None then reaches the binding, and the
+// signature gets its "| None" from that.
+MX_ARG_TYPE(PointOrNone, "_mx.Point3")
+MX_ARG_TYPE(BoxOrNone, "_mx.Box")

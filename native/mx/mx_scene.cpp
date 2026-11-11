@@ -843,7 +843,9 @@ void BindScene(nb::module_& m) {
         "Nodes whose references reach this one directly: constraint, look-at and skin users.");
     AddMethod<Node>("references", &References, "depth"_a = 3,
         "Reference tree below the node: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; "
-        "'seen' marks a target listed above, and other nodes are not expanded.");
+        "'references' holds the entries below while depth lasts and 'ref_count' their number once it runs out; "
+        "'seen' marks a target listed above, and other nodes are not expanded. "
+        "Keys: {'class', 'superclass', 'name'?, 'index'?, 'references'?, 'ref_count'?, 'seen'?}.");
 
     m.def("resolve", [](nb::handle ref) { return Wrap(ResolveRef(ref)); }, "ref"_a,
           "Node by '/Parent/Child' path, name, handle or Node, or by a {'handle', 'name', 'path'} dict whose "
@@ -874,13 +876,17 @@ void BindScene(nb::module_& m) {
           "base object parameters; numbers within 1e-4, text ignoring case.");
     m.def("overview", &Overview,
           "Scene summary: object, hidden, frozen and root counts, nodes per class, material and modifier counts, "
-          "layers in use.");
+          "layers in use. class_counts, materials and modifiers are {name: count}. "
+          "Keys: {'object_count', 'hidden_count', 'frozen_count', 'root_count', 'class_counts', 'materials', "
+          "'modifiers', 'layers'}.");
     m.def("class_relationships", &ClassRelationships, "pattern"_a = nb::none(), "superclass"_a = nb::none(),
           "Classes whose parameters take nodes, materials, texmaps or other references: "
           "class_relationships('*Scatter*', superclass='geometry').");
     m.def("scene_patterns", &ScenePatterns,
-          "How the scene combines classes, as {pattern: count}: classes, modifier stacks and material, modifier "
-          "and texmap pairings, by 3ds Max's display names.");
+          "How the scene combines classes: classes, modifier stacks and material, modifier "
+          "and texmap pairings, by 3ds Max's display names. Every entry but total_nodes is {pattern: count}, most "
+          "common first. Keys: {'total_nodes', 'geometry_classes', 'material_classes', 'modifier_classes', "
+          "'texmap_classes', 'modifier_stacks', 'material_on_geometry', 'modifier_on_geometry', 'texmap_in_material'}.");
     m.def("undo", []() -> std::optional<std::string> {
         RequireMain();
         // Max ignores an undo while a hold is open, and the handler would then

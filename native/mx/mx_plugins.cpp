@@ -1563,7 +1563,10 @@ static void BindClasses(nb::module_& m) {
           "A class by MAXScript or UI name: class_info('Bend'); kind narrows a name several kinds share.");
     m.def("plugins", &Plugins, "pattern"_a = nb::none(), "Plugin DLLs by wildcard file name or description: plugins('*corona*').");
     m.def("capabilities", &Capabilities,
-          "Report: max_version, renderer, renderers, known plugins installed (tyflow, forest_pack, ...) and class counts.");
+          "What this 3ds Max has: its version, the renderer in use and those installed, which known plugins are "
+          "installed (plugins: forest_pack, forest_lite, tyflow, railclone, phoenix_fd, as bools) and class counts. "
+          "Keys: {'max_version', 'renderer', 'renderers', 'plugins', 'material_classes', 'geometry_classes', "
+          "'modifier_classes'}.");
 }
 
 static void BindInterfaces(nb::module_& m) {
@@ -1683,7 +1686,11 @@ static void BindTools(nb::module_& m) {
 static void BindInspection(nb::module_& m) {
     AddMethod<Node>("inspect", &InspectNode,
         "Report: classes, transform, hierarchy, visibility and render flags, wirecolor, instances (self included), "
-        "mesh, bbox, modifiers, material and the plugin files its classes come from.");
+        "mesh, bbox, modifiers, material and the plugin files its classes come from. "
+        "Keys: {'name', 'handle', 'class', 'superclass', 'base_class', 'pos', 'rot', 'scale', 'parent', "
+        "'children', 'layer', 'hidden', 'frozen', 'renderable', 'primary_visibility', 'secondary_visibility', "
+        "'cast_shadows', 'receive_shadows', 'wirecolor', 'instances', 'mesh', 'bbox', 'modifiers', 'material', "
+        "'plugins'}.");
     AddMethod<Params>("schema", &OwnerSchema, "fields"_a, "query"_a = "", "offset"_a = 0, "limit"_a = 256,
         "Plugin inspector report with live values and the schema and state tokens patch() needs: p.schema('multiplier').");
     AddMethod<Params>("patch", [](const Params& p, nb::dict schema, bool allInstances, nb::kwargs values) {
@@ -1691,13 +1698,17 @@ static void BindInspection(nb::module_& m) {
         return PluginPatch(nb::make_tuple(nb::make_tuple(schema, values)), allInstances);
     }, "schema"_a, "all_instances"_a = false, "values"_a,
         "Guarded edit, one undo step, refused if anything inspected changed: p.patch(s, multiplier=2.0). "
-        "Enums take their names; all_instances=True allows editing a shared object.");
+        "Enums take their names; all_instances=True allows editing a shared object. properties lists "
+        "{'owner', 'name', 'before', 'value'} per edit. Keys: {'status', 'verification', 'transaction', 'properties'}.");
     ExtendParamsDir({"interface", "interfaces", "patch", "schema"});
 
     m.def("plugin_patch", &PluginPatch, "edits"_a, "all_instances"_a = false,
-          "Patch several objects in one guarded undo step: plugin_patch([(s1, {'multiplier': 2}), (s2, {'size': 5})]).");
+          "Patch several objects in one guarded undo step: plugin_patch([(s1, {'multiplier': 2}), (s2, {'size': 5})]). "
+          "properties lists {'owner', 'name', 'before', 'value'} per edit. "
+          "Keys: {'status', 'verification', 'transaction', 'properties'}.");
     m.def("osl_info", &OslInfo, "shader"_a,
-          "Compile an OSL shader (a .osl path or a name in 3ds Max's OSL folder) in a temporary map: its parameters and outputs.");
+          "Compile an OSL shader (a .osl path or a name in 3ds Max's OSL folder) in a temporary map: params as "
+          "describe() lines and outputs as (name, type). Keys: {'shader', 'path', 'params', 'outputs'}.");
 }
 
 // ── The object protocol ──────────────────────────────────────────
@@ -1754,7 +1765,9 @@ static void BindObjectProtocol(nb::module_& m) {
             AddMethodTo(cls, "references", [](nb::handle self, int depth) { return ReferenceTree(TargetOf(self), depth); },
                 "depth"_a = 3,
                 "Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; "
-                "'seen' marks a target listed above, and nodes are listed, not expanded.");
+                "'references' holds the entries below while depth lasts and 'ref_count' their number once it runs out; "
+                "'seen' marks a target listed above, and nodes are listed, not expanded. "
+                "Keys: {'class', 'superclass', 'name'?, 'index'?, 'references'?, 'ref_count'?, 'seen'?}.");
     }
 }
 

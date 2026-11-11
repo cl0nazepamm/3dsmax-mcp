@@ -4,6 +4,32 @@
 #include "mx_common.h"
 #include "mx_tracks.h"
 
+// What the controller members take and give, named for their signatures. Each
+// text is read off the code that uses or makes the value.
+
+// A controller class by name, or a Controller to share (Assign).
+MX_ARG_TYPE(ControllerClassArg, "str | _mx.Controller")
+// A script controller's input (ParseBinding): a node, a track, a track read
+// offset_frames away, a controller, or a constant: a number, a bool, a string,
+// (x, y, z) or a quat (x, y, z, w). add_target takes no more than these: a
+// constraint's target is a node or its name or handle (FindNode), an
+// expression's input a track, a node, a number or (x, y, z).
+#define MX_SCRIPT_INPUT                                                                                  \
+    "_mx.Node | _mx.Track | tuple[_mx.Track, float] | _mx.Controller | float | int | bool | str | "     \
+    "_mx.Point3 | tuple[float, float, float, float]"
+MX_ARG_TYPE(ControllerTargetArg, MX_SCRIPT_INPUT)
+MX_ARG_TYPE(ScriptBindingsArg, "dict[str, " MX_SCRIPT_INPUT "]")
+#undef MX_SCRIPT_INPUT
+// Targets (Targets): (node, weight) for position, orientation, look-at and path
+// constraints, (node, frame) for a link constraint, where a node that left the
+// scene is None; the node of an attachment; nothing for other controllers.
+MX_RESULT_TYPE(ControllerTargets,
+               "list[tuple[_mx.Node | None, float]] | list[tuple[_mx.Node | None, int]] | list[_mx.Node]")
+// What a variable's entry holds (VarsList, ExpressionVars): its name and kind,
+// its offset in frames, and its value: the node or controller (None once gone),
+// a target's text, or a constant.
+MX_RESULT_TYPE(ControllerVariableField, "str | float | int | bool | _mx.Point3 | _mx.Node | _mx.Controller | None")
+
 #include <iparamwire.h>
 #include <maxscript/foundation/3dmath.h>
 #include <maxscript/foundation/numbers.h>
@@ -153,8 +179,9 @@ static void AddLayer(const ResolvedTrack& r, Control* layer) {
     }
 }
 
-static ControllerRef Assign(const Track& tr, nb::handle cls, bool layer, nb::kwargs params) {
+static ControllerRef Assign(const Track& tr, ControllerClassArg given, bool layer, nb::kwargs params) {
     RequireMain();
+    const nb::handle cls = given.value;
     Unrecorded noUndo;
     const ResolvedTrack r = ResolveTrack(tr);
     const SClass_ID super = TrackSuper(r);
@@ -516,11 +543,12 @@ static void AddExpressionInput(Control* c, const std::string& name, nb::handle t
 
 // ── Controller properties ────────────────────────────────────────
 
-static nb::object GetExpression(const ControllerRef& ref) {
+// A script or expression controller's text; nothing for any other controller.
+static std::optional<std::string> GetExpression(const ControllerRef& ref) {
     Control* c = ResolveController(ref);
-    if (IScriptCtrl* sc = ScriptOf(c)) return nb::str(WideToUtf8(sc->GetExpression().data()).c_str());
-    if (IsExpression(c)) return nb::str(ExpressionText(c).c_str());
-    return nb::none();
+    if (IScriptCtrl* sc = ScriptOf(c)) return WideToUtf8(sc->GetExpression().data());
+    if (IsExpression(c)) return ExpressionText(c);
+    return std::nullopt;
 }
 
 static void SetExpression(const ControllerRef& ref, const std::string& expression) {
@@ -535,9 +563,10 @@ static void SetExpression(const ControllerRef& ref, const std::string& expressio
     throw BadParam(CtrlClass(c) + " has no expression; script and expression controllers do");
 }
 
-static void AddTarget(const ControllerRef& ref, nb::handle target, std::optional<double> weight,
+static void AddTarget(const ControllerRef& ref, ControllerTargetArg given, std::optional<double> weight,
                       std::optional<double> frame, const std::optional<std::string>& name) {
     Unrecorded noUndo;
+    const nb::handle target = given.value;
     Control* c = ResolveController(ref);
     const std::string cls = CtrlClass(c);
     if (IScriptCtrl* sc = ScriptOf(c)) {
@@ -571,7 +600,11 @@ static void AddTarget(const ControllerRef& ref, nb::handle target, std::optional
     Notify(c);
 }
 
-static nb::object Variables(const ControllerRef& ref) {
+// One dict per variable: {name, kind, value, offset} of a script controller,
+// {name, kind} of an expression controller.
+using VariableDicts = nb::typed<nb::list, nb::typed<nb::dict, std::string, ControllerVariableField>>;
+
+static VariableDicts Variables(const ControllerRef& ref) {
     Control* c = ResolveController(ref);
     if (IScriptCtrl* sc = ScriptOf(c)) return VarsList(ScriptVars(sc));
     if (IsExpression(c)) return ExpressionVars(c);
@@ -725,9 +758,9 @@ static nb::object SampleValue(const json& v, const char* kind, double scale) {
         const Quat q(v[0].get<float>(), v[1].get<float>(), v[2].get<float>(), v[3].get<float>());
         float angles[3] = {0, 0, 0};
         QuatToEuler(q, angles, EULERTYPE_XYZ);
-        return nb::make_tuple(RadToDeg(angles[0]), RadToDeg(angles[1]), RadToDeg(angles[2]));
+        return MakePoint3(RadToDeg(angles[0]), RadToDeg(angles[1]), RadToDeg(angles[2]));
     }
-    return nb::make_tuple(v[0].get<double>(), v[1].get<double>(), v[2].get<double>());
+    return MakePoint3(v[0].get<double>(), v[1].get<double>(), v[2].get<double>());
 }
 
 static Samples Evaluate(Control* candidate, const std::string& source, const char* kind,
@@ -820,14 +853,14 @@ static Control* StageWith(const Track& tr, const ResolvedTrack& r, nb::handle bi
     return candidate;
 }
 
-static nb::dict ValidateScript(const Track& tr, const std::string& source, nb::handle bindings,
+static nb::dict ValidateScript(const Track& tr, const std::string& source, ScriptBindingsArg bindings,
                                const std::optional<std::vector<double>>& frames) {
     RequireMain();
     CheckSource(source);
     const ResolvedTrack r = ResolveTrack(tr);
     const char* kind = ScriptKind(r);
     const std::vector<TimeValue> times = SampleTimes(frames);
-    Control* candidate = StageWith(tr, r, bindings);
+    Control* candidate = StageWith(tr, r, bindings.value);
     KeepAlive staged(candidate);
     nb::dict out;
     out["expected_controller"] = StateToken(tr, r);
@@ -846,8 +879,8 @@ static void Restore(const ResolvedTrack& r, nb::handle value) {
     }
 }
 
-static nb::dict ApplyScript(const Track& tr, const std::string& source, const std::string& expected, nb::handle bindings,
-                            const std::optional<std::vector<double>>& frames) {
+static nb::dict ApplyScript(const Track& tr, const std::string& source, const std::string& expected,
+                            ScriptBindingsArg bindings, const std::optional<std::vector<double>>& frames) {
     RequireMain();
     if (expected.empty()) throw BadParam("apply_script needs expected: the expected_controller from inspect_script() or validate_script()");
     CheckSource(source);
@@ -855,7 +888,7 @@ static nb::dict ApplyScript(const Track& tr, const std::string& source, const st
     CheckExpected(tr, r, expected);
     const char* kind = ScriptKind(r);
     const std::vector<TimeValue> times = SampleTimes(frames);
-    Control* candidate = StageWith(tr, r, bindings);
+    Control* candidate = StageWith(tr, r, bindings.value);
     KeepAlive staged(candidate);
     Evaluate(candidate, source, kind, times, r.scale);
     // The slot will reference the controller: refuse a loop through its inputs.
@@ -1005,13 +1038,15 @@ void BindControllers(nb::module_& m) {
             "Script or expression text, None for other controllers. Setting it is unchecked; "
             "track.apply_script() validates first.")
         .def_prop_ro("variables", &Variables,
-            "Script inputs [{name, kind, value, offset}] (offset in frames), or expression inputs [{name, kind}].")
-        .def_prop_ro("targets", [](const ControllerRef& c) { return Targets(ResolveController(c)); },
-            "Constraint targets: [(node, weight)], [(node, frame)] for a link constraint, [node] for attachment.")
+            "Script inputs [{name, kind, value, offset}] (offset in frames), or expression inputs [{name, kind}]; "
+            "[] for other controllers.")
+        .def_prop_ro("targets", [](const ControllerRef& c) { return ControllerTargets{Targets(ResolveController(c))}; },
+            "Constraint targets: [(node, weight)], [(node, frame)] for a link constraint, [node] for attachment; "
+            "[] for other controllers.")
         .def("add_target", &AddTarget, "target"_a, "weight"_a = nb::none(), "frame"_a = nb::none(), "name"_a = nb::none(),
             "Add a target: a node with weight= (position, orientation, look-at, path constraints), with frame= (link), "
-            "the attachment node, or a named input of a script (node, track, controller, constant) or expression "
-            "(track, node, number, point3): c.add_target(mx.node('Ball'), weight=50).")
+            "the attachment node, or a named input of a script (node, track, (track, offset_frames), controller, "
+            "constant) or expression (track, node, number, point3): c.add_target(mx.node('Ball'), weight=50).")
         .def_prop_ro("layers", &Layers, "A list controller's layers, first to last; [] for other controllers.")
         .def("__repr__", &ControllerRepr)
         .def("__eq__", [](const ControllerRef& a, nb::handle b) {
@@ -1035,17 +1070,23 @@ void BindControllers(nb::module_& m) {
         "controller.");
     AddMethod<Track>("unwire", &Unwire, "Disconnect this driven track's wire; it keeps a plain controller holding its current value.");
     AddMethod<Track>("inspect_script", &InspectScript, "frames"_a = nb::none(),
-        "The track's script controller: {track, controller, expected_controller, script, variables, throw_on_error}, "
-        "and samples [(frame, value)] when frames is given.");
-    AddMethod<Track>("validate_script", &ValidateScript, "source"_a, "bindings"_a = nb::none(), "frames"_a = nb::none(),
+        "The track's script controller: track is this track and controller its controller's class (None for a "
+        "parameter that is not animated); script, throw_on_error and variables (as Controller.variables) are the "
+        "script controller's, None and [] without one; expected_controller is what apply_script() takes; samples "
+        "are [(frame, value)], there when frames is given. Keys: {'track', 'controller', 'expected_controller', "
+        "'script', 'variables', 'throw_on_error', 'samples'?}.");
+    AddMethod<Track>("validate_script", &ValidateScript, "source"_a, "bindings"_a.none() = nb::none(), "frames"_a = nb::none(),
         "Check a script on a copy of the controller, off the track, at frames (default the current one): "
-        "{expected_controller, output_type, samples, applied=False}. bindings maps input names to a Node, Track, "
-        "(Track, offset_frames), Controller or constant; None keeps the current inputs. The script returns internal "
-        "units (radians, 0-1 for percentages); samples read like track.value().");
-    AddMethod<Track>("apply_script", &ApplyScript, "source"_a, "expected"_a, "bindings"_a = nb::none(),
+        "output_type is float, position, rotation, scale or point3, samples are [(frame, value)], applied is False. "
+        "bindings maps input names to a Node, Track, (Track, offset_frames), Controller or constant; None keeps the "
+        "current inputs. The script returns internal units (radians, 0-1 for percentages); samples read like "
+        "track.value(). Keys: {'expected_controller', 'output_type', 'samples', 'applied'}.");
+    AddMethod<Track>("apply_script", &ApplyScript, "source"_a, "expected"_a, "bindings"_a.none() = nb::none(),
         "frames"_a = nb::none(),
         "Validate, then replace the controller with the script controller, sampling it in place; restores the old "
-        "controller on failure. expected is expected_controller from inspect_script() or validate_script().");
+        "controller on failure. expected is expected_controller from inspect_script() or validate_script(). Returns "
+        "what inspect_script() does, with samples [(frame, value)] and applied True. Keys: {'track', 'controller', "
+        "'expected_controller', 'script', 'variables', 'throw_on_error', 'samples', 'applied'}.");
     AddMethod<Node>("wires", &NodeWires, "depth"_a = 8,
         "The node's wired tracks: [{track, controller, driven, driver, two_way, links: [{param, node, expression}]}].");
 }

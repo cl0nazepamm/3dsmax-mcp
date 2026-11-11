@@ -2,7 +2,7 @@
 
 3ds Max for agents, bound from the SDK: the scene's nodes, parameters, modifiers, materials and animation, and modeling, viewport, file and plugin work on them. Lights, cameras and renders are mx.render_setup, the same on every renderer.
 
-Build `b20261111164439`, 3ds Max SDK 2027.
+Build `b20261111173007`, 3ds Max SDK 2027.
 
 ## Functions
 
@@ -36,9 +36,9 @@ The State Sets that have a camera, by render start frame (sets without a render 
 
 ### `capabilities() -> dict`
 
-Report: max_version, renderer, renderers, known plugins installed (tyflow, forest_pack, ...) and class counts.
+What this 3ds Max has: its version, the renderer in use and those installed, which known plugins are installed (plugins: forest_pack, forest_lite, tyflow, railclone, phoenix_fd, as bools) and class counts. Keys: {'max_version', 'renderer', 'renderers', 'plugins', 'material_classes', 'geometry_classes', 'modifier_classes'}.
 
-### `capture_isolated(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str] | None | None = None) -> list[_mx.Capture]`
+### `capture_isolated(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str] | None = None) -> list[_mx.Capture]`
 
 Capture each top-level hierarchy of the selection (or of nodes) alone, framed in the active view; instances share one image, and visibility and selection come back.
 
@@ -62,9 +62,9 @@ Classes whose parameters take nodes, materials, texmaps or other references: cla
 
 Registered classes by kind, wildcard name and plugin file: classes('modifier', '*Bend*'), classes(plugin='tyFlow*').
 
-### `contacts(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str], against: _mx.Node | str | collections.abc.Sequence[_mx.Node | str] | None | None = None, tolerance: float = 0.0, near_gap: float = 0.0, include_separate: bool = False) -> dict`
+### `contacts(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str], against: _mx.Node | str | collections.abc.Sequence[_mx.Node | str] | None = None, tolerance: float = 0.0, near_gap: float = 0.0, include_separate: bool = False) -> dict`
 
-Evaluated meshes that penetrate, intersect, touch or nearly touch, worst first: contacts(legs, against=[floor, seat]) checks each leg against those only. tolerance and near_gap default to 0.1 mm and 10 mm in scene units; depth is a lower and gap an upper bound, both from vertices. Nodes without a mesh are listed in 'skipped'.
+Evaluated meshes that penetrate, intersect, touch or nearly touch, worst first: contacts(legs, against=[floor, seat]) checks each leg against those only. tolerance and near_gap default to 0.1 mm and 10 mm in scene units; depth is a lower and gap an upper bound, both from vertices. Nodes without a mesh are listed in 'skipped'. pairs are {'a', 'b', 'status', 'depth', 'gap', ...} and summary counts them by status. Keys: {'tolerance', 'near_gap', 'summary', 'pairs', 'open_meshes', 'skipped'}.
 
 ### `create(cls: str, name: str = '', pos: _mx.Point3 | None = None, **params) -> _mx.Node`
 
@@ -80,7 +80,7 @@ Build a curve_model definition as an editable spline or quad cage centered on it
 
 ### `curve_preview(definition: object, parameters: object | None = None) -> dict`
 
-Evaluate a curve_model definition without touching the scene: counts, bounds and per-curve QA. definition={'curves': {name: curve}, 'output': {'kind': 'curve' | 'sweep' | 'loft', ...}}.
+Evaluate a curve_model definition without touching the scene: counts, bounds and per-curve QA. definition={'curves': {name: curve}, 'output': {'kind': 'curve' | 'sweep' | 'loft', ...}}. Keys: {'kind', 'curves', 'alignment', 'bounds'?, 'notes', 'counts'}.
 
 ### `delete(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str]) -> None`
 
@@ -162,7 +162,7 @@ Create a material with parameters: material('PhysicalMaterial', 'Red', base_colo
 
 Material class names material() takes: material_classes('*PBR*').
 
-### `material_library() -> list`
+### `material_library() -> list[_mx.Material | _mx.Texmap]`
 
 The current material library (currentMaterialLibrary): Materials and Texmaps.
 
@@ -174,7 +174,7 @@ Materials assigned to scene nodes, optionally filtered by a wildcard name: mater
 
 Evaluate MAXScript; returns the result as text.
 
-### `medit_materials() -> list`
+### `medit_materials() -> list[_mx.Material | _mx.Texmap | None]`
 
 The 24 Compact Material Editor slots (meditMaterials), None where empty.
 
@@ -200,11 +200,11 @@ Compile OSL code into an OSLMap and set its shader parameters; name defaults to 
 
 ### `osl_info(shader: str) -> dict`
 
-Compile an OSL shader (a .osl path or a name in 3ds Max's OSL folder) in a temporary map: its parameters and outputs.
+Compile an OSL shader (a .osl path or a name in 3ds Max's OSL folder) in a temporary map: params as describe() lines and outputs as (name, type). Keys: {'shader', 'path', 'params', 'outputs'}.
 
 ### `overview() -> dict`
 
-Scene summary: object, hidden, frozen and root counts, nodes per class, material and modifier counts, layers in use.
+Scene summary: object, hidden, frozen and root counts, nodes per class, material and modifier counts, layers in use. class_counts, materials and modifiers are {name: count}. Keys: {'object_count', 'hidden_count', 'frozen_count', 'root_count', 'class_counts', 'materials', 'modifiers', 'layers'}.
 
 ### `patch(ops: object, expected: object | None = None, dry_run: bool = False, label: str = 'MCP Scene Patch') -> object`
 
@@ -212,7 +212,7 @@ Validate, then apply node edits as one undo step, all or nothing: patch([{'op': 
 
 ### `plugin_patch(edits: object, all_instances: bool = False) -> dict`
 
-Patch several objects in one guarded undo step: plugin_patch([(s1, {'multiplier': 2}), (s2, {'size': 5})]).
+Patch several objects in one guarded undo step: plugin_patch([(s1, {'multiplier': 2}), (s2, {'size': 5})]). properties lists {'owner', 'name', 'before', 'value'} per edit. Keys: {'status', 'verification', 'transaction', 'properties'}.
 
 ### `plugins(pattern: str | None = None) -> list[_mx.Plugin]`
 
@@ -252,11 +252,11 @@ Path of the open .max file, or None while the scene is untitled.
 
 ### `scene_info() -> dict`
 
-The open scene: {'file', 'unsaved', 'objects', 'faces'}, faces of the evaluated meshes, triangulated.
+The open scene: its file (None while untitled), whether it has unsaved changes, its object count and the faces of the evaluated meshes, triangulated. Keys: {'file', 'unsaved', 'objects', 'faces'}.
 
 ### `scene_patterns() -> dict`
 
-How the scene combines classes, as {pattern: count}: classes, modifier stacks and material, modifier and texmap pairings, by 3ds Max's display names.
+How the scene combines classes: classes, modifier stacks and material, modifier and texmap pairings, by 3ds Max's display names. Every entry but total_nodes is {pattern: count}, most common first. Keys: {'total_nodes', 'geometry_classes', 'material_classes', 'modifier_classes', 'texmap_classes', 'modifier_stacks', 'material_on_geometry', 'modifier_on_geometry', 'texmap_in_material'}.
 
 ### `scene_qa(checks: object | None = None, nodes: object | None = None, fix: object | None = None, dry_run: bool = False, expected: object | None = None, far_from_origin: float | None = None) -> object`
 
@@ -274,7 +274,7 @@ Select nodes, replacing the selection unless add=True; select([]) clears it.
 
 Selected nodes.
 
-### `selection_set(name: str, nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str] | None | None = None) -> _mx.SelectionSet`
+### `selection_set(name: str, nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str] | None = None) -> _mx.SelectionSet`
 
 Named selection set by name; with nodes, create or replace it: selection_set('Lights', mx.nodes('Light*')).
 
@@ -288,7 +288,7 @@ Move the time slider.
 
 ### `smart_import(folder: str | os.PathLike, texture_folder: str | os.PathLike | None = None, recursive: bool = True, grid_spacing: float = 200.0, lod_filter: str = 'lod0', name_pattern: str = '', exclude_pattern: str = '') -> dict`
 
-Import the mesh files under folder onto an XY grid, pairing each with its textures by name: {'imported': [{'path', 'name', 'nodes', 'textures': {channel: path}, 'material_name', 'mtlx'}], 'skipped', 'failed', 'lod_skipped', 'filtered_out'}. Skips a file when an object named like its stem is in the scene.
+Import the mesh files under folder onto an XY grid, pairing each with its textures by name: {'imported': [{'path', 'name', 'nodes', 'textures': {channel: path}, 'material_name', 'mtlx'}], 'skipped', 'failed', 'lod_skipped', 'filtered_out'}. Skips a file when an object named like its stem is in the scene. Keys: {'imported', 'skipped', 'failed', 'lod_skipped', 'filtered_out'}.
 
 ### `spline(points: object, name: str = '', closed: bool = False, knot: str = 'smooth', center_pivot: bool = False) -> _mx.Node`
 
@@ -306,7 +306,7 @@ Create a texture map with parameters: texmap('Bitmaptexture', 'Wood', filename='
 
 Texture map class names texmap() takes: texmap_classes('*bitmap*').
 
-### `timeline(start: float | None = None, end: float | None = None, fps: int | None = None) -> tuple`
+### `timeline(start: float | None = None, end: float | None = None, fps: int | None = None) -> tuple[float, float, int]`
 
 Animation range and frame rate: (start, end, fps); pass any to change it.
 
@@ -346,7 +346,7 @@ An action table: name, id, actions(pattern).
 The agent's floating AGENT VIEWPORT: navigate, pick and capture without touching the user's views.
 
 - `.capture(crop: object | None = None, method: str = 'auto', max_width: int = 1600, max_height: int = 0) -> _mx.Capture`: Save this view, or the VFB its V-Ray/Corona preview renders into, to an image; crop=(x, y, w, h) in VFB client pixels.
-- `.frame(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str] | None | None = None, padding: float = 1.15) -> None`: Fit nodes and their descendants (default: visible geometry, or the lights and cameras of a rig-only scene).
+- `.frame(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str] | None = None, padding: float = 1.15) -> None`: Fit nodes and their descendants (default: visible geometry, or the lights and cameras of a rig-only scene).
 - `.minimize() -> None`: Park the window; restore() it before navigating or capturing.
 - `.orbit(yaw: float = 0.0, pitch: float = 0.0) -> None`: Orbit the target by yaw and pitch degrees: orbit(30, 10).
 - `.pan(x: float = 0.0, y: float = 0.0) -> None`: Move the view and its target by x, y scene units in the view plane.
@@ -444,20 +444,20 @@ A color (r, g, b), each 0-1: layer.color. It is a tuple, and any (r, g, b) passe
 
 A track's controller: track.controller. c.params holds its parameters (Noise frequency, constraint relative, ...).
 
-- `.add_target(target: object, weight: float | None = None, frame: float | None = None, name: str | None = None) -> None`: Add a target: a node with weight= (position, orientation, look-at, path constraints), with frame= (link), the attachment node, or a named input of a script (...
+- `.add_target(target: _mx.Node | _mx.Track | tuple[_mx.Track, float] | _mx.Controller | float | int | bool | str | _mx.Point3 | tuple[float, float, float, float], weight: float | None = None, frame: float | None = None, name: str | None = None) -> None`: Add a target: a node with weight= (position, orientation, look-at, path constraints), with frame= (link), the attachment node, or a named input of a script (...
 - `.class_info` (_mx.ClassInfo): The object's class as a ClassInfo (a node's: its base object's): x.class_info.describe() lists what the class takes, x.class_info.plugin the DLL it comes from.
 - `.class_name` (str): MAXScript class name: Bezier_Float, Float_Script, Position_Constraint, ...
 - `.exists` (bool): False once the object is gone: deleted, or off the stack or list it was read from.
-- `.expression` (object, settable): Script or expression text, None for other controllers. Setting it is unchecked; track.apply_script() validates first.
+- `.expression` (str | None, settable): Script or expression text, None for other controllers. Setting it is unchecked; track.apply_script() validates first.
 - `.handle` (int): The object's animatable handle. In pymxs: rt.getAnimByHandle(x.handle).
 - `.interface(name: str) -> _mx.Interface`: A mixin interface of the object by name: mod.interface('unwrap2').
 - `.interfaces` (list[_mx.Interface]): Mixin interfaces the object publishes.
 - `.kind` (str): float, point3, point4, position, rotation, scale or transform.
 - `.layers` (list[_mx.Controller]): A list controller's layers, first to last; [] for other controllers.
 - `.params` (_mx.Params): The controller's parameters and MAXScript properties.
-- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'seen' marks a target listed above, and nodes are listed, n...
-- `.targets` (list): Constraint targets: [(node, weight)], [(node, frame)] for a link constraint, [node] for attachment.
-- `.variables` (object): Script inputs [{name, kind, value, offset}] (offset in frames), or expression inputs [{name, kind}].
+- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'references' holds the entries below while depth lasts and...
+- `.targets` (list[tuple[_mx.Node | None, float]] | list[tuple[_mx.Node | None, int]] | list[_mx.Node]): Constraint targets: [(node, weight)], [(node, frame)] for a link constraint, [node] for attachment; [] for other controllers.
+- `.variables` (list[dict[str, str | float | int | bool | _mx.Point3 | _mx.Node | _mx.Controller | None]]): Script inputs [{name, kind, value, offset}] (offset in frames), or expression inputs [{name, kind}]; [] for other controllers.
 
 ### Effect
 
@@ -476,7 +476,7 @@ An atmospheric or render effect: fx.active = False; fx.params.density = 20.
 - `.name` (str): Name in the Environment or Effects list.
 - `.nodes` (list[_mx.Node]): Gizmo nodes the effect uses (atmospheric apparatus); empty for most render effects.
 - `.params` (_mx.Params): The effect's parameters.
-- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'seen' marks a target listed above, and nodes are listed, n...
+- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'references' holds the entries below while depth lasts and...
 
 ### Group
 
@@ -484,10 +484,10 @@ A group: a Node whose members move with it. Group(node) wraps an existing group 
 
 - `.add(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str]) -> None`: Add nodes to the group: group.add(mx.node('Lamp')).
 - `.delete() -> None`: Delete the group with all its members, nested groups included; ungroup() keeps them.
-- `.members` (list): Member nodes; a nested group is one member, as a Group.
+- `.members` (list[_mx.Node]): Member nodes; a nested group is one member, as a Group.
 - `.open` (bool, settable): Whether the group is open, so its members can be picked and edited one by one.
 - `.remove(nodes: _mx.Node | str | collections.abc.Sequence[_mx.Node | str]) -> None`: Take nodes out of the group; they move to the scene root.
-- `.ungroup() -> list`: Dissolve the group (its head is deleted); returns the former members.
+- `.ungroup() -> list[_mx.Node]`: Dissolve the group (its head is deleted); returns the former members.
 
 ### Hit
 
@@ -514,7 +514,7 @@ A key: frame, value, in_tangent, out_tangent (a snapshot).
 - `.frame` (float): The key's time, in frames.
 - `.in_tangent` (str): Incoming tangent type: smooth, linear, step, fast, slow, auto or custom; '' on a controller without tangents.
 - `.out_tangent` (str): Outgoing tangent type, named like in_tangent.
-- `.value` (object): The key's value, in the units the track's value() gives: a number, or (x, y, z).
+- `.value` (float | _mx.Point3 | tuple[_mx.Point3, _mx.Point3, _mx.Point3, _mx.Point3] | None): The key's value, as the track's value() gives it at the key: a number, a Point3 (a rotation's Euler degrees), four Point3 rows on a transform track, None on...
 
 ### Knot
 
@@ -591,14 +591,14 @@ A material: mat.params.base_color = (1, 0, 0); node.material = mat.
 - `.handle` (int): The material's animatable handle. In pymxs: rt.getAnimByHandle(mat.handle).
 - `.interface(name: str) -> _mx.Interface`: A mixin interface of the object by name: mod.interface('unwrap2').
 - `.interfaces` (list[_mx.Interface]): Mixin interfaces the object publishes.
-- `.maps` (dict): Map slots by parameter name: {'base_color_map': <Texmap>, 'bump_map': None, ...}; set them through params.
+- `.maps` (dict[str, _mx.Texmap | list[_mx.Texmap | None] | None]): Map slots by parameter name: {'base_color_map': <Texmap>, 'bump_map': None, ...}; set them through params.
 - `.name` (str, settable): The material's name.
-- `.network(depth: int = 6, max_nodes: int = 80) -> dict`: The map graph: {'tree': lines, 'links': [(parent, slot, child)], 'files', 'issues', 'complete'}; print('\n'.join(net['tree'])).
+- `.network(depth: int = 6, max_nodes: int = 80) -> dict`: The map graph: tree is lines to print (print('\n'.join(net['tree']))), links [(parent, slot, child)], files [{'map', 'param', 'path', 'exists'}], and truncat...
 - `.nodes` (list[_mx.Node]): Scene nodes whose material is this one or contains it.
 - `.params` (_mx.Params): The material's parameters.
-- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'seen' marks a target listed above, and nodes are listed, n...
+- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'references' holds the entries below while depth lasts and...
 - `.remap_files(texture_folder: str = '', path_map: object | None = None, allow_missing: bool = False, preview: bool = False) -> list`: Repoint texture files in place, by file name in texture_folder or by path_map {old: new}; returns the changes (preview=True only plans).
-- `.replace_with(new: _mx.Material, sub_materials: bool = True) -> dict`: Put new wherever this material is: on nodes and in sub-material slots; returns {'nodes', 'slots', 'skipped'}.
+- `.replace_with(new: _mx.Material, sub_materials: bool = True) -> dict`: Put new wherever this material is: on nodes and in sub-material slots. Keys: {'nodes', 'slots', 'skipped'}.
 - `.replicate(texture_folder: str = '', path_map: object | None = None, name: str = '', nodes: object | None = None, allow_missing: bool = False) -> _mx.Material`: Copy the material, its texture files repointed to texture_folder or path_map {old: new}, onto nodes: mat.replicate('D:/tex/oak', name='Oak', nodes=['Table']).
 - `.set_sub_material(index: int, material: _mx.Material | None) -> None`: Put a material (None empties) in sub-material index, as sub_materials counts: multi.set_sub_material(0, brick) sets ID 1.
 - `.sub_materials` (list[_mx.Material | None]): Sub-materials, None where empty; for a Multi/Sub-Object entry i is material ID i+1.
@@ -630,7 +630,7 @@ A modifier on a node's stack: m.params.angle = 30, m.enabled = False.
 - `.name` (str, settable): The modifier's name in the stack; assigning renames it.
 - `.node` (_mx.Node): The node whose stack this modifier was read from; an instanced modifier is on others too.
 - `.params` (_mx.Params): The modifier's parameters.
-- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'seen' marks a target listed above, and nodes are listed, n...
+- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'references' holds the entries below while depth lasts and...
 
 ### Node
 
@@ -648,14 +648,14 @@ A scene node, held by handle; NotFound once deleted.
 - `.conform_verts(target: object, indices: collections.abc.Sequence[int] | None = None, *, axes: str = 'xyz', axis: str = '', strength: float = 1.0, spline: int = 1, convert: bool = False) -> tuple[int, int]`: Pull base vertices onto a spline (closest point on spline number `spline`) or a surface (ray along axis: x/y/z both ways, +x/-x/... one way, default z); axes...
 - `.convert_to_poly() -> _mx.Poly`: Collapse the modifier stack into an Editable Poly (MAXScript convertToPoly) as one undo step; returns node.poly.
 - `.convert_to_spline() -> None`: Collapse a shape to an editable spline (convertToSplineShape), discarding its modifier stack.
-- `.curve_model(include_definition: bool = False) -> dict`: The node's curve_model recipe: kind, parameters, model_token, whether the geometry still matches it.
+- `.curve_model(include_definition: bool = False) -> dict`: The node's curve_model recipe: kind, parameters, model_token, whether the geometry still matches it (reason says why not), and its definition with include_de...
 - `.curve_token` (str): Token of the base knots, topology and object transform; pass it as expected= so edits refuse a changed shape.
-- `.curve_update(parameters: object, *, expected: str | None = None) -> dict`: Change curve_model parameters in place, keeping placement, materials and modifiers: node.curve_update({'bow': 6}, expected=node.curve_model()['model_token']).
+- `.curve_update(parameters: object, *, expected: str | None = None) -> dict`: Change curve_model parameters in place, keeping placement, materials and modifiers: node.curve_update({'bow': 6}, expected=node.curve_model()['model_token'])...
 - `.delete() -> None`: Delete the node.
 - `.dependents` (list[_mx.Node]): Nodes whose references reach this one directly: constraint, look-at and skin users.
 - `.exists` (bool): False once the node is deleted.
 - `.faces() -> list[tuple[int, int, int]]`: Triangles of the evaluated mesh as 1-based vertex IDs into verts(): mx.create_mesh('Copy', n.verts(), n.faces()) copies it.
-- `.get_verts(indices: collections.abc.Sequence[int] | None = None, *, bbox: object | None = None, near: object | None = None, radius: float = 0.0, convert: bool = False) -> dict`: World positions of the Editable Poly base's vertices as {index: (x, y, z)}, 1-based; filter by indices, bbox=((min), (max)) and near=(x, y, z) with radius. c...
+- `.get_verts(indices: collections.abc.Sequence[int] | None = None, *, bbox: _mx.Box | None = None, near: _mx.Point3 | None = None, radius: float = 0.0, convert: bool = False) -> dict[int, _mx.Point3]`: World positions of the Editable Poly base's vertices as {index: (x, y, z)}, 1-based; filter by indices, bbox=((min), (max)) and near=(x, y, z) with radius. c...
 - `.group` (_mx.Group | None): The group this node is in, or None.
 - `.handle` (int): The node's animatable handle. In pymxs: rt.getAnimByHandle(node.handle), not maxOps.getNodeByHandle.
 - `.hidden` (bool, settable): Whether the node is hidden; assign to hide or show it.
@@ -670,15 +670,15 @@ A scene node, held by handle; NotFound once deleted.
 - `.mesh_counts` (tuple[int, int] | None): (vertices, faces) of the evaluated, triangulated mesh, or None.
 - `.mesh_qa(limit: int = 12, area_epsilon: float = 0.0) -> dict`: Topology report of the evaluated mesh: boundary, non-manifold and winding-conflict edges, degenerate and duplicate triangles, isolated vertices and edge-conn...
 - `.modifiers` (list[_mx.Modifier]): Modifier stack, top first.
-- `.move_verts(offset: object, indices: collections.abc.Sequence[int] | None = None, *, falloff: float = 0.0, convert: bool = False) -> tuple[int, int]`: Move base vertices (all by default) by a world offset; falloff > 0 drags neighbours within that distance with (1 - d/falloff)^2 weight. Returns (moved, soft_...
+- `.move_verts(offset: _mx.Point3, indices: collections.abc.Sequence[int] | None = None, *, falloff: float = 0.0, convert: bool = False) -> tuple[int, int]`: Move base vertices (all by default) by a world offset; falloff > 0 drags neighbours within that distance with (1 - d/falloff)^2 weight. Returns (moved, soft_...
 - `.name` (str, settable): The node's name; assigning renames it. Names need not be unique: hold the node, or its handle.
-- `.orientation() -> dict`: World orientation: pivot, unit local axes (x, y, z), matrix rows, bbox center and size, pivot_to_center.
+- `.orientation() -> dict`: World orientation: pivot, unit local axes (x, y, z), matrix rows, bbox center and size, pivot_to_center. Keys: {'pivot', 'axes', 'matrix', 'center', 'size',...
 - `.params` (_mx.Params): The base object's parameters: node.params.radius = 10.
 - `.parent` (_mx.Node | None, settable): Parent node or None; reparenting keeps the world transform.
 - `.path` (str): Hierarchy path from the scene root, '/Rig/Camera'; '/' in a name is written '~1' and '~' is '~0'.
 - `.poly` (_mx.Poly): The Editable Poly base cage beneath the modifiers (Poly), for component IDs and edits; BadParam for other bases.
 - `.pos` (_mx.Point3, settable): World position of the pivot (x, y, z).
-- `.references(depth: int = 3) -> dict`: Reference tree below the node: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'seen' marks a target listed above, and other nodes are not e...
+- `.references(depth: int = 3) -> dict`: Reference tree below the node: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'references' holds the entries below while depth lasts and 'r...
 - `.rot` (_mx.Point3, settable): Rotation track as Euler degrees (x, y, z), relative to the parent; keeps winding past 360.
 - `.scale` (_mx.Point3, settable): Scale track (x, y, z), or one number for all axes.
 - `.selected` (bool, settable): Whether the node is selected; setting it adds to or removes from the selection.
@@ -701,7 +701,7 @@ Any other object a parameter holds, with its own parameters: a map's coords and 
 - `.interface(name: str) -> _mx.Interface`: A mixin interface of the object by name: mod.interface('unwrap2').
 - `.interfaces` (list[_mx.Interface]): Mixin interfaces the object publishes.
 - `.params` (_mx.Params): The object's parameters.
-- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'seen' marks a target listed above, and nodes are listed, n...
+- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'references' holds the entries below while depth lasts and...
 
 ### Operand
 
@@ -757,13 +757,13 @@ A point or vector (x, y, z). It is a tuple, and any (x, y, z) passes where a Poi
 
 An Editable Poly base cage beneath the modifiers: 1-based vertex, edge and face IDs as polyop numbers them; positions are world space unless world=False.
 
-- `.capture(level: str, ids: collections.abc.Sequence[int] | None = None) -> dict`: Capture the AGENT VIEWPORT with up to 100 components labeled at their centers (F12, E3, V7); returns {'file', 'view', 'width', 'height', 'labels'}.
+- `.capture(level: str, ids: collections.abc.Sequence[int] | None = None) -> dict`: Capture the AGENT VIEWPORT with up to 100 components labeled at their centers (F12, E3, V7); pass 'view' to pick(). Keys: {'file', 'view', 'width', 'height',...
 - `.centers(level: str, ids: collections.abc.Sequence[int] | None = None, world: bool = True) -> list[_mx.Point3 | None]`: Centers (mean vertex position) of 'vertex', 'edge' or 'face' components, all or of the given IDs.
 - `.counts` (tuple[int, int, int]): (vertices, edges, faces), counting deleted slots not yet collapsed, as polyop does.
 - `.edges(ids: collections.abc.Sequence[int] | None = None) -> list[tuple[int, int] | None]`: (v1, v2) vertex IDs of each edge, all or of the given IDs.
 - `.edit(ops: object, expected: str = '', show: bool = False) -> dict`: Run ops as one undo step, rolled back if one fails: edit([{'op': 'extrude', 'selection': ids, 'amount': 10}], expected=token). Each op has op, level ('vertex...
 - `.faces(ids: collections.abc.Sequence[int] | None = None) -> list[list[int] | None]`: Vertex IDs of each face in winding order, all or of the given IDs.
-- `.find(level: str, ids: collections.abc.Sequence[int] | None = None, current: bool = False, bbox: object | None = None, near: object | None = None, radius: float | None = None, normal: object | None = None, angle: float | None = None, boundary: bool | None = None, sharp: float | None = None) -> list`: IDs passing every filter given: among ids, selected (current), world center in bbox or within radius of near, face normal within angle (default 10) of normal...
+- `.find(level: str, ids: collections.abc.Sequence[int] | None = None, current: bool = False, bbox: _mx.Box | None = None, near: _mx.Point3 | None = None, radius: float | None = None, normal: _mx.Point3 | None = None, angle: float | None = None, boundary: bool | None = None, sharp: float | None = None) -> list[int]`: IDs passing every filter given: among ids, selected (current), world center in bbox or within radius of near, face normal within angle (default 10) of normal...
 - `.instances` (list[_mx.Node]): Nodes sharing this base, this one first; an edit changes them all.
 - `.node` (_mx.Node): The node whose base this is.
 - `.normals(ids: collections.abc.Sequence[int] | None = None, world: bool = True) -> list[_mx.Point3 | None]`: Unit face normals (Newell; (0, 0, 0) for a degenerate face), all or of the given face IDs.
@@ -782,14 +782,14 @@ A production render queued by mx.render(): job.wait() renders it now; else it st
 - `.result` (object): {'status', 'output', 'width', 'height', 'seconds'} once done, else None.
 - `.signal_path` (str): Done file written when the job ends; render_automations(action='status', job_id=job.id) reads it outside Max.
 - `.status` (str): 'queued', 'rendering', 'done', 'failed' or 'cancelled'.
-- `.wait() -> dict`: Render now if still queued and return the result; raises if it failed, was cancelled, or already went to Max.
+- `.wait() -> dict`: Render now if still queued and return the result; raises if it failed, was cancelled, or already went to Max. Keys: {'status', 'output', 'width', 'height', '...
 
 ### Segment
 
 A spline segment snapshot: type (line or curve), world length, and its cubic's control points.
 
 - `.length` (float): World length of the segment.
-- `.points` (tuple): (start, start handle, end handle, end) in world space; a line's handles lie on its chord.
+- `.points` (tuple[_mx.Point3, _mx.Point3, _mx.Point3, _mx.Point3]): (start, start handle, end handle, end) in world space; a line's handles lie on its chord.
 - `.type` (str): line or curve.
 
 ### SelectionSet
@@ -816,11 +816,11 @@ One spline of an editable shape (node.splines[i]). World space, 0-based indices;
 - `.node` (_mx.Node): The node whose shape holds this spline.
 - `.open(*, expected: str | None = None) -> None`: Open the spline between its last and first knots.
 - `.pick(x: float, y: float, view: str, tolerance: float = 0.025, knots: collections.abc.Sequence[int] | None = None) -> list`: Knots and handles near image point (x, y) of a capture (fractions 0-1), nearest first; view is the capture's view_token. Overlapping front and back handles s...
-- `.qa(tolerance: float = 0.01) -> dict`: Sampled QA report: length, planarity, self-intersections, tangent breaks and segments that backtrack.
+- `.qa(tolerance: float = 0.01) -> dict`: Sampled QA report: length, planarity, self-intersections, tangent breaks and segments that backtrack. complete is False, with a reason, for a spline it could...
 - `.reverse(*, expected: str | None = None) -> None`: Reverse the knot order, keeping the first knot first.
-- `.sample(count: int) -> list[object]`: count points evenly spaced by length along the spline, world space (closed: no repeated end).
+- `.sample(count: int) -> list[_mx.Point3]`: count points evenly spaced by length along the spline, world space (closed: no repeated end).
 - `.segments` (list[_mx.Segment]): The segments as Segment snapshots, segment i leaving knot i.
-- `.set_knot(index: int, *, pos: object | None = None, in_vec: object | None = None, out_vec: object | None = None, type: str | None = None, seg: str | None = None, expected: str | None = None) -> None`: Change one knot; a moved knot carries its handles: set_knot(2, pos=(10, 0, 0)), set_knot(2, type='bezier_corner', out_vec=(14, 3, 0)).
+- `.set_knot(index: int, *, pos: _mx.Point3 | None = None, in_vec: _mx.Point3 | None = None, out_vec: _mx.Point3 | None = None, type: str | None = None, seg: str | None = None, expected: str | None = None) -> None`: Change one knot; a moved knot carries its handles: set_knot(2, pos=(10, 0, 0)), set_knot(2, type='bezier_corner', out_vec=(14, 3, 0)).
 - `.set_knots(knots: object, *, expected: str | None = None) -> None`: Rewrite every knot at once from Knots, dicts or points (one per knot); checked before anything is written. ks = s.knots; ks[1].pos = (5, 2, 0); s.set_knots(ks).
 
 ### StateSet
@@ -843,37 +843,37 @@ A texture map: tex.params.filename = 'C:/tex/wood.png'; mat.params.base_color_ma
 - `.handle` (int): The map's animatable handle. In pymxs: rt.getAnimByHandle(tex.handle).
 - `.interface(name: str) -> _mx.Interface`: A mixin interface of the object by name: mod.interface('unwrap2').
 - `.interfaces` (list[_mx.Interface]): Mixin interfaces the object publishes.
-- `.maps` (dict): Sub-map slots by parameter name: {'map1': <Texmap>, 'mask': None}; set them through params.
+- `.maps` (dict[str, _mx.Texmap | list[_mx.Texmap | None] | None]): Sub-map slots by parameter name: {'map1': <Texmap>, 'mask': None}; set them through params.
 - `.name` (str, settable): The map's name.
 - `.nodes` (list[_mx.Node]): Scene nodes whose material uses this map.
 - `.params` (_mx.Params): The map's parameters.
-- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'seen' marks a target listed above, and nodes are listed, n...
+- `.references(depth: int = 3) -> dict`: Reference tree below the object: {'class', 'superclass', 'name', 'references': [{'index', ...}]}; 'references' holds the entries below while depth lasts and...
 
 ### Track
 
 An animation track: node.track('pos.z'), params.track('radius'), node.tracks()[i]. Node paths: 'pos', 'pos.x'..'pos.z', 'rot' and 'rot.x'..'rot.z' (degrees), 'scale', 'transform', a sub-anim path '[#Transform][#Position]', or a path plus steps: 'pos[2]' is a list controller's 2nd layer. Key edits take frames=[...] and/or start=/end=.
 
-- `.apply_script(source: str, expected: str, bindings: object | None = None, frames: collections.abc.Sequence[float] | None = None) -> dict`: Validate, then replace the controller with the script controller, sampling it in place; restores the old controller on failure. expected is expected_controll...
-- `.assign(cls: object, layer: bool = False, **params) -> _mx.Controller`: Give the track a new controller of class cls (a name within the track's kind, or a Controller to share) and set its parameters; layer=True adds it on top of...
+- `.apply_script(source: str, expected: str, bindings: dict[str, _mx.Node | _mx.Track | tuple[_mx.Track, float] | _mx.Controller | float | int | bool | str | _mx.Point3 | tuple[float, float, float, float]] | None = None, frames: collections.abc.Sequence[float] | None = None) -> dict`: Validate, then replace the controller with the script controller, sampling it in place; restores the old controller on failure. expected is expected_controll...
+- `.assign(cls: str | _mx.Controller, layer: bool = False, **params) -> _mx.Controller`: Give the track a new controller of class cls (a name within the track's kind, or a Controller to share) and set its parameters; layer=True adds it on top of...
 - `.bake(start: float | None = None, end: float | None = None, step: float = 1.0) -> int`: Replace start..end (default: the timeline) with a key every step frames of the evaluated value; a script, constraint, wire, noise or list controller becomes...
 - `.clear() -> None`: Delete every key; the value at the current frame stays.
 - `.controller` (_mx.Controller | None): The track's Controller, or None for a parameter that is not animated.
 - `.delete_keys(frames: collections.abc.Sequence[float] | None = None, start: float | None = None, end: float | None = None) -> int`: Delete the keys at frames or in start..end; returns how many: delete_keys(start=10, end=20).
-- `.inspect_script(frames: collections.abc.Sequence[float] | None = None) -> dict`: The track's script controller: {track, controller, expected_controller, script, variables, throw_on_error}, and samples [(frame, value)] when frames is given.
-- `.key(frame: float, value: object | None = None, tangent: str | None = None, in_tangent: str | None = None, out_tangent: str | None = None) -> None`: Set a key at frame (value None keys the current value). tangent: smooth, linear, step, fast, slow, auto.
+- `.inspect_script(frames: collections.abc.Sequence[float] | None = None) -> dict`: The track's script controller: track is this track and controller its controller's class (None for a parameter that is not animated); script, throw_on_error...
+- `.key(frame: float, value: float | int | bool | str | _mx.Point3 | list[float | int | bool | str | _mx.Point3] | None = None, tangent: str | None = None, in_tangent: str | None = None, out_tangent: str | None = None) -> None`: Set a key at frame (value None keys the current value): a number, (x, y, z), a rotation's Euler degrees, or on a parameter track what the parameter takes. ta...
 - `.keys` (list[_mx.Key]): The keys, in time order.
 - `.loop(start: float | None = None, end: float | None = None) -> None`: Close a cycle: key at end the value at start (default first and last key) and repeat it outside (ort cycle).
-- `.match(source: float | None = None, target: float | None = None) -> object`: Key at target the value at source (default: the first key onto the last); returns the new value.
+- `.match(source: float | None = None, target: float | None = None) -> float | _mx.Point3 | tuple[_mx.Point3, _mx.Point3, _mx.Point3, _mx.Point3] | None`: Key at target the value at source (default: the first key onto the last); returns the new value.
 - `.move_keys(offset: float, frames: collections.abc.Sequence[float] | None = None, start: float | None = None, end: float | None = None) -> int`: Shift keys by offset frames (all keys by default); refuses to land on another key. Returns how many moved.
-- `.ort` (object, settable): Out-of-range types (before, after), None if not animated; set one name or a pair: constant, cycle, loop, ping_pong, linear, relative_repeat.
+- `.ort` (tuple[str, str] | None, settable): Out-of-range types (before, after), None if not animated; set one name or a pair, where None keeps that side: constant, cycle, loop, ping_pong, linear, relat...
 - `.path` (str): The track's path, or its parameter's name.
 - `.resample(start: float | None = None, end: float | None = None, step: float = 1.0) -> int`: Add a key every step frames in start..end (default: the timeline), keeping the curve; returns keys per axis.
 - `.scale_keys(factor: float, pivot: float | None = None, frames: collections.abc.Sequence[float] | None = None, start: float | None = None, end: float | None = None) -> int`: Scale key times around pivot (default start, else the first key): scale_keys(2.0) doubles the timing.
 - `.tangents(tangent: str | None = None, in_tangent: str | None = None, out_tangent: str | None = None, frames: collections.abc.Sequence[float] | None = None, start: float | None = None, end: float | None = None) -> int`: Set Bezier tangent types (all keys by default); returns how many keys changed: tangents('smooth', start=0, end=50).
 - `.tcb(tension: float | None = None, continuity: float | None = None, bias: float | None = None, ease_to: float | None = None, ease_from: float | None = None, frames: collections.abc.Sequence[float] | None = None, start: float | None = None, end: float | None = None) -> int`: Set TCB key settings, 0-50 as in MAXScript (all keys by default); returns how many keys changed.
 - `.unwire() -> None`: Disconnect this driven track's wire; it keeps a plain controller holding its current value.
-- `.validate_script(source: str, bindings: object | None = None, frames: collections.abc.Sequence[float] | None = None) -> dict`: Check a script on a copy of the controller, off the track, at frames (default the current one): {expected_controller, output_type, samples, applied=False}. b...
-- `.value(frame: float | None = None) -> object`: The track's value at frame (default: the current one).
+- `.validate_script(source: str, bindings: dict[str, _mx.Node | _mx.Track | tuple[_mx.Track, float] | _mx.Controller | float | int | bool | str | _mx.Point3 | tuple[float, float, float, float]] | None = None, frames: collections.abc.Sequence[float] | None = None) -> dict`: Check a script on a copy of the controller, off the track, at frames (default the current one): output_type is float, position, rotation, scale or point3, sa...
+- `.value(frame: float | None = None) -> float | int | bool | _mx.Point3 | tuple[_mx.Point3, _mx.Point3, _mx.Point3, _mx.Point3] | list[float | int | bool | _mx.Point3] | None`: The track's value at frame (default: the current one): a number, a Point3 (a rotation as Euler degrees), four Point3 rows for 'transform', None for a kind th...
 - `.wire(driver: _mx.Track, expression: str, reverse: str | None = None) -> _mx.Controller`: Drive this track from driver (a Track) through expression, which names the driver by its sub-anim name: angle.wire(radius, 'Radius * 2'). reverse makes it tw...
 
 ### Viewport
@@ -886,7 +886,7 @@ A viewport, resolved on every call: the user's active view, or the AGENT VIEWPOR
 - `.edges` (bool): Whether edged faces show.
 - `.eye` (_mx.Point3): Eye position (x, y, z).
 - `.fov` (float | None): Horizontal field of view in degrees; None for orthographic views.
-- `.set(view: str = 'perspective', eye: object | None = None, target: object | None = None, frame: object | None = None, fov: float = 45.0, padding: float = 1.15, shading: str = 'smooth', edges: bool = False, grid: bool = False) -> None`: Set the whole view, defaults included: view (perspective, orthographic, front, back, left, right, top, bottom), eye/target, frame (nodes to fit), fov, shadin...
+- `.set(view: str = 'perspective', eye: _mx.Point3 | None = None, target: _mx.Point3 | None = None, frame: _mx.Node | str | collections.abc.Sequence[_mx.Node | str] | None = None, fov: float = 45.0, padding: float = 1.15, shading: str = 'smooth', edges: bool = False, grid: bool = False) -> None`: Set the whole view, defaults included: view (perspective, orthographic, front, back, left, right, top, bottom), eye/target, frame (nodes to fit), fov, shadin...
 - `.shading` (str): Visual style: smooth, flat, wireframe, clay, realistic, facets, hidden_line, ...
 - `.size` (tuple[int, int]): (width, height) in pixels.
 - `.target` (_mx.Point3): The point the view looks at and orbits: (x, y, z).
@@ -903,5 +903,5 @@ A viewport, resolved on every call: the user's active view, or the AGENT VIEWPOR
 
 ## Values
 
-- `BUILD` = 'b20261111164439'
+- `BUILD` = 'b20261111173007'
 - `MAX_VERSION` = 2027

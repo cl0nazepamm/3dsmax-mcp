@@ -3,6 +3,27 @@
 #include "mx_common.h"
 #include "mx_tracks.h"
 
+// What the animation members give and take, named for their signatures. Each
+// text is read off the code that makes or uses the value.
+
+// A controller's value (ControlValue): a float; a Point3 for a point3, position
+// or scale track and, as Euler XYZ degrees, for a rotation track; the four
+// Point3 rows of a transform track; None for a kind that is not read (point4).
+MX_RESULT_TYPE(ControllerValue, "float | _mx.Point3 | tuple[_mx.Point3, _mx.Point3, _mx.Point3, _mx.Point3] | None")
+// A track's value (ValueAt): its controller's, or the parameter's own while the
+// parameter is not animated: an int or bool parameter then gives an int or
+// bool, and a list parameter a list.
+MX_RESULT_TYPE(TrackValue,
+               "float | int | bool | _mx.Point3 | tuple[_mx.Point3, _mx.Point3, _mx.Point3, _mx.Point3] | "
+               "list[float | int | bool | _mx.Point3] | None")
+// What a key takes (SetKey): a number on a float track; (x, y, z) on a point3,
+// position or scale track, Euler degrees on a rotation track; on a parameter
+// track what the parameter takes (SetParam): a number, an int, a bool, a named
+// choice, (x, y, z) or a color, and a list of them for a list parameter.
+MX_ARG_TYPE(KeyValueArg, "float | int | bool | str | _mx.Point3 | list[float | int | bool | str | _mx.Point3]")
+// One out-of-range type for both sides, or (before, after) where None keeps a side.
+MX_ARG_TYPE(OrtArg, "str | tuple[str | None, str | None]")
+
 #include <decomp.h>
 
 #include <set>
@@ -264,7 +285,7 @@ static nb::object ControlValue(Control* c, TrackKind kind, double scale, TimeVal
         Quat q; q.Identity(); c->GetValue(t, &q, valid, CTRL_ABSOLUTE);
         float angles[3] = {0, 0, 0};
         QuatToEuler(q, angles, EULERTYPE_XYZ);
-        return nb::make_tuple(RadToDeg(angles[0]), RadToDeg(angles[1]), RadToDeg(angles[2]));
+        return MakePoint3(RadToDeg(angles[0]), RadToDeg(angles[1]), RadToDeg(angles[2]));
     }
     case TrackKind::Transform: {
         Matrix3 tm; tm.IdentityMatrix(); c->GetValue(t, &tm, valid, CTRL_RELATIVE);
@@ -276,8 +297,15 @@ static nb::object ControlValue(Control* c, TrackKind kind, double scale, TimeVal
 }
 
 nb::object ValueAt(const ResolvedTrack& r, TimeValue t) {
-    if (!r.ctrl && r.ref) return GetParam(*r.ref, t);
-    return ControlValue(r.ctrl, r.kind, r.scale, t);
+    if (r.ctrl || !r.ref) return ControlValue(r.ctrl, r.kind, r.scale, t);
+    // Not animated: the parameter's own value. A color comes from there as a
+    // plain (r, g, b); a track gives it as the Point3 it is once animated.
+    nb::object value = GetParam(*r.ref, t);
+    if (BaseType(r.ref->def->type) != TYPE_RGBA) return value;
+    if (!(r.ref->def->type & TYPE_TAB)) return MakePoint3(ToPoint3(value, r.name));
+    nb::list colors;
+    for (nb::handle color : value) colors.append(MakePoint3(ToPoint3(color, r.name)));
+    return colors;
 }
 
 // A controller value in its internal units, for copying between times.
@@ -506,9 +534,10 @@ static int SetTangents(const ResolvedTrack& r, const KeyRange& range, int in, in
     return FrameCount(picks);
 }
 
-static void SetKey(const Track& tr, double frame, nb::handle value, const std::optional<std::string>& tangent,
+static void SetKey(const Track& tr, double frame, KeyValueArg given, const std::optional<std::string>& tangent,
                    const std::optional<std::string>& inTangent, const std::optional<std::string>& outTangent) {
     RequireMain();
+    const nb::handle value = given.value;
     const TimeValue t = CheckedTicks(frame, "frame");
     const int in = TangentType(inTangent ? inTangent : tangent);
     const int out = TangentType(outTangent ? outTangent : tangent);
@@ -525,7 +554,9 @@ static void SetKey(const Track& tr, double frame, nb::handle value, const std::o
     }
     {
         ForceAnimate animate;
-        nb::object v = value.is_none() ? ValueAt(r, t) : nb::borrow(value);
+        // No value keys the current one. A parameter's comes from the parameter
+        // itself, in its own type: an int parameter refuses its controller's float.
+        nb::object v = !value.is_none() ? nb::borrow(value) : r.ref ? GetParam(*r.ref, t) : ValueAt(r, t);
         if (r.ref) {
             SetParam(r.owner, r.name, v, t);
         } else if (r.kind == TrackKind::Float) {
@@ -728,7 +759,7 @@ static int Bake(const Track& tr, std::optional<double> start, std::optional<doub
     return BakeProcedural(r, times);
 }
 
-static nb::object Match(const Track& tr, std::optional<double> source, std::optional<double> target) {
+static ControllerValue Match(const Track& tr, std::optional<double> source, std::optional<double> target) {
     const ResolvedTrack r = ResolveTrack(tr);
     const std::vector<Control*> leaves = KeyedLeaves(r);
     std::set<TimeValue> keyed;
@@ -745,7 +776,7 @@ static nb::object Match(const Track& tr, std::optional<double> source, std::opti
         for (size_t j = 0; j < leaves.size(); ++j) Write(leaves[j], KindOf(leaves[j]), to, values[j]);
     }
     Changed(leaves);
-    return ValueAt(r, to);
+    return ControllerValue{ValueAt(r, to)};  // keyed leaves: the track has a controller
 }
 
 // ── Out-of-range types ───────────────────────────────────────────
@@ -770,13 +801,14 @@ static int OrtType(nb::handle value) {
 
 static const char* OrtName(int type) { return type >= ORT_CONSTANT && type <= ORT_RELATIVE_REPEAT ? kOrts[type] : "unknown"; }
 
-static nb::object GetOrt(const Track& tr) {
+// (before, after) by name, or nothing for a parameter that is not animated.
+static std::optional<std::pair<std::string, std::string>> GetOrt(const Track& tr) {
     const ResolvedTrack r = ResolveTrack(tr);
-    if (!r.ctrl) return nb::none();
+    if (!r.ctrl) return std::nullopt;
     const std::vector<Control*> leaves = Leaves(r.ctrl);
     auto keyed = std::find_if(leaves.begin(), leaves.end(), [](Control* c) { return c->NumKeys() > 0; });
     Control* c = keyed != leaves.end() ? *keyed : r.ctrl;
-    return nb::make_tuple(OrtName(c->GetORT(ORT_BEFORE)), OrtName(c->GetORT(ORT_AFTER)));
+    return std::make_pair(std::string(OrtName(c->GetORT(ORT_BEFORE))), std::string(OrtName(c->GetORT(ORT_AFTER))));
 }
 
 static void SetOrt(const ResolvedTrack& r, int before, int after) {
@@ -790,7 +822,8 @@ static void SetOrt(const ResolvedTrack& r, int before, int after) {
     Changed(all);
 }
 
-static void SetOrtValue(const Track& tr, nb::handle value) {
+static void SetOrtValue(const Track& tr, OrtArg given) {
+    const nb::handle value = given.value;
     int before = -1, after = -1;
     if (nb::isinstance<nb::tuple>(value) || nb::isinstance<nb::list>(value)) {
         std::vector<nb::handle> pair;
@@ -932,7 +965,9 @@ void BindTracks(nb::module_& m) {
 
     nb::class_<Key>(m, "Key", "A key: frame, value, in_tangent, out_tangent (a snapshot).")
         .def_ro("frame", &Key::frame, "The key's time, in frames.")
-        .def_ro("value", &Key::value, "The key's value, in the units the track's value() gives: a number, or (x, y, z).")
+        .def_prop_ro("value", [](const Key& k) { return ControllerValue{k.value}; },
+            "The key's value, as the track's value() gives it at the key: a number, a Point3 (a rotation's Euler "
+            "degrees), four Point3 rows on a transform track, None on a kind value() does not read.")
         .def_ro("in_tangent", &Key::in_tangent,
             "Incoming tangent type: smooth, linear, step, fast, slow, auto or custom; '' on a controller without tangents.")
         .def_ro("out_tangent", &Key::out_tangent, "Outgoing tangent type, named like in_tangent.")
@@ -950,9 +985,10 @@ void BindTracks(nb::module_& m) {
         "take frames=[...] and/or start=/end=.")
         .def_prop_ro("path", [](const Track& tr) { return tr.path; }, "The track's path, or its parameter's name.")
         .def_prop_ro("keys", [](const Track& tr) { return Keys(ResolveTrack(tr)); }, "The keys, in time order.")
-        .def("key", &SetKey, "frame"_a, "value"_a = nb::none(), "tangent"_a = nb::none(),
+        .def("key", &SetKey, "frame"_a, "value"_a.none() = nb::none(), "tangent"_a = nb::none(),
              "in_tangent"_a = nb::none(), "out_tangent"_a = nb::none(),
-             "Set a key at frame (value None keys the current value). tangent: smooth, linear, step, fast, slow, auto.")
+             "Set a key at frame (value None keys the current value): a number, (x, y, z), a rotation's Euler degrees, "
+             "or on a parameter track what the parameter takes. tangent: smooth, linear, step, fast, slow, auto.")
         .def("tangents", [](const Track& tr, const std::optional<std::string>& tangent,
                             const std::optional<std::string>& inTangent, const std::optional<std::string>& outTangent,
                             const Frames& frames, Frame start, Frame end) {
@@ -967,8 +1003,11 @@ void BindTracks(nb::module_& m) {
              "Set TCB key settings, 0-50 as in MAXScript (all keys by default); returns how many keys changed.")
         .def("value", [](const Track& tr, std::optional<double> frame) {
             RequireMain();
-            return ValueAt(ResolveTrack(tr), frame ? CheckedTicks(*frame, "frame") : Now());
-        }, "frame"_a = nb::none(), "The track's value at frame (default: the current one).")
+            return TrackValue{ValueAt(ResolveTrack(tr), frame ? CheckedTicks(*frame, "frame") : Now())};
+        }, "frame"_a = nb::none(),
+           "The track's value at frame (default: the current one): a number, a Point3 (a rotation as Euler degrees), "
+           "four Point3 rows for 'transform', None for a kind that is not read (point4). A parameter that is not "
+           "animated gives its own value.")
         .def("clear", [](const Track& tr) {
             const std::vector<Control*> leaves = Leaves(ResolveTrack(tr).ctrl);
             for (Control* leaf : leaves) leaf->DeleteKeys(TRACK_DOALL);
@@ -994,8 +1033,8 @@ void BindTracks(nb::module_& m) {
         }, "start"_a = nb::none(), "end"_a = nb::none(),
            "Close a cycle: key at end the value at start (default first and last key) and repeat it outside (ort cycle).")
         .def_prop_rw("ort", &GetOrt, &SetOrtValue,
-            "Out-of-range types (before, after), None if not animated; set one name or a pair: constant, cycle, loop, "
-            "ping_pong, linear, relative_repeat.")
+            "Out-of-range types (before, after), None if not animated; set one name or a pair, where None keeps "
+            "that side: constant, cycle, loop, ping_pong, linear, relative_repeat.")
         .def("__len__", [](const Track& tr) { return Keys(ResolveTrack(tr)).size(); })
         .def("__repr__", &TrackRepr);
 
@@ -1012,7 +1051,8 @@ void BindTracks(nb::module_& m) {
         RequireMain();
         GetCOREInterface()->SetTime(CheckedTicks(frame, "frame"));
     }, "frame"_a, "Move the time slider.");
-    m.def("timeline", [](std::optional<double> start, std::optional<double> end, std::optional<int> fps) {
+    m.def("timeline", [](std::optional<double> start, std::optional<double> end,
+                         std::optional<int> fps) -> nb::typed<nb::tuple, double, double, int> {
         RequireMain();
         Interface* ip = GetCOREInterface();
         if (fps) {

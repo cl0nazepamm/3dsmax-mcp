@@ -1342,7 +1342,7 @@ void Apply(Spline3D* sp, const KnotEdit& e) {
     if (e.line) sp->SetLineType(k, *e.line);
 }
 
-void SetKnot(const SplineRef& r, int index, nb::handle pos, nb::handle in, nb::handle out,
+void SetKnot(const SplineRef& r, int index, PointOrNone pos, PointOrNone in, PointOrNone out,
              const std::optional<std::string>& type, const std::optional<std::string>& seg,
              const std::optional<std::string>& expected) {
     if (pos.is_none() && in.is_none() && out.is_none() && !type && !seg)
@@ -2079,7 +2079,8 @@ void BindCurves(nb::module_& m) {
         .def_ro("type", &Segment::type, "line or curve.")
         .def_ro("length", &Segment::length, "World length of the segment.")
         .def_prop_ro("points", [](const Segment& s) {
-            return nb::make_tuple(Tuple(s.points[0]), Tuple(s.points[1]), Tuple(s.points[2]), Tuple(s.points[3]));
+            return nb::typed<nb::tuple, AsPoint, AsPoint, AsPoint, AsPoint>(
+                nb::make_tuple(Tuple(s.points[0]), Tuple(s.points[1]), Tuple(s.points[2]), Tuple(s.points[3])));
         }, "(start, start handle, end handle, end) in world space; a line's handles lie on its chord.")
         .def("__repr__", [](const Segment& s) {
             char length[32];
@@ -2099,8 +2100,8 @@ void BindCurves(nb::module_& m) {
         .def_prop_ro("knots", &ReadKnots, "The knots as Knot values; edit them with set_knot or set_knots.")
         .def_prop_ro("segments", &Segments, "The segments as Segment snapshots, segment i leaving knot i.")
         .def_prop_ro("length", &SplineLength, "World length of the spline.")
-        .def("set_knot", &SetKnot, "index"_a, nb::kw_only(), "pos"_a = nb::none(), "in_vec"_a = nb::none(),
-            "out_vec"_a = nb::none(), "type"_a = nb::none(), "seg"_a = nb::none(), "expected"_a = nb::none(),
+        .def("set_knot", &SetKnot, "index"_a, nb::kw_only(), "pos"_a.none() = nb::none(), "in_vec"_a.none() = nb::none(),
+            "out_vec"_a.none() = nb::none(), "type"_a = nb::none(), "seg"_a = nb::none(), "expected"_a = nb::none(),
             "Change one knot; a moved knot carries its handles: set_knot(2, pos=(10, 0, 0)), "
             "set_knot(2, type='bezier_corner', out_vec=(14, 3, 0)).")
         .def("set_knots", &SetKnots, "knots"_a, nb::kw_only(), "expected"_a = nb::none(),
@@ -2123,13 +2124,22 @@ void BindCurves(nb::module_& m) {
         .def("delete", [](const SplineRef& r, const std::optional<std::string>& expected) {
             EditSpline(r, expected, NoCheck, [&](BezierShape& shape, Spline3D*) { shape.DeleteSpline(r.index); });
         }, nb::kw_only(), "expected"_a = nb::none(), "Delete the spline from its shape; later splines move down an index.")
-        .def("sample", &Sample, "count"_a,
+        .def("sample", [](const SplineRef& r, int count) -> nb::typed<nb::list, AsPoint> {
+            nb::list out;
+            for (const nb::object& point : Sample(r, count)) out.append(point);
+            return out;
+        }, "count"_a,
             "count points evenly spaced by length along the spline, world space (closed: no repeated end).")
         .def("qa", &SplineQa, "tolerance"_a = 0.01,
-            "Sampled QA report: length, planarity, self-intersections, tangent breaks and segments that backtrack.")
+            "Sampled QA report: length, planarity, self-intersections, tangent breaks and segments that backtrack. "
+            "complete is False, with a reason, for a spline it could not sample. "
+            "Keys: {'complete', 'reason'?, 'closed'?, 'length'?, 'endpoint_gap'?, 'planar'?, 'planarity_deviation'?, "
+            "'sampled_intersections'?, 'intersection_samples'?, 'intersection_check'?, 'tangent_breaks'?, "
+            "'segment_backtracking'?, 'backtracking_check'?, 'tolerance'?, 'sampled_spans'?, 'bounds'?}.")
         .def("capture", &Capture, "knots"_a = nb::none(),
             "Capture the AGENT VIEWPORT with knots labeled K<i> and handles I<i>/O<i>; returns {'file', 'view', "
-            "'width', 'height', 'labels', 'labels_truncated'}; pass 'view' to pick().")
+            "'width', 'height', 'labels', 'labels_truncated'}; pass 'view' to pick(). "
+            "Keys: {'file', 'view', 'width', 'height', 'labels', 'labels_truncated'}.")
         .def("pick", &Pick, "x"_a, "y"_a, "view"_a, "tolerance"_a = 0.025, "knots"_a = nb::none(),
             "Knots and handles near image point (x, y) of a capture (fractions 0-1), nearest first; view is the "
             "capture's view_token. Overlapping front and back handles stay ambiguous.")
@@ -2161,10 +2171,16 @@ void BindCurves(nb::module_& m) {
         INode* node = Resolve(n);
         return ModelReport(node, LoadRecipe(node), includeDefinition);
     }, "include_definition"_a = false,
-        "The node's curve_model recipe: kind, parameters, model_token, whether the geometry still matches it.");
+        "The node's curve_model recipe: kind, parameters, model_token, whether the geometry still matches it (reason "
+        "says why not), and its definition with include_definition=True. "
+        "Keys: {'kind', 'parameters', 'model_token', 'geometry_matches_recipe', 'reason'?, 'retained_parameter_states', "
+        "'curve_names', 'origin', 'modifiers_above', 'instance_count', 'definition'?}.");
     AddMethod<Node>("curve_update", &CurveUpdate, "parameters"_a, nb::kw_only(), "expected"_a = nb::none(),
         "Change curve_model parameters in place, keeping placement, materials and modifiers: "
-        "node.curve_update({'bow': 6}, expected=node.curve_model()['model_token']).");
+        "node.curve_update({'bow': 6}, expected=node.curve_model()['model_token']). Returns the curve_model report "
+        "with unchanged when the values already were these, else preview and changed_parameters {name: {'before', 'after'}}. "
+        "Keys: {'kind', 'parameters', 'model_token', 'geometry_matches_recipe', 'retained_parameter_states', "
+        "'curve_names', 'origin', 'modifiers_above', 'instance_count', 'unchanged'?, 'preview'?, 'changed_parameters'?}.");
 
     m.def("spline", &CreateSpline, "points"_a, "name"_a = "", "closed"_a = false, "knot"_a = "smooth",
           "center_pivot"_a = false,
@@ -2176,7 +2192,8 @@ void BindCurves(nb::module_& m) {
         return Preview(BuildModel(FromPython(definition), ParseValues(FromPython(parameters)), json()));
     }, "definition"_a, "parameters"_a = nb::none(),
           "Evaluate a curve_model definition without touching the scene: counts, bounds and per-curve QA. "
-          "definition={'curves': {name: curve}, 'output': {'kind': 'curve' | 'sweep' | 'loft', ...}}.");
+          "definition={'curves': {name: curve}, 'output': {'kind': 'curve' | 'sweep' | 'loft', ...}}. "
+          "Keys: {'kind', 'curves', 'alignment', 'bounds'?, 'notes', 'counts'}.");
     m.def("curve_create", &CurveCreate, "definition"_a, "name"_a = "", "parameters"_a = nb::none(),
           "Build a curve_model definition as an editable spline or quad cage centered on its bounds, saving the "
           "recipe for node.curve_update.");

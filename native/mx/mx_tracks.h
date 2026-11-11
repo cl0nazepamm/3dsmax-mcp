@@ -28,6 +28,11 @@ ResolvedTrack ResolveTrack(const Track& tr);
 TrackKind KindOf(Control* c);
 // The controller superclass the track takes: a new controller must be of it.
 SClass_ID TrackSuper(const ResolvedTrack& r);
+// The track's value at t, by kind: a float (in the track's external units); a
+// Point3 for a point3, position or scale track and, as Euler XYZ degrees, for a
+// rotation track; a tuple of the four Point3 rows of a transform track; None
+// for a kind that is not read (point4, ...). A parameter without a controller
+// gives its own value (GetParam), a color's (r, g, b) as a Point3.
 nb::object ValueAt(const ResolvedTrack& r, TimeValue t);
 // Put c in the track's slot (c is null: a parameter becomes unanimated).
 void PutController(const ResolvedTrack& r, Control* c);

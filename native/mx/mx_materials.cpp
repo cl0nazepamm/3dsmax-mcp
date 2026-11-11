@@ -7,6 +7,11 @@
 // held it, for one); it then raises NotFound.
 #include "mx_common.h"
 
+// A list that holds materials and maps together.
+MX_RESULT_TYPE(MaterialOrMap, "_mx.Material | _mx.Texmap")
+// What a map slot holds: a map, None, or a list of them for a list parameter.
+MX_RESULT_TYPE(MapSlot, "_mx.Texmap | list[_mx.Texmap | None] | None")
+
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -688,7 +693,7 @@ static std::vector<MaterialRef> SceneMaterials(const std::optional<std::string>&
     return out;
 }
 
-static nb::list LibraryMaterials() {
+static nb::typed<nb::list, MaterialOrMap> LibraryMaterials() {
     RequireMain();
     nb::list out;
     MtlBaseLib& library = GetCOREInterface()->GetMaterialLibrary();
@@ -696,7 +701,7 @@ static nb::list LibraryMaterials() {
     return out;
 }
 
-static nb::list MeditMaterials() {
+static nb::typed<nb::list, std::optional<MaterialOrMap>> MeditMaterials() {
     RequireMain();
     nb::list out;
     for (int slot = 0; slot < 24; ++slot) out.append(RefToPython(GetCOREInterface()->GetMtlSlot(slot)));
@@ -746,7 +751,7 @@ void BindMaterials(nb::module_& m) {
         .def_prop_ro("class_name", [](const TexmapRef& r) { return HandlerHelpers::MaxScriptVisibleClassName(ResolveTexmap(r)); },
             "MAXScript class: Bitmaptexture, Noise, OSLMap, ...")
         .def_prop_ro("params", [](const TexmapRef& r) { ResolveTexmap(r); return Params{0, r.tex}; }, "The map's parameters.")
-        .def_prop_ro("maps", [](const TexmapRef& r) { return Maps(ResolveTexmap(r)); },
+        .def_prop_ro("maps", [](const TexmapRef& r) -> nb::typed<nb::dict, std::string, MapSlot> { return Maps(ResolveTexmap(r)); },
             "Sub-map slots by parameter name: {'map1': <Texmap>, 'mask': None}; set them through params.")
         .def_prop_ro("nodes", [](const TexmapRef& r) { return UsingNodes(ResolveTexmap(r)); },
             "Scene nodes whose material uses this map.")
@@ -767,7 +772,7 @@ void BindMaterials(nb::module_& m) {
             "MAXScript class: PhysicalMaterial, Multimaterial, ...")
         .def_prop_ro("params", [](const MaterialRef& r) { ResolveMaterial(r); return Params{0, r.mtl}; },
             "The material's parameters.")
-        .def_prop_ro("maps", [](const MaterialRef& r) { return Maps(ResolveMaterial(r)); },
+        .def_prop_ro("maps", [](const MaterialRef& r) -> nb::typed<nb::dict, std::string, MapSlot> { return Maps(ResolveMaterial(r)); },
             "Map slots by parameter name: {'base_color_map': <Texmap>, 'bump_map': None, ...}; set them through params.")
         .def_prop_ro("sub_materials", &SubMaterials,
             "Sub-materials, None where empty; for a Multi/Sub-Object entry i is material ID i+1.")
@@ -776,9 +781,11 @@ void BindMaterials(nb::module_& m) {
         .def_prop_ro("nodes", [](const MaterialRef& r) { return UsingNodes(ResolveMaterial(r)); },
             "Scene nodes whose material is this one or contains it.")
         .def("network", &Network, "depth"_a = 6, "max_nodes"_a = 80,
-            "The map graph: {'tree': lines, 'links': [(parent, slot, child)], 'files', 'issues', 'complete'}; print('\\n'.join(net['tree'])).")
+            "The map graph: tree is lines to print (print('\\n'.join(net['tree']))), links [(parent, slot, child)], files "
+            "[{'map', 'param', 'path', 'exists'}], and truncated says what was left out when complete is False. "
+            "Keys: {'tree', 'links', 'files', 'issues', 'complete', 'truncated'?}.")
         .def("replace_with", &ReplaceWith, "new"_a, "sub_materials"_a = true,
-            "Put new wherever this material is: on nodes and in sub-material slots; returns {'nodes', 'slots', 'skipped'}.")
+            "Put new wherever this material is: on nodes and in sub-material slots. Keys: {'nodes', 'slots', 'skipped'}.")
         .def("replicate", &Replicate, "texture_folder"_a = "", "path_map"_a = nb::none(), "name"_a = "",
             "nodes"_a = nb::none(), "allow_missing"_a = false,
             "Copy the material, its texture files repointed to texture_folder or path_map {old: new}, onto nodes: mat.replicate('D:/tex/oak', name='Oak', nodes=['Table']).")

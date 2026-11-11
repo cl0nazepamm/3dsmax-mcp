@@ -394,7 +394,8 @@ static void BindRender(nb::module_& m) {
             return WithJob(j, [](const RenderState& s) { return WideToUtf8(s.signal.c_str()); });
         }, "Done file written when the job ends; render_automations(action='status', job_id=job.id) reads it outside Max.")
         .def("wait", &WaitJob,
-            "Render now if still queued and return the result; raises if it failed, was cancelled, or already went to Max.")
+            "Render now if still queued and return the result; raises if it failed, was cancelled, or already went to Max. "
+            "Keys: {'status', 'output', 'width', 'height', 'seconds'}.")
         .def("cancel", &CancelJob, "Drop the job if it has not started; returns whether it was dropped.")
         .def("__repr__", &JobRepr)
         .def("__eq__", [](const RenderJob& a, nb::handle b) { return nb::isinstance<RenderJob>(b) && a.id == nb::cast<RenderJob>(b).id; }, nb::arg("other").none())

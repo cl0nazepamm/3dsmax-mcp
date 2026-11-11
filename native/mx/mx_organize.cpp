@@ -425,7 +425,7 @@ static void RemoveFromGroup(const GroupRef& g, NodesArg nodes) {
     CheckMembers(head, removing, false, "3ds Max left these in group " + name + ": ");
 }
 
-static nb::list Ungroup(const GroupRef& g) {
+static nb::typed<nb::list, Node> Ungroup(const GroupRef& g) {
     INode* head = ResolveGroup(g);
     const std::string name = Quoted(head);
     std::vector<AnimHandle> members;
@@ -470,7 +470,7 @@ static void BindGroups(nb::module_& m) {
         "A group: a Node whose members move with it. Group(node) wraps an existing group head (Node, name or handle).")
         .def("__init__", [](GroupRef* self, nb::handle node) { new (self) GroupRef(ToGroup(node)); }, "node"_a,
             "The group headed by node (a Node, name or handle): mx.Group('Chairs').")
-        .def_prop_ro("members", [](const GroupRef& g) {
+        .def_prop_ro("members", [](const GroupRef& g) -> nb::typed<nb::list, Node> {
             nb::list out;
             for (INode* node : Members(ResolveGroup(g))) out.append(WrapMember(node));
             return out;

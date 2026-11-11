@@ -335,7 +335,7 @@ void SetActive(const std::string& view, const std::optional<Aim>& aim, const std
     ip->ForceCompleteRedraw(FALSE);
 }
 
-void SetView(const ViewRef& v, const std::string& viewName, nb::handle eye, nb::handle target, nb::handle frame,
+void SetView(const ViewRef& v, const std::string& viewName, PointOrNone eye, PointOrNone target, NodesOrNone frame,
              double fov, double padding, const std::string& shadingName, bool edges, bool grid) {
     RequireMain();
     const std::string view = Lower(viewName);
@@ -587,7 +587,7 @@ void BindViewport(nb::module_& m) {
         .def("__repr__", &HitRepr);
 
     nb::class_<ViewRef>(m, "Viewport", "A viewport, resolved on every call: the user's active view, or the AGENT VIEWPORT.")
-        .def("set", &SetView, "view"_a = "perspective", "eye"_a = nb::none(), "target"_a = nb::none(), "frame"_a = nb::none(),
+        .def("set", &SetView, "view"_a = "perspective", "eye"_a.none() = nb::none(), "target"_a.none() = nb::none(), "frame"_a.none() = nb::none(),
              "fov"_a = 45.0, "padding"_a = 1.15, "shading"_a = "smooth", "edges"_a = false, "grid"_a = false,
              "Set the whole view, defaults included: view (perspective, orthographic, front, back, left, right, top, "
              "bottom), eye/target, frame (nodes to fit), fov, shading (smooth, wireframe, flat), edges, grid: "

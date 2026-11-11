@@ -1121,7 +1121,8 @@ static nb::dict SmartImport(const fs::path& folder, const std::optional<fs::path
 void BindFiles(nb::module_& m) {
     m.def("scene_file", &SceneFile, "Path of the open .max file, or None while the scene is untitled.");
     m.def("scene_info", &SceneInfo,
-          "The open scene: {'file', 'unsaved', 'objects', 'faces'}, faces of the evaluated meshes, triangulated.");
+          "The open scene: its file (None while untitled), whether it has unsaved changes, its object count and the "
+          "faces of the evaluated meshes, triangulated. Keys: {'file', 'unsaved', 'objects', 'faces'}.");
     m.def("hold", &HoldScene, "Save the scene to the hold buffer (Edit > Hold) for fetch().");
     m.def("fetch", &FetchScene,
           "Restore what hold() held (Edit > Fetch), dropping the changes since; refuses a hold made elsewhere or "
@@ -1146,7 +1147,8 @@ void BindFiles(nb::module_& m) {
           "grid_spacing"_a = 200.0, "lod_filter"_a = "lod0", "name_pattern"_a = "", "exclude_pattern"_a = "",
           "Import the mesh files under folder onto an XY grid, pairing each with its textures by name: {'imported': "
           "[{'path', 'name', 'nodes', 'textures': {channel: path}, 'material_name', 'mtlx'}], 'skipped', 'failed', "
-          "'lod_skipped', 'filtered_out'}. Skips a file when an object named like its stem is in the scene.");
+          "'lod_skipped', 'filtered_out'}. Skips a file when an object named like its stem is in the scene. "
+          "Keys: {'imported', 'skipped', 'failed', 'lod_skipped', 'filtered_out'}.");
 }
 
 } // namespace MX_ABI_TAG

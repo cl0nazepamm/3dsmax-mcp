@@ -444,8 +444,8 @@ static bool Passes(const MNMesh& m, const std::vector<Point3>& points, Level lev
     return true;
 }
 
-static nb::list Find(const Poly& p, const std::string& levelName, const std::optional<std::vector<int>>& ids, bool current,
-                     nb::handle bbox, nb::handle nearPoint, std::optional<double> radius, nb::handle normal,
+static nb::typed<nb::list, int> Find(const Poly& p, const std::string& levelName, const std::optional<std::vector<int>>& ids, bool current,
+                     BoxOrNone bbox, PointOrNone nearPoint, std::optional<double> radius, PointOrNone normal,
                      std::optional<double> angle, std::optional<bool> boundary, std::optional<double> sharp) {
     const Cage c = ResolveCage(p);
     const Level level = ParseLevel(levelName);
@@ -1899,8 +1899,8 @@ void BindMesh(nb::module_& m) {
             "Centers (mean vertex position) of 'vertex', 'edge' or 'face' components, all or of the given IDs.")
         .def("normals", &CageNormals, "ids"_a = nb::none(), "world"_a = true,
             "Unit face normals (Newell; (0, 0, 0) for a degenerate face), all or of the given face IDs.")
-        .def("find", &Find, "level"_a, "ids"_a = nb::none(), "current"_a = false, "bbox"_a = nb::none(),
-            "near"_a = nb::none(), "radius"_a = nb::none(), "normal"_a = nb::none(), "angle"_a = nb::none(),
+        .def("find", &Find, "level"_a, "ids"_a = nb::none(), "current"_a = false, "bbox"_a.none() = nb::none(),
+            "near"_a.none() = nb::none(), "radius"_a = nb::none(), "normal"_a.none() = nb::none(), "angle"_a = nb::none(),
             "boundary"_a = nb::none(), "sharp"_a = nb::none(),
             "IDs passing every filter given: among ids, selected (current), world center in bbox or within radius of "
             "near, face normal within angle (default 10) of normal, open edge (boundary), edge whose faces meet at "
@@ -1913,15 +1913,17 @@ void BindMesh(nb::module_& m) {
             "chamfer amount, segments; connect segments, pinch, slide; bridge segments; cap; delete; relax amount "
             "(0-1), iterations. Offsets, factors and pivots are world space, amounts local units. Returns "
             "{'steps', 'counts', 'token'}; topology edits renumber, so find IDs again. show=True shows the result in "
-            "the Modify panel.")
+            "the Modify panel. Keys: {'steps', 'counts', 'token'}.")
         .def("capture", &Capture, "level"_a, "ids"_a = nb::none(),
             "Capture the AGENT VIEWPORT with up to 100 components labeled at their centers (F12, E3, V7); "
-            "returns {'file', 'view', 'width', 'height', 'labels'}.")
+            "pass 'view' to pick(). Keys: {'file', 'view', 'width', 'height', 'labels'}.")
         .def("pick", &Pick, "x"_a, "y"_a, "view"_a, "level"_a = "edge", "ids"_a = nb::none(), "tolerance"_a = 0.025,
             "limit"_a = 5, "prefer_surface"_a = true,
             "Components near image point x, y (0-1, top-left) of the agent viewport capture whose token is view, "
             "within tolerance (fraction of the shorter side); ranked by distance to the cursor's surface hit when it "
-            "is on this node and prefer_surface, else on screen. Projection does not test visibility.")
+            "is on this node and prefer_surface, else on screen. Projection does not test visibility. candidates are "
+            "{'id', 'vertices', 'center', 'distance', ...} nearest first; hit is the surface point under the cursor, or None. "
+            "Keys: {'candidates', 'matched', 'hit', 'hit_on_target', 'unprojectable', 'tolerance_pixels', 'token'}.")
         .def("__repr__", &PolyRepr)
         .def("__eq__", [](const Poly& a, nb::handle b) { return nb::isinstance<Poly>(b) && a.node == nb::cast<Poly>(b).node; }, nb::arg("other").none())
         .def("__hash__", [](const Poly& p) { return (Py_hash_t)p.node; });
@@ -1939,9 +1941,13 @@ void BindMesh(nb::module_& m) {
     AddMethod<Node>("mesh_qa", &MeshQa, "limit"_a = 12, "area_epsilon"_a = 0.0,
         "Topology report of the evaluated mesh: boundary, non-manifold and winding-conflict edges, degenerate and "
         "duplicate triangles, isolated vertices and edge-connected components, each counted with up to limit samples; "
-        "area_epsilon 0 scales with the bbox. IDs are the evaluated mesh's.");
+        "area_epsilon 0 scales with the bbox. IDs are the evaluated mesh's. issues holds boundary_edges, "
+        "non_manifold_edges, winding_conflicts, degenerate_faces, duplicate_faces and isolated_vertices, each "
+        "{'count', 'samples'}, as is components. "
+        "Keys: {'vertices', 'triangles', 'edges', 'bounds', 'area', 'area_epsilon', 'issues', 'components'}.");
     AddMethod<Node>("orientation", &Orientation,
-        "World orientation: pivot, unit local axes (x, y, z), matrix rows, bbox center and size, pivot_to_center.");
+        "World orientation: pivot, unit local axes (x, y, z), matrix rows, bbox center and size, pivot_to_center. "
+        "Keys: {'pivot', 'axes', 'matrix', 'center', 'size', 'pivot_to_center'}.");
 
     m.def("create_mesh", &CreateMesh, "name"_a, "verts"_a, "faces"_a,
         "Create an Editable Poly from world vertices and polygons of 1-based vertex IDs, counterclockwise seen from "
@@ -1951,7 +1957,8 @@ void BindMesh(nb::module_& m) {
         "Evaluated meshes that penetrate, intersect, touch or nearly touch, worst first: contacts(legs, "
         "against=[floor, seat]) checks each leg against those only. tolerance and near_gap default to 0.1 mm and "
         "10 mm in scene units; depth is a lower and gap an upper bound, both from vertices. Nodes without a mesh "
-        "are listed in 'skipped'.");
+        "are listed in 'skipped'. pairs are {'a', 'b', 'status', 'depth', 'gap', ...} and summary counts them by status. "
+        "Keys: {'tolerance', 'near_gap', 'summary', 'pairs', 'open_meshes', 'skipped'}.");
 }
 
 } // namespace MX_ABI_TAG

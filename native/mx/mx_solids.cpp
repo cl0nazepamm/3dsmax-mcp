@@ -634,8 +634,8 @@ std::pair<Point3, Point3> ParseBox(nb::handle box) {
     return {lo, hi};
 }
 
-nb::dict GetVerts(const Node& n, const std::optional<std::vector<long long>>& indices, nb::handle bbox,
-                  nb::handle nearPoint, double radius, bool convert) {
+nb::typed<nb::dict, int, AsPoint> GetVerts(const Node& n, const std::optional<std::vector<long long>>& indices, BoxOrNone bbox,
+                  PointOrNone nearPoint, double radius, bool convert) {
     std::optional<std::pair<Point3, Point3>> box;
     if (!bbox.is_none()) box = ParseBox(bbox);
     std::optional<Point3> center;
@@ -677,9 +677,9 @@ int SetVerts(const Node& n, nb::dict positions, bool convert) {
 
 // Soft falloff: a vertex within `falloff` of a moved one moves by
 // offset * (1 - d / falloff)^2, d being the distance to the nearest moved vertex.
-std::pair<int, int> MoveVerts(const Node& n, nb::handle offset, const std::optional<std::vector<long long>>& indices,
+std::pair<int, int> MoveVerts(const Node& n, PointArg offset, const std::optional<std::vector<long long>>& indices,
                               double falloff, bool convert) {
-    const Point3 shift = ToPoint3(offset, "offset");
+    const Point3 shift = ToPoint3(offset.value, "offset");
     if (!(falloff >= 0)) throw BadParam("falloff must be >= 0");
     const PolyBase pb = EditablePoly(n, convert);
     const std::vector<int> moved = VertIndices(pb, indices);
@@ -1292,8 +1292,8 @@ void BindSolids(nb::module_& m) {
         "Z up); repeat={'count': 4, 'axis': 'x'|'-x'|..., 'spacing': 20} arrays them as Hole_1..Hole_4.");
     AddProperty<Node>("boolean_modifier", &TopBoolean, "The topmost Boolean modifier on the stack, or None.");
 
-    AddMethod<Node>("get_verts", &GetVerts, "indices"_a = nb::none(), nb::kw_only(), "bbox"_a = nb::none(),
-        "near"_a = nb::none(), "radius"_a = 0.0, "convert"_a = false,
+    AddMethod<Node>("get_verts", &GetVerts, "indices"_a = nb::none(), nb::kw_only(), "bbox"_a.none() = nb::none(),
+        "near"_a.none() = nb::none(), "radius"_a = 0.0, "convert"_a = false,
         "World positions of the Editable Poly base's vertices as {index: (x, y, z)}, 1-based; filter by indices, "
         "bbox=((min), (max)) and near=(x, y, z) with radius. convert=True collapses a non-poly node to Editable Poly.");
     AddMethod<Node>("set_verts", &SetVerts, "positions"_a, nb::kw_only(), "convert"_a = false,
