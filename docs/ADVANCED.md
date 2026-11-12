@@ -59,22 +59,11 @@ After install, restart 3ds Max. The installer:
   PackageContents.xml
   Contents\
     bin\mcp_bridge_2023.gup … mcp_bridge_2027.gup
+    bin\mx_2023\ … mx_2027\          _mx, the sdk module of each bridge
     scripts\mcp_server.ms
 ```
 
 Manifest template: [`maxmcp/assets/PackageContents.xml.in`](../maxmcp/assets/PackageContents.xml.in). Max loads the GUP matching its version (`plugins parts`) and the shared TCP fallback script (`post-start-up scripts parts`).
-
-### Dev testing without install
-
-Build native binaries, stage the bundle, and point Max at it:
-
-```powershell
-native\build.bat all
-uv run python scripts/release/stage_bundle.py --dest bundle
-set ADSK_APPLICATION_PLUGINS=C:\path\to\3dsmax-mcp\bundle
-```
-
-Then launch 3ds Max. For a full install, run `uv run python install.py` (also migrates away legacy install-dir copies automatically).
 
 ## MCP client registration
 
@@ -117,7 +106,7 @@ To expose tools of your own, write your own MCP server around `maxmcp.mx`, which
 
 ### Tool profiles
 
-The default above is the **code** profile. The profiles of 1.x are still available for clients and models that work better with tools listed directly. A profile decides only what a client lists, and so how much of the context window the server takes before any work starts; `run_python` scripts reach every tool in every profile.
+The default above is the **code** profile. The other profiles list tools directly, for clients and models that work better that way. A profile decides only what a client lists, and so how much of the context window the server takes before any work starts; `run_python` scripts reach every tool in every profile.
 
 | Profile | Advertised surface | Tool definitions per request (Claude tokens) |
 |---------|--------------------|----------------------------------------------|
@@ -200,14 +189,6 @@ result = {"bbox": blk.bbox, "faces": mx.qa(blk)["counts"]["triangles"]}
 Helpers live in `maxmcp/mx/objects.py`, `modeling.py`, `shading.py` and `view.py`. A script that runs in the server
 may import only `mx` and the standard math/json/re/itertools family; every script stops at `timeout_s`.
 
-## Native identity, transactions, and scene QA
-
-`resolve_node_refs` converts a name, native handle, or absolute JSON-Pointer hierarchy path such as `/Rig/Camera` into a canonical `{handle, name, path, class, layer}` identity plus `sceneSeq`, the current persistent-mutation revision. It also reports `activitySeq` for interaction diagnostics. Selection and sub-object selection advance only `activitySeq`, so normal viewport clicking does not stale a guarded write. Supplying more than one selector cross-checks identity instead of silently retargeting a stale handle. Handles are scene/session-local; refresh after loading or resetting a scene.
-
-`scene_patch` accepts up to 256 `rename`, relative `transform`, `set_flags`, and `set_parent` operations. It resolves and validates the entire plan first, optionally rejects a stale mutation-only `expected_scene_seq`, supports `dry_run`, and applies the plan inside exactly one native undo hold. Selection-only interaction remains observable but never blocks the patch. A failed apply cancels the whole hold. Mutating native calls must still be issued sequentially.
-
-`scene_qa` is intentionally non-mesh. It checks naming collisions, invalid or degenerate transforms, hierarchy cycles, group metadata, and timeline sanity; optional checks cover transform risks and distance from origin. It never inspects topology, UVs, normals, skinning, weight painting, or visual quality. Automatic repair is restricted to explicit deterministic name-collision and empty-name fixes, with dry-run and stale-sequence guards.
-
 ## Config file
 
 Shared by the native bridge, MAXScript listener, and external MCP server:
@@ -250,8 +231,7 @@ What it does **not** cover:
 
 ### Quiet mode and the save prompt
 
-Tool scripts run in Max's quiet mode, so prompts take their default answer. For the "save changes?" prompt of a reset, open, fetch or quit, that default discards unsaved work. A script that mentions `resetMaxFile`, `loadMaxFile`, `fetchMaxFile`, `quitMax`, `checkForSave`, `max reset file`, `max file new`, `max file open`, `max fetch` or the Interface's `FileReset`, `FileFetch` or `LoadFromFile` therefore runs with quiet mode off, and the prompt reaches the agent as `BLOCKED_BY_DIALOG`. The match is plain text (comments and strings included); a false positive only leaves a prompt visible. `execute_maxscript(quiet=True)` on such a script is sent as `quiet=False` unless `allow_discard=True` is passed too. Replies say when quiet mode was off for this reason (`transport.quiet_override` and a warning). A command reached indirectly (`fileIn`, `macros.run`) is not seen: pass `quiet=False` for such scripts. The bridge applies the same rule to scripts sent without `quiet`, and `execute_maxscript` sends `quiet=False` for them explicitly, so an older bridge shows the prompt too. `manage_scene` fetch and reset always keep their prompt. `loadMaxFile` never asks to save, with prompts on or off, so `execute_maxscript` and `execute_python` also check the scene first: while it has unsaved changes, such a script is refused with `UNSAVED_CHANGES` before anything runs, unless `allow_discard=True`. If a dialog holds that read-only check, the call returns `BLOCKED_BY_DIALOG` with `retryable: true`: the script was not sent, so repeat it once the dialog is answered. The check reads `getSaveRequired()`, the state Max's own prompt uses. Edits made with undo off, as plain execute_maxscript edits are by default, don't mark the scene modified, in Max too. Tool edits (create, transform, material, clone, delete) and `undo on` scripts do. A script that calls `checkForSave()` is refused too, since the name may sit in a comment or the answer may be ignored. With `allow_discard=True` it still shows its prompt.
-
+Tool scripts run in Max's quiet mode, so prompts take their default answer. For the "save changes?" prompt of a reset, open, fetch or quit, that default discards unsaved work, so a script that mentions one of those commands runs with prompts shown and the prompt reaches the agent as `BLOCKED_BY_DIALOG`. While the scene has unsaved changes, `execute_maxscript` and `execute_python` refuse such a script with `UNSAVED_CHANGES` unless `allow_discard=True` is passed. `manage_scene` fetch and reset always keep their prompt. The `execute_maxscript` manual lists the commands and the exact rules.
 ## Multi-instance Max
 
 Each 3ds Max window registers its own native pipe. With one Max running, clients connect automatically. With several open, run **MCP Claim This Max** in the target window so clients route to that instance until another is claimed.
@@ -280,7 +260,7 @@ The stdio server exits when its client process exits, and always after its stdin
 
 ## Agent skill
 
-The skill teaches agents tool choice, material workflows, controller paths, and MAXScript pitfalls. The installer builds and deploys it automatically.
+The skill holds what the tools' own manuals do not say: rules of conduct, cross-tool workflows and MAXScript pitfalls. The installer builds and deploys it automatically.
 
 Manual rebuild:
 
@@ -289,9 +269,7 @@ python scripts/release/build_skill.py
 python scripts/release/build_skill.py --target global   # user-level .claude/skills and .agents/skills
 ```
 
-Bundled MAXScript reference lives under `skills/3dsmax-mcp-dev/` (10 topic files). MCP resource: `resource://3dsmax-mcp/skill`.
-
-Anthropic models sometimes prefer raw MAXScript over dedicated tools; Codex tends to use native tools more reliably. The skill reduces that gap.
+Its references (MAXScript, tyFlow, RailClone, procedural graphs, curves) live beside it under `skills/3dsmax-mcp-dev/`. MCP resource: `resource://3dsmax-mcp/skill`.
 
 ## Building the native bridge
 
@@ -310,59 +288,23 @@ Windows batch note: quote CMake `-D` paths when the repo or SDK path contains sp
 
 ## Hot-reloadable native core (development)
 
-For native handler work the bridge can run as a permanent shell plus a core DLL that a running 3ds Max swaps in place, so a rebuilt handler loads without a restart.
+For native handler work the bridge can run as a permanent shell plus a core DLL that a running 3ds Max swaps in place, so a rebuilt handler loads without a restart. Releases ship the static layout only.
 
 | Layout | `MCP_HOT_CORE` | Output | Reload |
 |--------|----------------|--------|--------|
 | Static (default, shipped) | `OFF` | `mcp_bridge.gup` with the core linked in | `CORE_STATIC` |
 | Hot (development only) | `ON` | shell `mcp_bridge.gup` plus `core\mcp_core.dll` | `reload_native_core` |
 
-The **shell** holds everything 3ds Max keeps a pointer into: plugin registration, the named pipe, the main-thread executor, the dialog monitor and its Qt reader, the scene journal and `scene_delta` cursors, GDI+, the agent viewport, `render_start`'s armed job and render notifications, and undo records. It answers `ping`, `health`, `native:max_dialogs` and `native:core` itself, so health checks, dialog recovery and core control keep working while the core is missing or being replaced. The **core** is command dispatch, the handlers and the generated native tool registry. The two sides meet only through versioned C tables (`native/include/mcp_bridge/core_api.h`, `host_api.h`). Each side's sources have their own folder, `native/src/shell` and `native/src/core`, and `native/CMakeLists.txt` lists them. Stateless shared code (`native/src/shared`) is linked into both, so a reload updates only the core's copy.
+The **shell** holds everything 3ds Max keeps a pointer into: plugin registration, the named pipe, the main-thread executor, the dialog monitor, the scene journal, the agent viewport, render notifications and undo records. It answers `ping`, `health`, `native:max_dialogs` and `native:core` itself, so health checks, dialog recovery and core control keep working while the core is missing or being replaced. The **core** is command dispatch, the handlers and the native tool registry. The two meet only through versioned C tables (`native/include/mcp_bridge/core_api.h`, `host_api.h`), and a core loads only into a shell built with the same compiler, Max SDK, configuration and boundary versions.
 
-### Building the hot layout
-
-`scripts/dev/hot_core.py` keeps the hot tree apart from the release trees and never installs anything, writes into Max or ProgramData folders, or stops Max:
-
-```powershell
-python scripts/dev/hot_core.py configure   # native/build-hot-2027, same Visual Studio instance as native/build-2027
-python scripts/dev/hot_core.py build       # mcp_core target only, Release
-python scripts/dev/hot_core.py path        # built DLL plus the mcp_core.path line and MCP_CORE_DLL value
-python scripts/dev/hot_core.py status --gup-dir "<folder of the installed .gup>"
-```
-
-`--max-version` picks another Max (default 2027) and `--build-dir` another tree. A full `cmake --build native\build-hot-2027 --config Release` also builds the hot shell (`Release\mcp_bridge.gup`). Install that shell in place of the static GUP and restart Max once; from then on, core rebuilds reload in place. A core loads only into a shell built with the same compiler, Max SDK, configuration and boundary versions, so build both from the same tree.
-
-### How the shell finds the core
-
-The first source that is set wins, even when its file does not exist, so a typo fails instead of loading another core. Relative paths resolve against the `.gup`'s folder.
+The shell looks for the core in this order, and the first source that is set wins even when its file does not exist:
 
 1. The `path` argument of a reload.
 2. `MCP_CORE_DLL` in 3ds Max's environment.
-3. The first non-blank line of `mcp_core.path` next to the `.gup` (UTF-8 with or without BOM, or UTF-16LE with BOM; surrounding quotes ignored).
+3. The first non-blank line of `mcp_core.path` next to the `.gup`.
 4. `<folder of the .gup>\core\mcp_core.dll`.
 
-The shell copies the DLL, and its `.pdb` when present, to `%TEMP%\3dsmax-mcp\core\mcp_core-<pid>-<tick>.dll` and maps the copy, so a build can overwrite the original while Max runs; copies no process maps any more are swept on later loads. Before binding a core it compares the core API version, host API version, Max SDK version, MSVC version and iterator debug level with its own. If loading fails at startup, `ping`, `health`, `max_dialogs` and `native:core` still answer, status reports `last_error`, every other request fails with "the native core is not loaded", and a later reload can still load a core.
-
-### Control protocol
-
-Pipe request type `native:core`, whose `command` is a JSON object; an empty command means status. Python sends it on the control channel (`MaxClient.core_control`, tool `reload_native_core`), never over TCP, and retries a reload's `CORE_BUSY` up to three attempts only when `wait_ms` is at most 20000; a longer wait gets a single attempt.
-
-| Request or error | Behavior |
-|------------------|----------|
-| `{"action": "status"}` | Changes nothing. Returns `layout` (`static`/`hot`), `loaded`, `build`, `bridge_version`, `core_api_version`, `host_api_version`, `source`, `loaded_from`, `loaded_at_ms`, `reloads`, `in_flight`, `last_error`. |
-| `{"action": "reload", "wait_ms": 5000, "path": "..."}` | Loads and checks the new core while the old one serves, closes the gate (other core calls get `CORE_BUSY`) and waits up to `wait_ms` for calls in flight; then, on Max's main thread, shuts the old core down, initializes and binds the new one, and frees the old copy. Returns the status plus `reloaded`, `previous_build` and `drain_ms`. `path` is optional; `wait_ms` is 0-600000 (default 5000). |
-| `BAD_PARAM` | Malformed command. |
-| `CORE_STATIC` | Static layout; nothing to reload. |
-| `CORE_BUSY` (retryable) | Calls did not drain in time, the main thread did not run the swap, the old core declined to shut down while a `watch_scene` callback ran, or another reload was in progress. The old core keeps serving; `details.wait_ms` is the wait used. |
-| `CORE_LOAD_FAILED` | Missing file, failed copy or `LoadLibrary`, no `mcp_core_api` export, incomplete table, or a new core that would not initialize. The old core keeps serving unless the message says no core is loaded. |
-| `CORE_VERSION_MISMATCH` | The new core's stamps differ from the shell's; the message lists each pair. Nothing changes. |
-
-Every error reports `details.in_flight`. A reload stops `watch_scene` (its notifications and overlay are unregistered and its events dropped), keeps `scene_delta` positions while the scene journal runs, and makes the core re-read `safe_mode` from `mcp_config.ini`. Changes to shell sources or to `core_api.h`/`host_api.h` still need a rebuilt shell and a Max restart.
-
-### Release rule
-
-Ship the static layout only. `MCP_HOT_CORE` defaults to `OFF`; with it `ON` CMake defines no install rule, and `build.bat` stages only `mcp_bridge.gup` from `native\build-<ver>`, so a hot shell would ship without its core. Keep the release trees static and do hot work in `native\build-hot-<ver>`.
-
+It maps a copy of the DLL, so a build can overwrite the original while Max runs. `reload_native_core` reports the layout and the loaded build and swaps in a rebuilt core; its manual lists the errors. Changes to shell sources or to the two boundary headers still need a rebuilt shell and a Max restart.
 ## Tripback and debugging
 
 Tool responses default to `{ok, result}` or `{ok, error}`. Set `MCP_TRIPBACK_MODE=full` for timing and extended metadata.
@@ -373,12 +315,7 @@ Inside Max:
 - `invoke_tool` for single-tool probes
 - `get_bridge_status` when connections fail (not as a session preamble)
 
-Regenerate smoke catalog:
-
-```powershell
-python scripts/codegen/gen_tool_smoke.py
-python scripts/live/run_live_tool_smoke.py --tier read
-```
+Regenerate the smoke catalog with `python scripts/codegen/gen_tool_smoke.py`.
 
 ## Project layout
 
@@ -398,7 +335,5 @@ python scripts/live/run_live_tool_smoke.py --tier read
 | `native/bin/` | Where `native\build.bat` stages the bridges and `_mx` it builds; not tracked |
 | `skills/3dsmax-mcp-dev/` | Agent skill source |
 | `install.py`, `uninstall.py` | Source installer and uninstaller |
-| `scripts/dev/` | `mcpcall.py` runs one tool from current source in a fresh process; `hot_core.py` builds the hot-reloadable core |
-| `scripts/codegen/` | Generators for the native tool registry, smoke cases and sdk reference; `vendor_qt.py` |
-| `scripts/release/` | `build_skill.py` (skill archive and install), `stage_bundle.py` |
-| `scripts/live/` | Checks that run against a live 3ds Max |
+| `scripts/codegen/` | Generators the native build runs: the native tool registry and the smoke cases |
+| `scripts/release/` | `build_skill.py` (skill archive and install) and `vendor_inmax.py` (the per-Python packages for in-Max scripts) |

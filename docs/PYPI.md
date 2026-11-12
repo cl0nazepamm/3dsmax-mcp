@@ -9,11 +9,13 @@ list takes about 2k tokens of context. The `full`, `core` and `progressive` prof
 tools to the client directly instead.
 
 - **Native bridge** — a C++ plugin for 3ds Max 2023–2027, no MAXScript polling
+- **Scripts inside 3ds Max** — a script runs in Max's own Python with `sdk`, the scene object model bound from the SDK, and everything it changes is one undo step
+- **One lighting and render command** — `render_setup` works the same on Octane, FStorm, V-Ray, Corona, Scanline and ART
 - **Agent viewport** — an independent floating view for navigation, visual targeting and captures
 - **Editable modeling** — guarded component edits, named curves, sweeps and lofts with parameters saved in the scene
-- **Introspection** — discover arbitrary Max classes, plugin surfaces, and parameters at runtime
-- **Deep plugin support** — tyFlow, Data Channel, MCG, OSL, Forest Pack, RailClone, Octane
-- **Bundled agent skill** — MAXScript reference shipped for writing your own tools
+- **Introspection** — describe, read and set the parameters of any class or plugin by name
+- **Plugin tools** — tyFlow, Data Channel, MCG, OSL, Forest Pack, RailClone
+- **Bundled agent skill** — rules, workflows and a MAXScript reference for the agent
 
 MIT licensed. Source and full documentation:
 **https://github.com/cl0nazepamm/3dsmax-mcp**
@@ -47,11 +49,13 @@ Manual MCP client setup, tool profiles, safe mode and architecture notes are doc
 也可以选择 `full`、`core` 或 `progressive` 配置，把工具直接公开给客户端。
 
 - **原生桥接**：3ds Max 2023–2027 的 C++ 插件，无需 MAXScript 轮询
+- **脚本在 3ds Max 内运行**：脚本使用 Max 自带的 Python 和绑定自 SDK 的场景对象模型 `sdk`，一次脚本的全部修改是一个撤销步骤
+- **统一的灯光与渲染命令**：`render_setup` 在 Octane、FStorm、V-Ray、Corona、Scanline 和 ART 上用法相同
 - **智能体视口**：独立浮动视口，用于导航、视觉定位和截图
 - **可编辑建模**：带校验的组件编辑、命名曲线、扫描和放样，参数保存在场景中
-- **运行时自省**：可发现任意 Max 类、插件接口与参数
-- **深度插件支持**：tyFlow、Data Channel、MCG、OSL、Forest Pack、RailClone、Octane
-- **内置智能体技能包**：附带 MAXScript 参考文档，方便你编写自己的工具
+- **运行时自省**：按名称查看、读取和设置任意类或插件的参数
+- **插件工具**：tyFlow、Data Channel、MCG、OSL、Forest Pack、RailClone
+- **内置智能体技能包**：为智能体提供规则、工作流程和 MAXScript 参考
 
 MIT 开源协议。源码与完整文档：
 **https://github.com/cl0nazepamm/3dsmax-mcp**
