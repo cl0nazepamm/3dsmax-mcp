@@ -611,7 +611,9 @@ class Compiler:
                                   f"{approx['unit']}, approximately: {approx['basis']}")
                 return units[approx["unit"]], value * approx["factor"]
         offered = set(units) | set(rule.get("approx") or {})
-        if offered & set(PHOTOMETRIC):  # the photometric units convert into each other through the shape
+        # The photometric units convert into each other through the shape, but only into a
+        # photometric unit the renderer itself takes: an approximate one (Octane's lm) is no bridge.
+        if set(units) & set(PHOTOMETRIC):
             offered |= {"lm", "cd"} | (set() if item.kind == "point" else {"nits"})
         asked_units = ", ".join(str(unit) for _, unit in candidates)
         return fail("UNSUPPORTED", f"{self.preset['label']} '{item.kind}' takes intensity in {', '.join(sorted(offered))}, "
@@ -987,11 +989,10 @@ def describe() -> dict[str, Any]:
     ctx = context()
     renderer = ctx.get("renderer")
     preset = preset_of(renderer)
-    served = {(presets.for_renderer(r["class_id"]) or {}).get("id"): r["label"] for r in ctx["renderers"]}
     out: dict[str, Any] = {
         "renderer": ({"name": renderer["name"], "label": renderer["label"], "preset": preset["id"] if preset else None}
                      if renderer else None),
-        "switch_to": {key: label for key, label in served.items() if key},
+        "switch_to": switch_choices(ctx["renderers"]),
         "meters_per_unit": round(ctx["meters_per_unit"], 6),
     }
     if presets.problems():
@@ -1054,15 +1055,48 @@ def describe() -> dict[str, Any]:
 
 # ── Applying ─────────────────────────────────────────────────────
 
+def _preset_id(renderer: dict[str, Any]) -> str | None:
+    return (presets.for_renderer(renderer["class_id"]) or {}).get("id")
+
+
+def _plain(text: str) -> str:
+    return "".join(ch for ch in text.lower() if ch.isalnum())
+
+
+def switch_choices(renderers: list[dict[str, Any]]) -> dict[str, str]:
+    """What render_setup(renderer=...) takes, each with the renderer's label.
+
+    A preset id names its renderer when one installed renderer has that preset. Where
+    several share it (V-Ray and V-Ray GPU), each goes by its own name instead.
+    """
+    sharing: dict[str, int] = {}
+    for renderer in renderers:
+        if _preset_id(renderer):
+            sharing[_preset_id(renderer)] = sharing.get(_preset_id(renderer), 0) + 1
+    return {(_preset_id(r) if sharing[_preset_id(r)] == 1 else r["name"]): r["label"]
+            for r in renderers if _preset_id(r)}
+
+
+def find_renderers(requested: str, renderers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The installed renderers `requested` names: by name or label, else preset id, else the label's start.
+
+    Punctuation and case are ignored. A label carries its version ("V-Ray GPU 7, update 4"),
+    so its start names the renderer too: "V-Ray GPU", "vray gpu".
+    """
+    wanted = _plain(requested)
+    if not wanted:
+        return []
+    return ([r for r in renderers if wanted in (_plain(r["name"]), _plain(r["label"]))]
+            or [r for r in renderers if _preset_id(r) == requested.strip().lower()]
+            or [r for r in renderers if _plain(r["label"]).startswith(wanted)])
+
+
 def switch_renderer(requested: str, ctx: dict[str, Any]) -> dict[str, Any]:
     """Make `requested` (a preset id, or a renderer's name or label) the production renderer."""
-    wanted = requested.strip().lower()
-    by_preset = [r for r in ctx["renderers"] if (presets.for_renderer(r["class_id"]) or {}).get("id") == wanted]
-    by_name = [r for r in ctx["renderers"] if wanted in (r["name"].lower(), r["label"].lower())]
-    found = by_name or by_preset
+    found = find_renderers(requested, ctx["renderers"])
     if len(found) != 1:
-        names = ", ".join(f"{r['name']}" + (f" ({(presets.for_renderer(r['class_id']) or {}).get('id')})"
-                                            if presets.for_renderer(r["class_id"]) else "") for r in ctx["renderers"])
+        names = ", ".join(r["name"] + (f" = {r['label']}" if _plain(r["label"]) != _plain(r["name"]) else "")
+                          + (f" ({_preset_id(r)})" if _preset_id(r) else "") for r in ctx["renderers"])
         fail("NOT_FOUND" if not found else "AMBIGUOUS",
              f"renderer {requested!r} names {len(found)} installed renderers. Installed: {names}.")
     current = ctx.get("renderer")
