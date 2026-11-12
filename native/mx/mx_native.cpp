@@ -181,7 +181,10 @@ json FromPython(nb::handle value) {
 nb::object MakeProperty(nb::handle cls, const char* name, bool settable, const char* doc) {
     static nb::object factory;
     if (!factory.is_valid()) {
+        // Python 3.9 (3ds Max 2023) gives a function whose globals lack __builtins__
+        // almost no builtins when it is called from C++, so property and getattr are named here.
         nb::dict scope;
+        scope["__builtins__"] = nb::module_::import_("builtins");
         nb::exec(
             "def make(get, set, doc):\n"
             "    fget = lambda self: getattr(self, get)()\n"
