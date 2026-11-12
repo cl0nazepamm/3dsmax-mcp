@@ -35,7 +35,8 @@ All notable changes to this project are documented here.
 - With several 3ds Max instances the default is the one the user can see, not the one that registered last, and `list_max_instances` reports each window's title, `minimized` and `foreground`.
 - The server and the Windows setup run Python 3.13.
 - The source is reorganized: one folder per subject under `maxmcp/tools`, shared code in `maxmcp/core`, files that are not Python in `maxmcp/assets`. Code that imports `maxmcp` modules directly needs the new paths; tool names are unchanged.
-- The repository carries no built bridges. A release ships them with their `_mx`; a checkout builds its own with `native\build.bat <year>` before `install.py`.
+- The repository carries no built bridges. A release ships them with their `_mx`; a checkout builds its own with CMake before `install.py`.
+- `install.py` copies the agent skill folder itself; the `.skill` archive and `scripts/release/build_skill.py` are gone. It no longer removes the copies that installs before the ApplicationPlugins bundle left in the 3ds Max folder (`plugins\mcp_bridge.gup`); `uninstall.py` still does.
 - Tools that edit the scene through MAXScript alone (Data Channel stacks, `draw_spline`, `scatter_forest_pack`) run in an undo step. tyFlow graph tools stay outside undo.
 
 ### Fixed

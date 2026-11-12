@@ -259,7 +259,7 @@ set_target_properties(mcp_bridge PROPERTIES
 )
 
 if(MCP_HOT_CORE)
-    # Development layout: no install rule; the shell loads core/mcp_core.dll
+    # Development layout: the shell loads core/mcp_core.dll
     # beside it (or MCP_CORE_DLL, or the path in mcp_core.path).
     message(STATUS "MCP_HOT_CORE: building core/mcp_core.dll and a shell that reloads it (dev only)")
     target_sources(mcp_bridge PRIVATE src/shell/core_loader.cpp)
@@ -288,7 +288,7 @@ endif()
 # headers and import library are used; without it, the one uv manages for that
 # version (`uv python install 3.11`), else one installed for the machine. It is
 # built by default for each 3ds Max whose Python version is recorded here;
-# build.bat ships it beside the bridge (native/bin/mx_<version>/), where
+# A release ships it beside the bridge (native/bin/mx_<version>/), where
 # run_python finds it as `sdk`.
 set(MCP_MX_PYTHON_2023 3.9)
 set(MCP_MX_PYTHON_2024 3.10)
@@ -466,14 +466,4 @@ if(MCP_BUILD_AGENT_VIEWPORT_PROBE)
     target_link_libraries(agent_viewport_probe PRIVATE core.lib maxutil.lib Maxscrpt.lib Geom.lib mesh.lib Paramblk2.lib ViewSystem.lib)
     target_compile_options(agent_viewport_probe PRIVATE /EHa)
     target_sources(agent_viewport_probe PRIVATE src/core/window_capture.cpp)
-endif()
-
-set(MAX_PLUGINS_DIR "C:/Program Files/Autodesk/3ds Max ${MAX_VERSION}/plugins"
-    CACHE PATH "3ds Max plugins directory")
-
-if(NOT MCP_HOT_CORE)
-    install(TARGETS mcp_bridge
-        RUNTIME DESTINATION "${MAX_PLUGINS_DIR}"
-        LIBRARY DESTINATION "${MAX_PLUGINS_DIR}"
-    )
 endif()

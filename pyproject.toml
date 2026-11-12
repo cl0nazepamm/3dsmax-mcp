@@ -60,17 +60,16 @@ artifacts = ["maxmcp/inmax/site/cp*/**"]
 # Ship what the installer needs from outside the package inside it, keeping the SAME
 # relative layout the repo uses. install.py resolves these from
 # `ROOT = Path(__file__).parent`, so it runs unmodified in both modes: ROOT is the repo
-# root from a checkout, and the installed `maxmcp/` directory from a wheel. Same for
-# scripts/release/build_skill.py (ROOT = parents[2]). The bridges and their _mx come from
-# native/bin, where native\build.bat stages them; they are not in the repository, so a
-# release runs `native\build.bat all` first. The config template, bundle manifest and
+# root from a checkout, and the installed `maxmcp/` directory from a wheel. The bridges
+# and their _mx come from
+# native/bin, where a build stages them; they are not in the repository, so a release
+# builds all five first. The config template, bundle manifest and
 # MAXScript listener already live in the package, under maxmcp/assets.
 [tool.hatch.build.targets.wheel.force-include]
 "install.py" = "maxmcp/installer.py"
 "pyproject.toml" = "maxmcp/pyproject.toml"
 "native/bin" = "maxmcp/native/bin"
 "skills/3dsmax-mcp-dev" = "maxmcp/skills/3dsmax-mcp-dev"
-"scripts/release/build_skill.py" = "maxmcp/scripts/release/build_skill.py"
 
 [project.scripts]
 3dsmax-mcp = "maxmcp.server:main"

@@ -26,7 +26,7 @@ Release builds link the whole bridge into that one GUP. Development builds can s
 git clone https://github.com/cl0nazepamm/3dsmax-mcp.git
 cd 3dsmax-mcp
 uv sync
-native\build.bat 2027     # the bridge for your 3ds Max; see "Building the native bridge"
+# build the bridge for your 3ds Max first: see "Building the native bridge"
 uv run python install.py
 ```
 
@@ -48,9 +48,12 @@ uv run python install.py --tool-profile full
 
 After install, restart 3ds Max. The installer:
 
-1. Removes any **legacy** files copied into the Max install directory (`plugins\mcp_bridge.gup`, `scripts\mcp\`, `scripts\startup\mcp_autostart.ms`) from older installs.
-2. Deploys an **ApplicationPlugins bundle** to `%ProgramData%\Autodesk\ApplicationPlugins\3dsmax-mcp\` (native GUPs in `Contents\bin\`, MAXScript in `Contents\scripts\`).
-3. Writes user config under `%LOCALAPPDATA%\3dsmax-mcp\` (an existing `mcp_config.ini` is kept, apart from the selected `[mcp] tool_profile`), builds the agent skill, and registers MCP entries where it can (Claude Desktop, Cursor, Gemini, CLI agents).
+1. Writes user config under `%LOCALAPPDATA%\3dsmax-mcp\` (an existing `mcp_config.ini` is kept, apart from the selected `[mcp] tool_profile`).
+2. Deploys an **ApplicationPlugins bundle** to `%ProgramData%\Autodesk\ApplicationPlugins\3dsmax-mcp\` (native GUPs in `Contents\bin\`, MAXScript in `Contents\scripts\`). 3ds Max must be closed.
+3. Copies the agent skill to `~/.claude/skills` and `~/.agents/skills`.
+4. Registers MCP entries where it can (Claude Desktop, Cursor, Gemini, CLI agents).
+
+A copy of the bridge that a very old install left in the 3ds Max folder (`plugins\mcp_bridge.gup`) loads beside the bundle; `uninstall.py` removes it.
 
 ### Application package layout
 
@@ -260,31 +263,24 @@ The stdio server exits when its client process exits, and always after its stdin
 
 ## Agent skill
 
-The skill holds what the tools' own manuals do not say: rules of conduct, cross-tool workflows and MAXScript pitfalls. The installer builds and deploys it automatically.
-
-Manual rebuild:
-
-```powershell
-python scripts/release/build_skill.py
-python scripts/release/build_skill.py --target global   # user-level .claude/skills and .agents/skills
-```
-
-Its references (MAXScript, tyFlow, RailClone, procedural graphs, curves) live beside it under `skills/3dsmax-mcp-dev/`. MCP resource: `resource://3dsmax-mcp/skill`.
+The skill holds what the tools' own manuals do not say: rules of conduct, cross-tool workflows and MAXScript pitfalls. It is `SKILL.md` and its references (MAXScript, tyFlow, RailClone, procedural graphs, curves), the `.md` files of `skills/3dsmax-mcp-dev/`. `install.py` and the Windows setup copy them to `~/.claude/skills/3dsmax-mcp-dev` and `~/.agents/skills/3dsmax-mcp-dev`; copying the folder by hand does the same. MCP resource: `resource://3dsmax-mcp/skill`.
 
 ## Building the native bridge
 
 Needed to install from a checkout, and after modifying C++ handlers.
 
-Install matching 3ds Max SDKs, Visual Studio 2022 and CMake. Each bridge builds with its `_mx` (`sdk` in scripts) against the Python its 3ds Max embeds, which CMake takes from uv (`uv python install 3.9 3.10 3.11` for 2023 to 2026). Builds land in `native/bin/` (not tracked) and are staged into `bundle/Contents/bin/`. Run `uv run python install.py` to deploy the application package to `%ProgramData%\Autodesk\ApplicationPlugins\3dsmax-mcp\`.
+Install matching 3ds Max SDKs, Visual Studio 2022 and CMake. Each bridge builds with its `_mx` (`sdk` in scripts) against the Python its 3ds Max embeds, which CMake takes from uv (`uv python install 3.9 3.10 3.11` for 2023 to 2026). Build one bridge per 3ds Max, here 2027, then stage it where `install.py` looks for it:
 
 ```powershell
-cd native
-.\build.bat all
-.\build.bat 2025          # single version
-.\build.bat all deploy    # build, then print the install.py deploy step
+cmake -S native -B native/build-2027 -G "Visual Studio 17 2022" -A x64 -DMAX_VERSION=2027
+cmake --build native/build-2027 --config Release
+
+New-Item -ItemType Directory -Force native\bin\mx_2027 | Out-Null
+Copy-Item native\build-2027\Release\mcp_bridge.gup native\bin\mcp_bridge_2027.gup
+Copy-Item native\build-2027\Release\python\_mx.*.pyd native\bin\mx_2027\
 ```
 
-Windows batch note: quote CMake `-D` paths when the repo or SDK path contains spaces.
+CMake looks for the SDK in `C:\Program Files\Autodesk\3ds Max <year> SDK\maxsdk`; pass `-DMAXSDK_PATH=...` (quoted, when the path has spaces) for another location. `native/bin/` is not tracked. Then run `uv run python install.py` to deploy the application package to `%ProgramData%\Autodesk\ApplicationPlugins\3dsmax-mcp\`.
 
 ## Hot-reloadable native core (development)
 
@@ -332,8 +328,8 @@ Regenerate the smoke catalog with `python scripts/codegen/gen_tool_smoke.py`.
 | `native/src/core/` | Command dispatch and the SDK handlers (`handlers/`); the part a hot reload swaps |
 | `native/src/shared/` | Stateless code both sides link |
 | `native/mx/` | `_mx`, the SDK-bound Python module scripts get as `sdk` |
-| `native/bin/` | Where `native\build.bat` stages the bridges and `_mx` it builds; not tracked |
+| `native/bin/` | Where the built bridges and their `_mx` are staged for `install.py` and the wheel; not tracked |
 | `skills/3dsmax-mcp-dev/` | Agent skill source |
 | `install.py`, `uninstall.py` | Source installer and uninstaller |
 | `scripts/codegen/` | Generators the native build runs: the native tool registry and the smoke cases |
-| `scripts/release/` | `build_skill.py` (skill archive and install) and `vendor_inmax.py` (the per-Python packages for in-Max scripts) |
+| `scripts/release/` | `vendor_inmax.py`, which fetches the per-Python packages for in-Max scripts |

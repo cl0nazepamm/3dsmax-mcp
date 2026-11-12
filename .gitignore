@@ -14,7 +14,6 @@ build/
 AGENTS.md
 TODO.md
 PROJECT_OVERVIEW.md
-*.skill
 nul
 cache/
 local/
@@ -30,9 +29,9 @@ smoke_err.txt
 /docs/AGENT-VIEWPORT.md
 /docs/MODELING-DEVELOPMENT.md
 
-# Developer scripts are local. Four stay tracked because tracked code runs them: the
-# native build (native/CMakeLists.txt) runs the two generators, install.py and the
-# wheel need build_skill.py, and install.py runs vendor_inmax.py.
+# Developer scripts are local. Three stay tracked because tracked code runs them: the
+# native build (native/CMakeLists.txt) runs the two generators, and install.py runs
+# vendor_inmax.py.
 /scripts/*
 !/scripts/codegen/
 /scripts/codegen/*
@@ -40,27 +39,24 @@ smoke_err.txt
 !/scripts/codegen/gen_tool_smoke.py
 !/scripts/release/
 /scripts/release/*
-!/scripts/release/build_skill.py
 !/scripts/release/vendor_inmax.py
 
 # The tool layer's packages for the Python of each 3ds Max before 2027, installed by
 # scripts/release/vendor_inmax.py from the tracked cp*.txt lists beside them.
 /maxmcp/inmax/site/*/
 
-# Native C++ build output. native/bin (the bridges and _mx that native\build.bat stages)
-# is ignored by the .gitignore inside it, which keeps the folder in a checkout for the
+# Native C++ build output. native/bin (where the built bridges and _mx are staged) is
+# ignored by the .gitignore inside it, which keeps the folder in a checkout for the
 # wheel's force-include.
 native/build/
 native/build-*/
 native/build2027/
 native/generated/
 
-# The staged ApplicationPlugins bundle (build.bat / stage_bundle.py). Its manifest
+# The staged ApplicationPlugins bundle. Its manifest
 # template and MAXScript listener are in maxmcp/assets.
 /bundle/
 
-# Dev convenience scripts are personal — install.py is the user-facing installer,
-# build.bat/clean.bat stay for devs who want a bare build. Everything else is local.
-dev.bat
-native/dev.bat
-native/deploy.bat
+# Batch files are personal build and deploy shortcuts. install.py is the user-facing
+# installer, and docs/ADVANCED.md gives the CMake commands for a build.
+*.bat
