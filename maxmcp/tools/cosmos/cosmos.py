@@ -1,4 +1,7 @@
 """Search, download and import Chaos Cosmos assets through the installed service."""
+
+from __future__ import annotations
+
 from typing import Literal
 
 from ...server import client, mcp

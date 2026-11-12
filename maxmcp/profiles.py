@@ -3,7 +3,7 @@
 Every tool is in the ToolRegistry whatever the profile, so a run_python script reaches all
 of them as mx.tools.<name>(**arguments). The profile only decides what a client lists:
 
-    script       run_python and the instance routing tools (the default)
+    code         run_python and the instance routing tools (the default)
     full         every tool
     core         every tool outside the specialty groups
     progressive  the routing tools, DIRECT_TOOLS, and find_tools, list_toolsets,
@@ -211,7 +211,7 @@ class ToolProfile:
     @property
     def scripted(self) -> bool:
         """Whether run_python is the only operational tool a client lists."""
-        return self.name == "script"
+        return self.name == "code"
 
     @property
     def _compact(self) -> bool:
@@ -251,7 +251,7 @@ class ToolProfile:
 
         `tool` is the FastMCP tool and `fn` the function it was made from. A tool listed
         as a signature advertises `{"type": "object"}`; its arguments are still validated
-        against the Python signature, strictly. The script profile lists five tools and
+        against the Python signature, strictly. The code profile lists five tools and
         leaves them as they are.
         """
         if self.scripted:

@@ -3,6 +3,9 @@
 The meanings live in the renderer presets (maxmcp/assets/renderers), each with the
 evidence it came from; this module only attaches them to an inspected schema.
 """
+
+from __future__ import annotations
+
 from ..rendering import _presets as presets
 
 

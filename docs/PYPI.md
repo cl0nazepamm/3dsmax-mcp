@@ -26,7 +26,7 @@ pip install 3dsmax-mcp
 ```
 
 `3dsmax-mcp-install` deploys the native bridge plugin into Autodesk's `ApplicationPlugins`
-directory, asks which MCP tool profile to expose (`script` is the default), writes user config,
+directory, asks which MCP tool profile to expose (`code` is the default), writes user config,
 and registers the server with the AI clients it can find. `3dsmax-mcp-install --tool-profile full`
 chooses one without the prompt. **Restart 3ds Max afterwards** so the plugin loads.
 
@@ -65,7 +65,7 @@ pip install 3dsmax-mcp -i https://pypi.tuna.tsinghua.edu.cn/simple
 3dsmax-mcp-install
 ```
 
-`3dsmax-mcp-install` 会让你选择 MCP 工具配置（默认 `script`），把原生桥接插件部署到 Autodesk 的
+`3dsmax-mcp-install` 会让你选择 MCP 工具配置（默认 `code`），把原生桥接插件部署到 Autodesk 的
 `ApplicationPlugins` 目录、写入用户配置，并尽可能自动注册到已安装的 AI 客户端。也可以用
 `3dsmax-mcp-install --tool-profile full` 直接指定。**装完请重启 3ds Max**，插件才会加载。
 

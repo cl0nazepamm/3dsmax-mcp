@@ -285,9 +285,15 @@ endif()
 # The agent-facing Python API, bound from the SDK with nanobind (vendored in
 # third_party/nanobind). It loads into 3ds Max's embedded Python, so it is built
 # against that Python's minor version. Python_ROOT_DIR picks the CPython whose
-# headers and import library are used. It is built by default for each 3ds Max
-# whose Python version is recorded here; build.bat ships it beside the bridge
-# (native/bin/mx_<version>/), where run_python finds it as `sdk`.
+# headers and import library are used; without it, the one uv manages for that
+# version (`uv python install 3.11`), else one installed for the machine. It is
+# built by default for each 3ds Max whose Python version is recorded here;
+# build.bat ships it beside the bridge (native/bin/mx_<version>/), where
+# run_python finds it as `sdk`.
+set(MCP_MX_PYTHON_2023 3.9)
+set(MCP_MX_PYTHON_2024 3.10)
+set(MCP_MX_PYTHON_2025 3.11)
+set(MCP_MX_PYTHON_2026 3.11)
 set(MCP_MX_PYTHON_2027 3.13)
 set(MCP_MX_PYTHON_VERSION "${MCP_MX_PYTHON_${MAX_VERSION}}")
 if(MCP_MX_PYTHON_VERSION)
@@ -301,8 +307,35 @@ if(MCP_MX_PYTHON)
     if(NOT MCP_MX_PYTHON_VERSION)
         message(FATAL_ERROR "_mx: no Python version recorded for 3ds Max ${MAX_VERSION}")
     endif()
-    find_package(Python ${MCP_MX_PYTHON_VERSION} EXACT REQUIRED COMPONENTS Interpreter Development.Module)
-    find_package(nanobind CONFIG REQUIRED PATHS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanobind/cmake" NO_DEFAULT_PATH)
+    # CMake finds a Python installed for the machine; the ones uv manages are not
+    # registered where it looks, so uv is asked for this 3ds Max's version first.
+    if(NOT Python_ROOT_DIR AND NOT DEFINED ENV{Python_ROOT_DIR})
+        find_program(MCP_UV_EXECUTABLE uv)
+        if(MCP_UV_EXECUTABLE)
+            execute_process(
+                COMMAND "${MCP_UV_EXECUTABLE}" python find --no-project --managed-python ${MCP_MX_PYTHON_VERSION}
+                OUTPUT_VARIABLE MCP_MX_UV_PYTHON OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET RESULT_VARIABLE MCP_MX_UV_RESULT)
+            if(MCP_MX_UV_RESULT EQUAL 0 AND EXISTS "${MCP_MX_UV_PYTHON}")
+                file(TO_CMAKE_PATH "${MCP_MX_UV_PYTHON}" MCP_MX_UV_PYTHON)
+                get_filename_component(Python_ROOT_DIR "${MCP_MX_UV_PYTHON}" DIRECTORY)
+                message(STATUS "_mx: Python ${MCP_MX_PYTHON_VERSION} from uv: ${Python_ROOT_DIR}")
+            endif()
+        endif()
+    endif()
+    find_package(Python ${MCP_MX_PYTHON_VERSION} EXACT COMPONENTS Interpreter Development.Module)
+    if(NOT Python_FOUND)
+        message(FATAL_ERROR
+            "_mx for 3ds Max ${MAX_VERSION} builds against Python ${MCP_MX_PYTHON_VERSION} (headers and import "
+            "library). Run `uv python install ${MCP_MX_PYTHON_VERSION}`, or pass -DPython_ROOT_DIR=<that Python's folder>.")
+    endif()
+    # nanobind 3 needs Python 3.10. 3ds Max 2023 embeds 3.9, which nanobind 2 is the last to support.
+    if(Python_VERSION VERSION_LESS 3.10)
+        set(MCP_NANOBIND_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanobind2")
+    else()
+        set(MCP_NANOBIND_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanobind")
+    endif()
+    find_package(nanobind CONFIG REQUIRED PATHS "${MCP_NANOBIND_DIR}/cmake" NO_DEFAULT_PATH)
 
     nanobind_add_module(_mx NB_STATIC NB_DOMAIN mcp_mx
         # core: shared rules, values, MAXScript and the bridge's handlers

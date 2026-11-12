@@ -6,6 +6,8 @@ unifying split material assignments (e.g. after partial glTF conversion or a
 Revit import) or swapping materials across many objects at once.
 """
 
+from __future__ import annotations
+
 import json as _json
 from ...server import mcp, client
 from ...core.coerce import DictList

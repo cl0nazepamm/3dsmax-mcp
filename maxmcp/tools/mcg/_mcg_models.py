@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, TypeAlias
+from typing import Annotated, Any, Literal, Union
 
 from pydantic import (
     BaseModel,
@@ -13,6 +13,7 @@ from pydantic import (
     StrictInt,
     StrictStr,
 )
+from typing_extensions import TypeAlias  # in typing from Python 3.10; 3ds Max 2023 runs 3.9
 
 
 NodeId: TypeAlias = Annotated[StrictInt, Field(ge=0)]
@@ -20,7 +21,7 @@ SourcePort: TypeAlias = Annotated[StrictInt, Field(ge=0, le=1)]
 DestinationPort: TypeAlias = Annotated[StrictInt, Field(ge=0)]
 VectorValue: TypeAlias = Annotated[list[FiniteFloat], Field(min_length=2, max_length=4)]
 Dimensions3: TypeAlias = Annotated[list[FiniteFloat], Field(min_length=3, max_length=3)]
-ParameterValue: TypeAlias = StrictBool | StrictInt | FiniteFloat | StrictStr | VectorValue
+ParameterValue: TypeAlias = Union[StrictBool, StrictInt, FiniteFloat, StrictStr, VectorValue]
 
 
 class _StrictModel(BaseModel):
@@ -83,13 +84,7 @@ class MCGSetMeta(_StrictModel):
 
 
 MCGPatchOperation: TypeAlias = Annotated[
-    MCGAddNode
-    | MCGRemoveNode
-    | MCGSetNode
-    | MCGReplaceOperator
-    | MCGConnect
-    | MCGDisconnect
-    | MCGSetMeta,
+    Union[MCGAddNode, MCGRemoveNode, MCGSetNode, MCGReplaceOperator, MCGConnect, MCGDisconnect, MCGSetMeta],
     Field(discriminator="op"),
 ]
 

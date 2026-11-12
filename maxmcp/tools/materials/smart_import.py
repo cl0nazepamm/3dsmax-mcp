@@ -14,6 +14,8 @@ Imported assets are placed on a flat XY grid spaced by `grid_spacing` units.
 Dedup: if any scene object's name starts with the mesh stem, the file is skipped.
 """
 
+from __future__ import annotations
+
 import math
 import re
 from pathlib import Path

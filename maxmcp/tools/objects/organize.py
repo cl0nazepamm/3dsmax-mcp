@@ -1,5 +1,7 @@
 """Scene organization tools — layers, groups, named selection sets."""
 
+from __future__ import annotations
+
 import json
 
 from ...server import mcp, client

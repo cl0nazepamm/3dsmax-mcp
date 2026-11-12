@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 # The first of each is the default.
-TOOL_PROFILES = ("script", "full", "progressive", "core")
+TOOL_PROFILES = ("code", "full", "progressive", "core")
 TOOL_DOCS = ("hybrid", "signature", "complete")
 
 

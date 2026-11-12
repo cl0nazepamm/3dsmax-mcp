@@ -179,14 +179,35 @@ def run_script(code: str, timeout_s: float = 300, label: str = UNDO_LABEL) -> di
     return reply
 
 
-def launch(code: str, timeout_s: float, server_python: tuple[int, int]) -> None:
+def _missing_packages(site: str) -> str:
+    """Why the tool layer cannot load on this 3ds Max's Python, or "" when it can.
+
+    `site` is where the launcher put the packages for this Python: the server's own
+    when Max runs the server's Python, else maxmcp/inmax/site/cp<version>.
+    """
+    version = f"{sys.version_info[0]}.{sys.version_info[1]}"
+    try:
+        import pydantic
+
+        if sys.version_info < (3, 10):
+            import eval_type_backport  # noqa: F401 - pydantic reads `X | None` annotations with it
+    except ImportError as exc:
+        return (f"3ds Max runs Python {version}, and the packages the tool layer needs on it did not load "
+                f"from {site} ({exc}). Reinstall 3dsmax-mcp; from a source checkout run "
+                "`uv run python scripts/release/vendor_inmax.py`")
+    if not pydantic.VERSION.startswith("2."):
+        return (f"this 3ds Max's own Python has pydantic {pydantic.VERSION} installed, ahead of the pydantic 2 "
+                "the tool layer needs")
+    return ""
+
+
+def launch(code: str, timeout_s: float, site: str = "") -> None:
     """Entry point for run_python's MAXScript launcher; the reply goes to MCP_RunPython_Result."""
     import pymxs
 
-    if tuple(sys.version_info[:2]) != tuple(server_python):
-        reply: dict[str, Any] = {"unavailable": (
-            f"3ds Max runs Python {sys.version_info[0]}.{sys.version_info[1]} and the MCP server "
-            f"{server_python[0]}.{server_python[1]}, so the tool layer cannot load inside Max")}
+    missing = _missing_packages(site)
+    if missing:
+        reply: dict[str, Any] = {"unavailable": missing}
     elif not binding.available():
         reply = {"unavailable": "this 3ds Max's MCP bridge has no in-process entry point; update the plugin"}
     else:

@@ -1,5 +1,7 @@
 """External .max file access tools — inspect, merge, and batch scan."""
 
+from __future__ import annotations
+
 import json
 import fnmatch
 import os

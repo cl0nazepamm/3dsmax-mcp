@@ -5,6 +5,8 @@ itself, and FStormMix supplies the AO multiply. Unsupported inputs are reported
 instead of wired into unrelated slots.
 """
 
+from __future__ import annotations
+
 from ...core.maxscript import safe_string
 from ._material_detection import _COLOR_CHANNELS
 

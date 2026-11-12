@@ -215,8 +215,28 @@ static nb::dict SceneInfo() {
 struct FileStamp {
     ULONGLONG written = 0;
     ULONGLONG size = 0;
-    bool operator==(const FileStamp&) const = default;
+    bool operator==(const FileStamp& other) const { return written == other.written && size == other.size; }
+    bool operator!=(const FileStamp& other) const { return !(*this == other); }
 };
+
+// C++17 forms of starts_with, ends_with, std::erase and std::erase_if: the SDKs before 2027 build as C++17.
+template <typename S>
+static bool StartsWith(const S& text, const S& prefix) {
+    return text.size() >= prefix.size() && text.compare(0, prefix.size(), prefix) == 0;
+}
+
+template <typename S>
+static bool EndsWith(const S& text, const S& suffix) {
+    return text.size() >= suffix.size() && text.compare(text.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+template <typename C, typename P>
+static size_t EraseIf(C& items, P&& predicate) {
+    const auto kept = std::remove_if(items.begin(), items.end(), std::forward<P>(predicate));
+    const size_t erased = size_t(std::distance(kept, items.end()));
+    items.erase(kept, items.end());
+    return erased;
+}
 
 static std::optional<FileStamp> Stamp(const std::wstring& file) {
     WIN32_FILE_ATTRIBUTE_DATA data;
@@ -247,13 +267,19 @@ struct HoldFetchWatch {
     bool openFailed = false;
 
     HoldFetchWatch() {
-        for (NotifyCode code : kCodes) RegisterNotification(&Record, this, code);
+        for (Code code : kCodes) RegisterNotification(&Record, this, code);
     }
     ~HoldFetchWatch() { UnRegisterNotification(&Record, this); }
     HoldFetchWatch(const HoldFetchWatch&) = delete;
     HoldFetchWatch& operator=(const HoldFetchWatch&) = delete;
 
-    static constexpr NotifyCode kCodes[] = {NOTIFY_FILE_PRE_SAVE_PROCESS, NOTIFY_FILE_POST_SAVE_PROCESS,
+    // NotifyCode and GetNotifyParam came with the 2025 SDK; before it the codes are ints.
+#if MAX_SDK_VERSION >= 2025
+    using Code = NotifyCode;
+#else
+    using Code = int;
+#endif
+    static constexpr Code kCodes[] = {NOTIFY_FILE_PRE_SAVE_PROCESS, NOTIFY_FILE_POST_SAVE_PROCESS,
                                             NOTIFY_FILE_POST_OPEN_PROCESS, NOTIFY_FILE_OPEN_FAILED};
 
     static void Record(void* self, NotifyInfo* info) {
@@ -263,8 +289,13 @@ struct HoldFetchWatch {
             watch->openFailed = true;
             return;
         }
+#if MAX_SDK_VERSION >= 2025
         const NotifyFileProcessParam* process = GetNotifyParam<NOTIFY_FILE_PRE_SAVE_PROCESS,
             NOTIFY_FILE_POST_SAVE_PROCESS, NOTIFY_FILE_POST_OPEN_PROCESS>(info);
+#else
+        // The three process codes left here all carry a NotifyFileProcessParam.
+        const auto* process = static_cast<const NotifyFileProcessParam*>(info->callParam);
+#endif
         if (!process || process->iType != FILE_PROCESS_HOLD_FETCH || !process->fname) return;
         watch->file = process->fname;
         if (info->intcode == NOTIFY_FILE_PRE_SAVE_PROCESS) watch->before = Stamp(watch->file);
@@ -441,7 +472,8 @@ static FileInfoResult FileInfoOf(const std::variant<fs::path, std::vector<fs::pa
 static void RequireNamePattern(const std::string& pattern) {
     const std::string p = Lower(pattern);
     const bool fileLike = p.find('/') != std::string::npos || p.find('\\') != std::string::npos ||
-                          p.ends_with(".max") || p.ends_with(".3ds") || p.ends_with(".fbx") || p.ends_with(".obj");
+                          EndsWith<std::string>(p, ".max") || EndsWith<std::string>(p, ".3ds") ||
+                          EndsWith<std::string>(p, ".fbx") || EndsWith<std::string>(p, ".obj");
     if (fileLike)
         throw BadParam("pattern matches object names inside the files, not file names: pass '*' for every object, "
                        "or a name pattern such as 'Chair*'");
@@ -668,7 +700,7 @@ static std::optional<ChannelScore> AliasScore(const std::vector<std::wstring>& t
                             std::make_pair(start, start + count)};
     }
     const std::wstring stem = JoinW(tokens, L"");
-    if (alias.compact.size() >= 4 && stem.ends_with(alias.compact)) return ChannelScore{int(alias.compact.size())};
+    if (alias.compact.size() >= 4 && EndsWith<std::wstring>(stem, alias.compact)) return ChannelScore{int(alias.compact.size())};
     return std::nullopt;
 }
 
@@ -713,7 +745,7 @@ static std::optional<TextureChannel> DetectChannel(const fs::path& texture) {
         keyTokens.assign(tokens.begin(), tokens.begin() + start);
         keyTokens.insert(keyTokens.end(), tokens.begin() + end, tokens.end());
     }
-    std::erase_if(keyTokens, [](const std::wstring& t) {
+    EraseIf(keyTokens, [](const std::wstring& t) {
         return IsAnyOf(t, {L"2k", L"4k", L"8k", L"16k", L"1k", L"512", L"1024", L"2048", L"4096", L"8192", L"png",
                            L"jpg", L"jpeg", L"tif", L"tiff", L"exr", L"tga", L"hdr", L"bmp", L"dds", L"tx", L"map",
                            L"tex", L"texture", L"textures"});
@@ -782,7 +814,7 @@ static std::optional<std::wstring> FolderAssetId(const std::wstring& folderName)
     const auto notSpace = [](wchar_t c) { return !std::iswspace(c); };
     name.erase(name.begin(), std::find_if(name.begin(), name.end(), notSpace));
     name.erase(std::find_if(name.rbegin(), name.rend(), notSpace).base(), name.end());
-    const bool temporary = name.size() > 3 && name.starts_with(L"tmp") &&
+    const bool temporary = name.size() > 3 && StartsWith<std::wstring>(name, L"tmp") &&
         std::all_of(name.begin() + 3, name.end(), [](wchar_t c) { return (c >= L'a' && c <= L'z') || (c >= L'0' && c <= L'9'); });
     if (temporary) return std::nullopt;
     if (name.find(L' ') != std::wstring::npos) {
@@ -838,15 +870,15 @@ static std::wstring MaterialName(const fs::path& mesh) {
 // A texture's material key belongs to a mesh key when one extends the other by "_...".
 static bool StrictMatch(const std::wstring& mesh, const std::wstring& material) {
     if (mesh.empty() || material.empty()) return false;
-    return material == mesh || material.starts_with(mesh + L"_") || mesh.starts_with(material + L"_");
+    return material == mesh || StartsWith(material, mesh + L"_") || StartsWith(mesh, material + L"_");
 }
 
 // Else when one, without underscores and at least 4 long, lies inside the other.
 static bool FuzzyMatch(const std::wstring& mesh, const std::wstring& material) {
     if (StrictMatch(mesh, material)) return false;
     std::wstring shorter = mesh, longer = material;
-    std::erase(shorter, L'_');
-    std::erase(longer, L'_');
+    shorter.erase(std::remove(shorter.begin(), shorter.end(), L'_'), shorter.end());
+    longer.erase(std::remove(longer.begin(), longer.end(), L'_'), longer.end());
     if (longer.size() < shorter.size()) std::swap(shorter, longer);
     return shorter.size() >= 4 && longer.find(shorter) != std::wstring::npos;
 }
@@ -1036,13 +1068,13 @@ static std::vector<fs::path> MeshFiles(const fs::path& root, bool recursive, boo
         throw NotFound("no mesh files in '" + PathText(root) + "' (.max, .fbx, .obj, .3ds, .dae, .dwg, .dxf, .stl, .ply, "
                        ".abc, .usd*, .glb, .gltf, .skp, .ifc, .step, .stp, .iges, .igs)");
     if (lod0) {
-        lodSkipped = std::erase_if(meshes, [](const fs::path& p) { return IsLod0(p.stem().wstring()) == false; });
+        lodSkipped = EraseIf(meshes, [](const fs::path& p) { return IsLod0(p.stem().wstring()) == false; });
         if (meshes.empty())
             throw NotFound("no mesh files left after lod_filter='lod0' (" + std::to_string(lodSkipped) +
                            " LOD1+ files skipped); pass lod_filter='all'");
     }
     const std::vector<std::wstring> includes = Patterns(include), excludes = Patterns(exclude);
-    filteredOut = std::erase_if(meshes, [&](const fs::path& p) {
+    filteredOut = EraseIf(meshes, [&](const fs::path& p) {
         const std::wstring stem = p.stem().wstring();
         return (!includes.empty() && !MatchesAny(stem, includes)) || MatchesAny(stem, excludes);
     });

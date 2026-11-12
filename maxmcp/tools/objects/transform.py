@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json as _json
 from typing import Optional
 from ...server import mcp, client

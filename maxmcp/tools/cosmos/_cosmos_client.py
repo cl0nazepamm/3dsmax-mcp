@@ -1,4 +1,7 @@
 """Cosmos local gRPC-Web transport. Internal schemas verified against API 0.194.0."""
+
+from __future__ import annotations
+
 import base64
 import json
 import os

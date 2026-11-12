@@ -23,6 +23,8 @@ the agent runs in the background; it exits when the signal lands, pinging the
 agent to continue. Nothing the bridge does starts a render.
 """
 
+from __future__ import annotations
+
 import json
 import os
 from pathlib import Path

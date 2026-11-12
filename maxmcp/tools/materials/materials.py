@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json as _json
 import re
 from datetime import datetime

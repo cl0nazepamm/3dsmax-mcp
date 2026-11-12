@@ -125,6 +125,10 @@ def tyflow_event_census(
     )
     """
 
+    # Named outside the f-string: its expressions take no backslash before Python 3.12.
+    group_limit = (
+        'if evNames.count > 16 do throw "groups method supports at most 16 events"' if method_key == "groups" else "")
+
     maxscript = f"""(
 {CORE_HELPERS}
 local flow = {node_by_name(name, missing_ok=True)}
@@ -143,7 +147,7 @@ if flow == undefined then (
     local instrumented = 0
     try (
         if evNames.count == 0 do throw "Flow has no events"
-        {"if evNames.count > 16 do throw \"groups method supports at most 16 events\"" if method_key == "groups" else ""}
+        {group_limit}
         -- tyFlow 2.101 adds operators only to the flow whose editor is open.
         editorWasOpen = mcpTyEditorOpen flow
         for ei = 1 to evNames.count do (

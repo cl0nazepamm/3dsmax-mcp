@@ -1,5 +1,7 @@
 """Material Editor palette laydown tool."""
 
+from __future__ import annotations
+
 from ...server import mcp
 
 

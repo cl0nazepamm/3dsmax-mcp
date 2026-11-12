@@ -1,4 +1,7 @@
 """Atomic assignment of an existing node's material, including older bridges."""
+
+from __future__ import annotations
+
 import base64
 
 from ...core.maxscript import NODE_LOOKUP_FNS

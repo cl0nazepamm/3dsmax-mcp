@@ -12,6 +12,8 @@ Callers wrap pbr_per_group_lines output in try/catch and append their own
 finalize logic (Material Editor slot placement, scene-node assignment, …).
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 
 from ...core.maxscript import safe_string

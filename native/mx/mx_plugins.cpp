@@ -935,7 +935,7 @@ static double UnitScale(const std::string& type) {
 
 static json Scaled(const json& v, double k) {
     if (k == 1.0) return v;
-    if (v.is_number()) return v.get<double>() * k;
+    if ((v.is_number)()) return v.get<double>() * k;
     if ((v.is_array)()) {
         json out = json::array();
         for (const json& x : v) out.push_back(Scaled(x, k));
@@ -1282,7 +1282,7 @@ static nb::dict InspectNode(const Node& n) {
 static std::wstring OslPath(const std::string& shader) {
     std::wstring path = Utf8ToWide(shader);
     if (path.find_first_of(L"\\/") == std::wstring::npos) {
-        std::wstring root = GetCOREInterface()->GetDir(APP_MAX_SYS_ROOT_DIR).data();
+        std::wstring root = MSTR(GetCOREInterface()->GetDir(APP_MAX_SYS_ROOT_DIR)).data();  // a const MCHAR* before the 2025 SDK
         if (!root.empty() && root.back() != L'\\') root += L'\\';
         path = root + L"OSL\\" + path;
         if (path.size() < 4 || _wcsicmp(path.c_str() + path.size() - 4, L".osl") != 0) path += L".osl";

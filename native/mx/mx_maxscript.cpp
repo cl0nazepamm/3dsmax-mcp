@@ -84,6 +84,7 @@ std::string MxsErrorText(const MAXScriptException& e) {
 // MAXScript's own name resolution for a ParamBlock2 parameter, aliases included.
 std::optional<ParamRef> MxsFindParam(Animatable* owner, const std::string& name) {
     RequireMain();
+#if MAX_SDK_VERSION >= 2027
     ScopedMaxScriptEvaluationContext context;
     one_value_local(property);
     vl.property = Name::intern(Utf8ToWide(name).c_str());
@@ -96,6 +97,17 @@ std::optional<ParamRef> MxsFindParam(Animatable* owner, const std::string& name)
             return ParamRef{block, def};
         }
     }
+#else
+    // The SDK exports MAXScript's resolver from 2027 on; before it, the block's alias table.
+    const std::wstring wanted = Utf8ToWide(name);
+    for (int b = 0; b < owner->NumParamBlocks(); ++b) {
+        IParamBlock2* block = owner->GetParamBlock(b);
+        ParamBlockDesc2* desc = block ? block->GetDesc() : nullptr;
+        if (!desc) continue;
+        ParamAlias* alias = block->FindParamAlias(wanted.c_str());
+        if (alias && desc->IDtoIndex(alias->ID) >= 0) return ParamRef{block, &block->GetParamDef(alias->ID)};
+    }
+#endif
     return std::nullopt;
 }
 

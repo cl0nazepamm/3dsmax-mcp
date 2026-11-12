@@ -7,6 +7,8 @@ timers and per-redraw callbacks; this fills that gap. Backed by the native
 bridge (native:main_thread).
 """
 
+from __future__ import annotations
+
 import json
 import time
 from ...core.max_client import MaxBridgeError

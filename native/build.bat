@@ -56,7 +56,9 @@ if not exist "%MAXSDK_PATH%\include\max.h" (
 echo.
 echo === Building 3ds Max %MAX_VERSION% native bridge ===
 echo [1/3] Configuring...
-"%CMAKE_EXE%" -S "%NATIVE_DIR%" -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DMAX_VERSION=%MAX_VERSION% "-DMAXSDK_PATH=%MAXSDK_PATH%"
+:: MCP_MX_PYTHON is passed because a build tree configured before its 3ds Max had a
+:: Python recorded keeps the option cached OFF.
+"%CMAKE_EXE%" -S "%NATIVE_DIR%" -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DMAX_VERSION=%MAX_VERSION% "-DMAXSDK_PATH=%MAXSDK_PATH%" -DMCP_MX_PYTHON=ON
 if errorlevel 1 exit /b 1
 
 echo [2/3] Building Release...

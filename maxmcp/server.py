@@ -24,7 +24,7 @@ from .registry import ToolRegistry
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-# Which tools MCP clients list: MCP_TOOL_PROFILE, else the user's mcp_config.ini, else script.
+# Which tools MCP clients list: MCP_TOOL_PROFILE, else the user's mcp_config.ini, else code.
 profile = ToolProfile.configured()
 mcp = FastMCP("3dsmax-mcp", instructions=profile.instructions())
 client = MaxClient()

@@ -16,12 +16,13 @@ import inspect
 import json
 import re
 import threading
-import types
 from difflib import get_close_matches
 from functools import wraps
 from importlib import import_module
 from pathlib import Path
-from typing import Annotated, Any, Callable, Iterable, Literal, Union, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Callable, Iterable, Literal, get_args, get_origin
+
+from .core.hints import UNION_ORIGINS, type_hints
 
 TOOLS_DIR = Path(__file__).resolve().parent / "tools"
 
@@ -159,7 +160,7 @@ def _takes_text(hint: Any) -> bool:
     origin = get_origin(hint)
     if origin is Annotated:
         return _takes_text(get_args(hint)[0])
-    if origin in (Union, types.UnionType):
+    if origin in UNION_ORIGINS:
         return any(_takes_text(arg) for arg in get_args(hint))
     if origin is Literal:
         return any(isinstance(arg, str) for arg in get_args(hint))
@@ -176,7 +177,7 @@ def _validated(fn: Callable[..., Any]) -> Callable[..., Any]:
 
     checked = validate_call(fn, config={"arbitrary_types_allowed": True})
     try:
-        hints = get_type_hints(fn)
+        hints = type_hints(fn)
     except Exception:  # noqa: BLE001 - an annotation that does not resolve only loses the JSON-text courtesy
         hints = {}
     no_text = frozenset(name for name, hint in hints.items() if name != "return" and not _takes_text(hint))

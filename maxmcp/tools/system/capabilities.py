@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from ...core.native_compat import is_missing_native_route_error
 from ...core.max_client import MaxBridgeError
 

@@ -5,6 +5,8 @@ automatically drive another (e.g., a sphere's radius controls a bend
 modifier's angle). These tools expose wiring as first-class operations.
 """
 
+from __future__ import annotations
+
 from typing import Optional
 import json as _json
 from ...server import mcp, client

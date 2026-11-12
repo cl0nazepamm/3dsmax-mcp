@@ -5,6 +5,8 @@ and render effects (lens effects, blur, etc.) which are global to the scene,
 not per-object.
 """
 
+from __future__ import annotations
+
 import json
 from ...server import mcp, client
 

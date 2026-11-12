@@ -1,5 +1,7 @@
 """Deep SDK learning tools — reference graphs, class relationships, scene patterns, live events."""
 
+from __future__ import annotations
+
 import json
 from ...server import mcp, client
 

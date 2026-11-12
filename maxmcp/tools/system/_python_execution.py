@@ -1,5 +1,7 @@
 """Build the embedded-Python fallback on the existing MAXScript bridge."""
 
+from __future__ import annotations
+
 from ...core.maxscript import safe_string
 
 

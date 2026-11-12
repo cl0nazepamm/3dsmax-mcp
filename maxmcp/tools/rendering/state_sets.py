@@ -5,6 +5,8 @@ Reads camera assignments, frame ranges, and state set data from
 (Autodesk.Max.StateSets.Plugin).
 """
 
+from __future__ import annotations
+
 import json
 from ...server import mcp, client
 

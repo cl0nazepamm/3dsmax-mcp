@@ -55,6 +55,42 @@ def _run_in_server(code: str, timeout_s: float) -> dict[str, Any]:
     return reply
 
 
+def _bootstrap(code: str, timeout_s: float) -> str:
+    """Python source that 3ds Max runs: maxmcp.inmax on its path, then the script.
+
+    Max keeps imported modules for the session, so maxmcp is imported anew when its
+    source changed since the last script (a development checkout, or an upgrade).
+
+    The tool layer's packages (pydantic, Pillow) are compiled per Python. A 3ds Max that
+    runs the server's Python takes the server's; any other takes the copy built for its
+    Python (maxmcp/inmax/site/cp311 and so on), which goes before `root`: installed,
+    `root` is the server's own site-packages.
+    """
+    package = str(ASSETS.parent)
+    root = str(ASSETS.parent.parent)
+    site = sysconfig.get_paths()["purelib"]
+    max_sites = str(ASSETS.parent / "inmax" / "site")
+    return (
+        "import os, sys\n"
+        f"_same = sys.version_info[:2] == {tuple(sys.version_info[:2])!r}\n"
+        f"_site = {site!r} if _same else os.path.join({max_sites!r}, 'cp%d%d' % sys.version_info[:2])\n"
+        f"for _path in (({root!r}, _site) if _same else (_site, {root!r})):\n"
+        "    if _path not in sys.path: sys.path.append(_path)\n"
+        "_stamp = 0\n"
+        f"for _d, _ds, _fs in os.walk({package!r}):\n"
+        # Packaged binaries and the per-Python package copies are not the tool layer's source.
+        "    _ds[:] = [_n for _n in _ds if _n not in ('site', 'native', '__pycache__')]\n"
+        "    for _f in _fs:\n"
+        "        if _f.endswith('.py'): _stamp = max(_stamp, os.path.getmtime(os.path.join(_d, _f)))\n"
+        "if getattr(sys, '_maxmcp_stamp', None) != _stamp:\n"
+        "    for _name in [n for n in sys.modules if n == 'maxmcp' or n.startswith('maxmcp.')]:\n"
+        "        del sys.modules[_name]\n"
+        "    sys._maxmcp_stamp = _stamp\n"
+        "import maxmcp.inmax.runner as _runner\n"
+        f"_runner.launch({code!r}, {float(timeout_s)!r}, _site)\n"
+    )
+
+
 def _launcher(code: str, timeout_s: float) -> str:
     """MAXScript that runs the script through maxmcp.inmax inside Max and returns its JSON reply.
 
@@ -62,27 +98,8 @@ def _launcher(code: str, timeout_s: float) -> str:
     (script_hold), which refuses while another hold is open. So no `undo on`, and no
     python.Execute either, which runs its code inside a hold of its own; builtins.exec
     called through python.import opens none.
-
-    Max keeps imported modules for the session, so maxmcp is imported anew when its
-    source changed since the last script (a development checkout, or an upgrade).
     """
-    package = str(ASSETS.parent)
-    root = str(ASSETS.parent.parent)
-    site = sysconfig.get_paths()["purelib"]
-    source = (
-        "import os, sys\n"
-        f"for _path in ({root!r}, {site!r}):\n"
-        "    if _path not in sys.path: sys.path.append(_path)\n"
-        f"_stamp = max((os.path.getmtime(os.path.join(_d, _f)) for _d, _, _fs in os.walk({package!r}) "
-        "for _f in _fs if _f.endswith('.py')), default=0)\n"
-        "if getattr(sys, '_maxmcp_stamp', None) != _stamp:\n"
-        "    for _name in [n for n in sys.modules if n == 'maxmcp' or n.startswith('maxmcp.')]:\n"
-        "        del sys.modules[_name]\n"
-        "    sys._maxmcp_stamp = _stamp\n"
-        "import maxmcp.inmax.runner as _runner\n"
-        f"_runner.launch({code!r}, {float(timeout_s)!r}, {tuple(sys.version_info[:2])!r})\n"
-    )
-    bootstrap = safe_string(f"exec({ascii(source)}, {{}})")
+    bootstrap = safe_string(f"exec({ascii(_bootstrap(code, timeout_s))}, {{}})")
     return f'''(
     if theHold.Holding() then
         "{{\\"status\\":\\"error\\",\\"code\\":\\"USER_BUSY\\",\\"error\\":\\"3ds Max has an open undo operation; finish it, then run the script again.\\"}}"
@@ -134,7 +151,7 @@ def run_python(code: str, timeout_s: float = 300, where: str = "auto") -> dict:
     (x, y, z).
 
     Where it runs (`ran_in` in the reply): inside 3ds Max when the bridge allows Python
-    (safe_mode off) and Max's Python matches the server's. There `sdk`, `rt` (pymxs.runtime)
+    (safe_mode off). There `sdk`, `rt` (pymxs.runtime)
     and pymxs are in scope too, and everything the script changes (tool calls, sdk and rt
     edits) is ONE undo step, rolled back entirely if the script raises. An undo inside the
     script (mx.tools.undo_last(), sdk.undo()) first commits what it changed so far as its own

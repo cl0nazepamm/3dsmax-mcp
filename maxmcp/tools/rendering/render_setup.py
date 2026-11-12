@@ -1,5 +1,7 @@
 """render_setup: the one command for lights, sun, environment, camera, render settings and renders."""
 
+from __future__ import annotations
+
 from typing import Any
 
 from ...server import mcp

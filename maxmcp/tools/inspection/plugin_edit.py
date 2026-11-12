@@ -1,4 +1,7 @@
 """Guarded typed plugin edits using inspector-issued references."""
+
+from __future__ import annotations
+
 from typing import Any
 from ...server import mcp
 from ._plugin_schema import native

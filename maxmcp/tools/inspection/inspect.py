@@ -5,6 +5,8 @@ showProperties to:stringstream for declared type detection, and
 InstanceMgr for instance awareness.
 """
 
+from __future__ import annotations
+
 import json as _json
 from ...server import mcp, client
 from ...core.maxscript import safe_string, node_by_name

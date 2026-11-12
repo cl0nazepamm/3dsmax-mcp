@@ -1,5 +1,7 @@
 """Texture file detection helpers shared by material tools."""
 
+from __future__ import annotations
+
 import re
 from pathlib import Path
 

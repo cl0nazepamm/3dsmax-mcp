@@ -5,6 +5,8 @@ constraints for target-based behavior, noise for randomness, expressions for
 math-driven motion, and list controllers for layered blending.
 """
 
+from __future__ import annotations
+
 from typing import Optional
 import json as _json
 from ...server import mcp, client

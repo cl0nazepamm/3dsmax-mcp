@@ -63,6 +63,7 @@ V3 operator+(const V3& a, const V3& b) { return {a.x + b.x, a.y + b.y, a.z + b.z
 V3 operator-(const V3& a, const V3& b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
 V3 operator*(const V3& a, double k) { return {a.x * k, a.y * k, a.z * k}; }
 bool operator==(const V3& a, const V3& b) { return a.x == b.x && a.y == b.y && a.z == b.z; }
+bool operator!=(const V3& a, const V3& b) { return !(a == b); }
 double Dot(const V3& a, const V3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 V3 Cross(const V3& a, const V3& b) { return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}; }
 double Len(const V3& a) { return std::sqrt(Dot(a, a)); }

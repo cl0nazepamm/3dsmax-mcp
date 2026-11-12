@@ -100,7 +100,7 @@ def choose_tool_profile(requested: str | None = None) -> str:
         return normalized
 
     print("\nMCP tool profile (tool definitions are sent with every request to the model):")
-    print("  1) Script (default) - one tool: the model writes Python scripts that reach every")
+    print("  1) Code (default) - one tool: the model writes Python scripts that reach every")
     print("     other tool; about 2k tokens")
     print("  2) Full - every tool listed directly; about 28k tokens")
     print("  3) Progressive - common tools listed, the rest found on demand; about 7k tokens")
@@ -109,7 +109,7 @@ def choose_tool_profile(requested: str | None = None) -> str:
         choice = input("  Choice [1]: ").strip()
     except EOFError:
         choice = ""
-    return {"2": "full", "3": "progressive", "4": "core"}.get(choice, "script")
+    return {"2": "full", "3": "progressive", "4": "core"}.get(choice, "code")
 
 
 def set_ini_value(path: Path, section: str, key: str, value: str) -> None:
@@ -366,6 +366,12 @@ def deploy_application_package(allow_hot_shell: bool = False) -> bool:
             print(f"  FAILED: {error}")
             print(f"  {APPLICATION_PACKAGE_DST} was left unchanged.")
             return False
+        if not included:
+            # A checkout carries no bridges; a release (Windows setup, PyPI package) does.
+            print("  FAILED: no bridge is built. Build one with native\\build.bat <year> (needs that")
+            print("  3ds Max SDK), or install a release, which carries the bridges for 2023 to 2027.")
+            print(f"  {APPLICATION_PACKAGE_DST} was left unchanged.")
+            return False
         try:
             if APPLICATION_PACKAGE_DST.exists():
                 shutil.rmtree(APPLICATION_PACKAGE_DST)
@@ -396,6 +402,30 @@ def deploy_application_package(allow_hot_shell: bool = False) -> bool:
     print(f"  OK: {APPLICATION_PACKAGE_DST}")
     remove_retired_chat_macros()
     return True
+
+
+# The Python tag of each 3ds Max that does not embed the server's Python (3.13, as 2027 does).
+MAX_PYTHON_TAGS = {2023: "cp39", 2024: "cp310", 2025: "cp311", 2026: "cp311"}
+
+
+def fetch_max_packages(years: list[int]) -> bool:
+    """The tool layer's packages for the Python of each installed 3ds Max before 2027.
+
+    A wheel carries them all; a checkout fetches the ones it needs here. Without them
+    run_python still works on those releases, in the MCP server instead of inside 3ds Max.
+    """
+    script = ROOT / "scripts" / "release" / "vendor_inmax.py"
+    tags = sorted({MAX_PYTHON_TAGS[year] for year in years if year in MAX_PYTHON_TAGS})
+    if IS_PACKAGED or not tags or not script.is_file():
+        return True
+    print("\n  Packages for scripts that run inside 3ds Max 2023-2026")
+    try:
+        subprocess.run([sys.executable, str(script), "--only", *tags], check=True, cwd=str(ROOT))
+        return True
+    except (subprocess.CalledProcessError, OSError):
+        print("  SKIP: could not fetch them, so on those releases run_python runs in the MCP server")
+        print("        instead of inside 3ds Max. Retry: uv run python scripts/release/vendor_inmax.py")
+        return False
 
 
 def deploy_config(tool_profile: str = TOOL_PROFILES[0]) -> bool:
@@ -736,6 +766,7 @@ def main() -> int:
 
     deploy_config(tool_profile=tool_profile)
     package_ok = deploy_application_package()
+    fetch_max_packages([year for year in map(max_year_for, found) if year])
     build_skills(skip_skill=args.skip_skill)
     register_agents()
 

@@ -26,8 +26,12 @@ Release builds link the whole bridge into that one GUP. Development builds can s
 git clone https://github.com/cl0nazepamm/3dsmax-mcp.git
 cd 3dsmax-mcp
 uv sync
+native\build.bat 2027     # the bridge for your 3ds Max; see "Building the native bridge"
 uv run python install.py
 ```
+
+The repository carries no built bridges: a checkout builds its own, and a release (the Windows
+setup, the PyPI package) carries them for 3ds Max 2023 to 2027.
 
 Skip skill deployment:
 
@@ -35,7 +39,7 @@ Skip skill deployment:
 uv run python install.py --skip-skill
 ```
 
-The installer asks which [tool profile](#tool-profiles) MCP clients get and defaults to `script`.
+The installer asks which [tool profile](#tool-profiles) MCP clients get and defaults to `code`.
 To choose without the prompt:
 
 ```powershell
@@ -113,25 +117,25 @@ To expose tools of your own, write your own MCP server around `maxmcp.mx`, which
 
 ### Tool profiles
 
-The default above is the **script** profile. The profiles of 1.x are still available for clients and models that work better with tools listed directly. A profile decides only what a client lists, and so how much of the context window the server takes before any work starts; `run_python` scripts reach every tool in every profile.
+The default above is the **code** profile. The profiles of 1.x are still available for clients and models that work better with tools listed directly. A profile decides only what a client lists, and so how much of the context window the server takes before any work starts; `run_python` scripts reach every tool in every profile.
 
 | Profile | Advertised surface | Tool definitions per request (Claude tokens) |
 |---------|--------------------|----------------------------------------------|
-| **script** (default) | `run_python` and the 4 instance routing tools | ~2k |
+| **code** (default) | `run_python` and the 4 instance routing tools | ~2k |
 | **progressive** | The routing tools, the 14 most common tools and `run_python` (`DIRECT_TOOLS` in `maxmcp/profiles.py`), and `find_tools`, `list_toolsets`, `describe_toolset`, `call_tool` | ~7k |
 | **core** | Scene, object, modeling, material, controller, viewport, file, plugin, lighting and render setup tools | ~19k |
 | **full** | Every tool: core plus tyFlow, MCG, Forest Pack, RailClone, Data Channel, Pulze, effects, state sets, wire params, render automations, and the development-only native core reload | ~28k |
 
 Figures are approximate, with the default `hybrid` tool docs. Other models' tokenizers count differently.
 
-The installer persists the choice as `[mcp] tool_profile` in `%LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini`. The Windows setup shows the installed profile selected and changes the setting only when another one is picked; it accepts `/TOOLPROFILE=script|full|progressive|core` for unattended installs. `MCP_TOOL_PROFILE` (or `THREEDSMAX_MCP_TOOL_PROFILE`) overrides the setting for one launch:
+The installer persists the choice as `[mcp] tool_profile` in `%LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini`. The Windows setup shows the installed profile selected and changes the setting only when another one is picked; it accepts `/TOOLPROFILE=code|full|progressive|core` for unattended installs. `MCP_TOOL_PROFILE` (or `THREEDSMAX_MCP_TOOL_PROFILE`) overrides the setting for one launch:
 
 ```powershell
 $env:MCP_TOOL_PROFILE = "progressive"
 uv run 3dsmax-mcp
 ```
 
-A server with no installed setting and no override uses **script**, and so does one given a name that is not a profile.
+A server with no installed setting and no override uses **code**, and so does one given a name that is not a profile.
 
 Progressive workflow:
 
@@ -143,7 +147,7 @@ The tools `call_tool` reaches are not registered with the client, so `tools/list
 
 ### Tool docs
 
-In `full`, `core` and `progressive`, `[mcp] tool_docs` in `mcp_config.ini`, or `MCP_TOOL_DOCS` (`THREEDSMAX_MCP_TOOL_DOCS`) for one launch, decides how the advertised tools are documented. `script` advertises five tools and always documents them in full.
+In `full`, `core` and `progressive`, `[mcp] tool_docs` in `mcp_config.ini`, or `MCP_TOOL_DOCS` (`THREEDSMAX_MCP_TOOL_DOCS`) for one launch, decides how the advertised tools are documented. `code` advertises five tools and always documents them in full.
 
 | Mode | Advertised tools | Full profile |
 |------|------------------|--------------|
@@ -166,8 +170,10 @@ In every mode, advertised input schemas omit Pydantic titles and spell optional 
 
 `run_python(code)` runs a script with `mx` (`maxmcp.mx`) pre-imported. The reply's `ran_in` says where it ran:
 
-- **`max`**: inside 3ds Max's own Python, when the bridge allows Python (`safe_mode` off), exports the in-process
-  entry point `mcp_bridge_call`, and Max's Python matches the server's (3ds Max 2027 and the server both run 3.13).
+- **`max`**: inside 3ds Max's own Python, when the bridge allows Python (`safe_mode` off) and exports the in-process
+  entry point `mcp_bridge_call`. 3ds Max 2027 runs the server's Python (3.13) and loads the server's packages; 2023
+  to 2026 run Python 3.9 to 3.11 and load the copy of pydantic and Pillow built for it (`maxmcp/inmax/site`), and
+  each bridge ships the `_mx` built for its 3ds Max and Python (`mx_<year>` beside the plugin).
   `mx` reaches the native handlers in-process instead of over the named pipe, and `sdk`, `rt` (`pymxs.runtime`) and
   `pymxs` are in scope. Everything the script changes (tool calls, `sdk` and `rt` edits) is one undo step, rolled
   back entirely if the script raises. A script never joins an operation the user has open: it is refused with
@@ -289,9 +295,9 @@ Anthropic models sometimes prefer raw MAXScript over dedicated tools; Codex tend
 
 ## Building the native bridge
 
-Only needed when modifying C++ handlers.
+Needed to install from a checkout, and after modifying C++ handlers.
 
-Install matching 3ds Max SDKs. Builds land in `native/bin/` and are staged into `bundle/Contents/bin/`. Run `uv run python install.py` to deploy the application package to `%ProgramData%\Autodesk\ApplicationPlugins\3dsmax-mcp\`.
+Install matching 3ds Max SDKs, Visual Studio 2022 and CMake. Each bridge builds with its `_mx` (`sdk` in scripts) against the Python its 3ds Max embeds, which CMake takes from uv (`uv python install 3.9 3.10 3.11` for 2023 to 2026). Builds land in `native/bin/` (not tracked) and are staged into `bundle/Contents/bin/`. Run `uv run python install.py` to deploy the application package to `%ProgramData%\Autodesk\ApplicationPlugins\3dsmax-mcp\`.
 
 ```powershell
 cd native
@@ -380,7 +386,7 @@ python scripts/live/run_live_tool_smoke.py --tier read
 |------|---------|
 | `maxmcp/server.py` | FastMCP entry; advertises the tools the profile lists, by default `run_python` and the instance routing tools |
 | `maxmcp/registry.py` | Finds a tool by name, checks its arguments, and backs `mx.help` and `mx.find_tools` |
-| `maxmcp/profiles.py`, `maxmcp/user_config.py` | The `script`, `full`, `core` and `progressive` tool profiles and their `tool_docs` modes; the `mcp_config.ini` settings that select them |
+| `maxmcp/profiles.py`, `maxmcp/user_config.py` | The `code`, `full`, `core` and `progressive` tool profiles and their `tool_docs` modes; the `mcp_config.ini` settings that select them |
 | `maxmcp/mx/`, `maxmcp/inmax/` | The script API, and its host inside 3ds Max |
 | `maxmcp/tools/<group>/` | One folder per subject. Modules without a leading underscore declare tools; `_*.py` are their helpers |
 | `maxmcp/core/` | Named-pipe client, response envelopes, MAXScript escaping, hung-Max diagnostics |
@@ -389,7 +395,7 @@ python scripts/live/run_live_tool_smoke.py --tier read
 | `native/src/core/` | Command dispatch and the SDK handlers (`handlers/`); the part a hot reload swaps |
 | `native/src/shared/` | Stateless code both sides link |
 | `native/mx/` | `_mx`, the SDK-bound Python module scripts get as `sdk` |
-| `native/bin/` | Prebuilt bridges for 3ds Max 2023-2027 |
+| `native/bin/` | Where `native\build.bat` stages the bridges and `_mx` it builds; not tracked |
 | `skills/3dsmax-mcp-dev/` | Agent skill source |
 | `install.py`, `uninstall.py` | Source installer and uninstaller |
 | `scripts/dev/` | `mcpcall.py` runs one tool from current source in a fresh process; `hot_core.py` builds the hot-reloadable core |

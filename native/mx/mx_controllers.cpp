@@ -122,7 +122,9 @@ static Class_ID ListClass(SClass_ID super) {
     case CTRL_POSITION_CLASS_ID: return Class_ID(POSLIST_CONTROL_CLASS_ID, 0);
     case CTRL_ROTATION_CLASS_ID: return Class_ID(ROTLIST_CONTROL_CLASS_ID, 0);
     case CTRL_SCALE_CLASS_ID: return Class_ID(SCALELIST_CONTROL_CLASS_ID, 0);
+#ifdef TMLIST_CONTROL_CLASS_ID  // the transform list came with 3ds Max 2024
     case CTRL_MATRIX3_CLASS_ID: return Class_ID(TMLIST_CONTROL_CLASS_ID, 0);
+#endif
     default: return Class_ID(0, 0);
     }
 }
@@ -442,7 +444,7 @@ static Value* ConstantValue(nb::handle v) {
 static void AddBinding(IScriptCtrl* sc, const Binding& b) {
     ScopedMaxScriptEvaluationContext context;
     one_value_local(item);
-    const MSTR name(Utf8ToWide(b.name).c_str());
+    MSTR name(Utf8ToWide(b.name).c_str());  // IScriptCtrl takes MSTR& before the 2025 SDK
     const BOOL ok = Guarded("input '" + b.name + "'", [&] {
         switch (b.kind) {
         case Binding::NodeVar: return sc->AddNode(name, b.node);
@@ -554,7 +556,7 @@ static std::optional<std::string> GetExpression(const ControllerRef& ref) {
 static void SetExpression(const ControllerRef& ref, const std::string& expression) {
     Control* c = ResolveController(ref);
     if (IScriptCtrl* sc = ScriptOf(c)) {
-        const MSTR text(Utf8ToWide(expression).c_str());
+        MSTR text(Utf8ToWide(expression).c_str());
         if (!Guarded("expression", [&] { return sc->SetExpression(text); })) throw BadParam("3ds Max rejected the expression");
         Notify(c);
         return;

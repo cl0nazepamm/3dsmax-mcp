@@ -888,7 +888,7 @@ Values ParamsFromPython(nb::handle value) {
     return out;
 }
 
-bool IsJsonNumber(const json& v) { return v.is_number() && !v.is_boolean(); }
+bool IsJsonNumber(const json& v) { return (v.is_number)() && !v.is_boolean(); }  // is_number is a MAXScript macro
 
 Values ParamsFromJson(const json& value) {
     if (!value.is_object() || value.size() > 64) throw MaxError("Stored loft parameters are invalid");

@@ -1,0 +1,3 @@
+# Built by native\build.bat: the bridges and their _mx. They ship in a release, not in the repository.
+*
+!.gitignore

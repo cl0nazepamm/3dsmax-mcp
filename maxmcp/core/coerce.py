@@ -14,7 +14,7 @@ Usage in tool signatures::
 from __future__ import annotations
 
 import json as _json
-from typing import Annotated, Any
+from typing import Annotated, Any, Union
 
 from pydantic import BeforeValidator
 
@@ -123,7 +123,7 @@ def _coerce_view_list(v: object) -> object:
 
 StrList = Annotated[list[str], BeforeValidator(_coerce_str_list)]
 # View names and [x, y, z] directions, mixed.
-ViewList = Annotated[list[str | list[float]], BeforeValidator(_coerce_view_list)]
+ViewList = Annotated[list[Union[str, list[float]]], BeforeValidator(_coerce_view_list)]
 IntList = Annotated[list[int], BeforeValidator(_coerce_int_list)]
 FloatList = Annotated[list[float], BeforeValidator(_coerce_float_list)]
 DictList = Annotated[list[dict], BeforeValidator(_coerce_dict_list)]
@@ -131,4 +131,4 @@ DictValue = Annotated[dict, BeforeValidator(_coerce_dict_value)]
 # Parameters by name, {name: value} in MAXScript units (degrees, 0-1 colors,
 # choice names). A stringified JSON object is parsed; other text stays the
 # legacy MAXScript-style "key:value" form.
-ParamValues = Annotated[dict[str, Any] | str, BeforeValidator(_coerce_dict_value)]
+ParamValues = Annotated[Union[dict[str, Any], str], BeforeValidator(_coerce_dict_value)]

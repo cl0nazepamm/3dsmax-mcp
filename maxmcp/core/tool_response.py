@@ -12,11 +12,12 @@ from functools import wraps
 from inspect import Parameter, Signature, signature
 from itertools import count
 from pathlib import Path
-from typing import Annotated, Any, Callable, get_type_hints
+from typing import Annotated, Any, Callable, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import undo_scope
+from .hints import type_hints
 from .max_client import expect_pid
 
 from .error_hints import (
@@ -570,7 +571,7 @@ def _add_quiet_override_warning(envelope: dict[str, Any], transport: dict[str, A
 EXPECTED_PID_PARAM = "expected_pid"
 # Every tool carries this parameter, so its description is paid for once per tool in
 # each client request. The routing tools explain the shared Max selection.
-_EXPECTED_PID_TYPE = Annotated[int | None, Field(description="Send nothing unless the call reaches the 3ds Max with this PID.")]
+_EXPECTED_PID_TYPE = Annotated[Optional[int], Field(description="Send nothing unless the call reaches the 3ds Max with this PID.")]
 
 
 def _add_target_warning(envelope: dict[str, Any], transport: dict[str, Any] | None) -> dict[str, Any]:
@@ -649,7 +650,7 @@ def make_structured_tool(
 
     fn_signature: Signature = signature(fn)
     try:
-        resolved_annotations = get_type_hints(fn, include_extras=True)
+        resolved_annotations = type_hints(fn)
     except Exception:
         resolved_annotations = dict(getattr(fn, "__annotations__", {}))
 
