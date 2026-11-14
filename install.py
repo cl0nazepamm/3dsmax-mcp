@@ -99,12 +99,14 @@ def choose_tool_profile(requested: str | None = None) -> str:
             raise ValueError(f"Unsupported tool profile: {requested}")
         return normalized
 
-    print("\nMCP tool profile (tool definitions are sent with every request to the model):")
-    print("  1) Code (default) - one tool: the model writes Python scripts that reach every")
-    print("     other tool; about 2k tokens")
-    print("  2) Full - every tool listed directly; about 28k tokens")
-    print("  3) Progressive - common tools listed, the rest found on demand; about 7k tokens")
-    print("  4) Core - the everyday tools listed directly; about 19k tokens")
+    print("\nMCP tool profile (how the model reaches the 3ds Max tools):")
+    print("  1) Code (default) - the model works in Python inside 3ds Max, through an API built for")
+    print("     agents: the 3ds Max SDK as Python objects, and every tool as a function. One script")
+    print("     does a whole task, checks its own result and is a single undo step")
+    print("  2) Full (deprecated) - every tool listed for the model to call one at a time")
+    print("  3) Progressive (deprecated) - common tools listed, the rest found on demand")
+    print("  4) Core (deprecated) - the everyday tools listed, without the plugin and specialty ones")
+    print("  Listed tools are sent with every request, so a longer list takes room from each one.")
     try:
         choice = input("  Choice [1]: ").strip()
     except EOFError:
@@ -329,8 +331,8 @@ def deploy_config(tool_profile: str = TOOL_PROFILES[0]) -> bool:
         shutil.copy2(CONFIG_SRC, CONFIG_DST)
         print("  mcp_config.ini: installed template")
     else:
-        CONFIG_DST.write_text("[mcp]\nsafe_mode = true\n", "utf-8")
-        print("  mcp_config.ini: created default (safe_mode=true)")
+        CONFIG_DST.write_text("[mcp]\nsafe_mode = false\n", "utf-8")
+        print("  mcp_config.ini: created default (safe_mode=false)")
 
     set_ini_value(CONFIG_DST, "mcp", "tool_profile", tool_profile)
     print(f"  MCP tools:       {tool_profile}")

@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## [2.0] — Unreleased
+## [2.0] — 2026-11-14
 
 2.0 changes how an agent works with 3ds Max: it writes Python scripts against one API instead of picking from a list of 180 tools.
 
@@ -16,7 +16,7 @@ All notable changes to this project are documented here.
 ### Tool profiles
 
 - **`code` is the default profile** ([#38](https://github.com/cl0nazepamm/3dsmax-mcp/issues/38)): the server lists `run_python` and the four tools that choose which 3ds Max it talks to. Their definitions take about 2k Claude tokens of every request, where the tool list of 1.7.8 took about 103k.
-- **`full`, `core` and `progressive` stay as a choice**, through `MCP_TOOL_PROFILE`, `[mcp] tool_profile` in `mcp_config.ini`, `install.py --tool-profile` or the Windows setup's profile page (`/TOOLPROFILE=`). An update keeps the profile that is installed.
+- **`full`, `core` and `progressive` stay as a choice**, through `MCP_TOOL_PROFILE`, `[mcp] tool_profile` in `mcp_config.ini`, `install.py --tool-profile` or the Windows setup's profile page (`/TOOLPROFILE=`). An update keeps the profile that is installed. Both installers mark the three as deprecated.
 - **Listed tools take 63% less context**: full is about 28k tokens, core 19k. The 14 most used tools keep their full description and JSON Schema; every other tool is its first line plus a Python-style signature, and `tool_help(name)` returns the full manual. `[mcp] tool_docs = complete` lists everything in full, `signature` nothing in full.
 - **Progressive** lists the 14 common tools, `run_python` and the discovery tools, about 7k tokens. `find_tools(query)` returns the best matches with their schemas and `call_tool` runs one.
 
@@ -33,6 +33,7 @@ All notable changes to this project are documented here.
 - Tools listed as a signature, and `call_tool`, refuse an argument name the tool does not take instead of dropping it.
 - `transform_object` and `scene_patch` rotate like MAXScript's `rotate node (eulerAngles x y z)`: `rotate=[0, 0, 90]` turns +X to +Y. They turned the other way.
 - With several 3ds Max instances the default is the one the user can see, not the one that registered last, and `list_max_instances` reports each window's title, `minimized` and `foreground`.
+- A fresh install has `safe_mode = false`, so scripts run inside 3ds Max out of the box. An update keeps the installed `mcp_config.ini`: a config from 1.x still says `safe_mode = true`, and scripts stay in the server's sandbox until that line is changed.
 - The server and the Windows setup run Python 3.13.
 - The source is reorganized: one folder per subject under `maxmcp/tools`, shared code in `maxmcp/core`, files that are not Python in `maxmcp/assets`. Code that imports `maxmcp` modules directly needs the new paths; tool names are unchanged.
 - The repository carries no built bridges. A release ships them with their `_mx`; a checkout builds its own with CMake before `install.py`.

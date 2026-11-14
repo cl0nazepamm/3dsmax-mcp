@@ -204,24 +204,28 @@ Example:
 
 ```ini
 [mcp]
-safe_mode = true
+safe_mode = false
+tool_profile = code
 tcp_idle_poll_interval_ms = 1500
 ```
 
 ## Safe mode
 
-When `safe_mode = true` (default), dangerous MAXScript shapes are blocked in `execute_maxscript`, including substring matches for:
+A fresh install has `safe_mode = false`. That is what lets `run_python` scripts run inside 3ds Max, with `sdk`, `rt` and one undo step per script.
 
-- `DOSCommand`, `ShellLaunch`, `deleteFile`, `python.Execute`, `createFile`
+With `safe_mode = true`:
 
-Disable only if you accept the risk:
+- `run_python` scripts run in the MCP server's sandbox instead, each tool call its own undo step, without `sdk` or `rt`.
+- `execute_python` is refused.
+- `execute_maxscript` blocks scripts that contain `DOSCommand`, `HiddenDOSCommand`, `ShellLaunch`, `deleteFile`, `createFile` or `python.Execute`.
+- Script and expression operators of tyFlow, Data Channel and MCG are refused.
 
 ```ini
-[mcp] 
-safe_mode = false
+[mcp]
+safe_mode = true
 ```
 
-Restart 3ds Max after changing config.
+Restart 3ds Max after changing the setting. An update keeps the `mcp_config.ini` that is installed, so a config written by 1.x still says `safe_mode = true` until you change it. With no setting at all (a missing file or line) the bridge treats safe mode as on.
 
 ### Scope — read this
 
