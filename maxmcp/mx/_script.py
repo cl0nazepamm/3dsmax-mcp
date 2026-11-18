@@ -119,7 +119,7 @@ def execute(
         with (transaction or contextlib.nullcontext)(), _Interrupter(threading.get_ident(), run, run.deadline):
             exec(compiled, namespace)
     except BaseException as exc:  # noqa: BLE001 - report every script failure, including the timeout
-        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+        if isinstance(exc, KeyboardInterrupt):
             raise
         frames = [f for f in traceback.extract_tb(exc.__traceback__) if f.filename == "<script>"]
         line = frames[-1].lineno if frames else None
@@ -129,6 +129,13 @@ def execute(
         if isinstance(exc, MaxToolError):
             details.update({"tool": exc.tool, "code": exc.code, "hint": exc.hint})
         text = str(exc) or (f"time limit of {timeout_s:g} s reached" if isinstance(exc, TimeoutError) else "")
+        if isinstance(exc, SystemExit):
+            # sys.exit(), exit(), or quitMax, which pymxs raises as SystemExit. It never leaves
+            # here: whatever runs the script would answer it by ending the process on the spot,
+            # and inside 3ds Max that is exit() with no shutdown.
+            text = text or "0"
+            details["hint"] = ("A script cannot end the process it runs in. After quitMax, 3ds Max "
+                               "closes by itself once the script has returned.")
         message = f"{type(exc).__name__}: {text}" + (f" (script line {line})" if line else "")
         return {"status": "error", "error": message, "details": plain(details)}
     finally:

@@ -58,6 +58,8 @@ All notable changes to this project are documented here.
 - `execute_maxscript` returns Point3, color, array and other values as MAXScript prints them instead of `OK`, and `execute_python` has `rt` in scope.
 - `render_automations(action="status")` reports an unknown job as `NOT_FOUND`.
 - Octane's HDRI environment rendered black.
+- A script that calls `sys.exit()`, `exit()` or `quitMax` gets `SystemExit` back as an error; it ended 3ds Max on the spot, without a shutdown. After `quitMax`, 3ds Max closes by itself once the script has returned.
+- A 3ds Max that ends through `exit()`, from a script or another plug-in, no longer aborts in the bridge's dialog monitor.
 
 ## [1.7.8] — 2026-11-07
 

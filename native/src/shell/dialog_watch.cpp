@@ -78,7 +78,16 @@ std::function<bool()> main_pumping;
 std::mutex monitor_mutex;
 std::condition_variable monitor_wake;
 bool monitor_stop = false;
-std::thread monitor;
+// Stop() joins the monitor. A process that ends without it (exit() called by a script's
+// Python, or by another plug-in) has had the thread ended by Windows before these statics
+// are destroyed, where a joinable std::thread calls std::terminate. Let go of it instead.
+struct MonitorThread {
+    std::thread thread;
+    ~MonitorThread() {
+        if (thread.joinable()) thread.detach();
+    }
+};
+MonitorThread monitor;
 std::atomic<bool> monitor_running{false};
 std::atomic<unsigned> controller_closed{0};
 
@@ -776,7 +785,7 @@ void SetRequestState(const std::string& id, const char* state, DWORD thread) {
 // ── Public API ───────────────────────────────────────────────────
 void Start(QtBackend backend) {
     std::lock_guard<std::mutex> lock(monitor_mutex);
-    if (monitor.joinable()) return;
+    if (monitor.thread.joinable()) return;
     main_thread = GetCurrentThreadId();
     qt = std::move(backend);
     if (!lane_cookie) {
@@ -790,7 +799,7 @@ void Start(QtBackend backend) {
     RegisterClassExW(&wc);  // A repeated registration fails harmlessly.
     lane = CreateWindowExW(0, kLaneClass, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
     monitor_stop = false;
-    monitor = std::thread(Monitor);
+    monitor.thread = std::thread(Monitor);
     monitor_running = true;
 }
 
@@ -805,7 +814,7 @@ void Stop() {
         monitor_stop = true;
     }
     monitor_wake.notify_all();
-    if (monitor.joinable()) monitor.join();
+    if (monitor.thread.joinable()) monitor.thread.join();
     monitor_running = false;
     if (lane) {
         DestroyWindow(lane);

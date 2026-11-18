@@ -401,6 +401,14 @@ if(MCP_BUILD_TRANSACTION_POLICY_TESTS)
     target_include_directories(dialog_sweeper_tests PRIVATE include third_party)
     target_compile_definitions(dialog_sweeper_tests PRIVATE NOMINMAX _UNICODE UNICODE)
     add_test(NAME dialog_sweeper COMMAND dialog_sweeper_tests)
+    # A Max that ends without GUP::Stop (exit() from a script's Python) must not abort in
+    # the monitor's static destructor. The probe is a DLL, as the bridge is in Max.
+    add_library(dialog_exit_probe SHARED tests/dialog_exit_probe.cpp src/shell/dialog_watch.cpp)
+    target_include_directories(dialog_exit_probe PRIVATE include third_party)
+    target_compile_definitions(dialog_exit_probe PRIVATE NOMINMAX _UNICODE UNICODE)
+    add_executable(dialog_exit_tests tests/dialog_exit_tests.cpp)
+    add_dependencies(dialog_exit_tests dialog_exit_probe)
+    add_test(NAME dialog_exit COMMAND dialog_exit_tests)
     # Max's exit: idle pipe clients and queued requests must not hold GUP::Stop.
     add_executable(shutdown_tests tests/shutdown_tests.cpp src/shell/pipe_server.cpp
         src/shell/main_thread_executor.cpp src/shell/dialog_watch.cpp src/shell/bridge_health.cpp)

@@ -213,6 +213,8 @@ def launch(code: str, timeout_s: float, site: str = "") -> None:
     else:
         try:
             reply = run_script(code, timeout_s)
-        except Exception as exc:  # noqa: BLE001 - the launcher must always answer
+        except BaseException as exc:  # noqa: BLE001 - the launcher must always answer
+            # BaseException: past here an exception lands in pymxs, whose error printer ends
+            # 3ds Max with exit() on a SystemExit.
             reply = {"status": "error", "error": f"{type(exc).__name__}: {exc}", "ran_in": "max"}
     pymxs.runtime.MCP_RunPython_Result = json.dumps(reply, ensure_ascii=True, default=repr)
