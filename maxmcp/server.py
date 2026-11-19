@@ -9,11 +9,12 @@ run_python, which runs a script against the mx API, and the four that choose whi
 import logging
 import os
 import sys
-from functools import lru_cache
+from functools import lru_cache, partial, wraps
 from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+import anyio
 from mcp.server.fastmcp import FastMCP
 
 from .core.max_client import MaxClient
@@ -34,6 +35,27 @@ if __name__ == "__main__" and __spec__ is not None:
     sys.modules.setdefault(__spec__.name, sys.modules[__name__])
 
 
+def _in_worker_thread(tool: Callable[..., Any]) -> Callable[..., Any]:
+    """The tool as a coroutine that runs it in a worker thread.
+
+    FastMCP calls a plain function on its event loop, so a call waiting on a blocked 3ds Max
+    stopped the server reading anything else: the client's cancel went unanswered and every
+    later call timed out as if the connection had dropped. Off the loop, a later call gets
+    the bridge's own busy or not-responding reply. A call still runs start to finish on one
+    thread, as its thread-local state (target, transport, script run) requires.
+
+    A cancelled call is abandoned: the SDK has already answered it, and a handler that
+    returns after its cancel makes the SDK answer twice, which ends the server. The thread
+    runs on until Max answers, keeping the pipe, so later calls are told Max is busy.
+    """
+
+    @wraps(tool)
+    async def run(*args: Any, **kwargs: Any) -> Any:
+        return await anyio.to_thread.run_sync(partial(tool, *args, **kwargs), abandon_on_cancel=True)
+
+    return run
+
+
 def _install_tool_decorator() -> None:
     """Make @mcp.tool() add a function to the registry, and list it for MCP clients when the profile does."""
     list_tool = mcp.tool
@@ -52,7 +74,7 @@ def _install_tool_decorator() -> None:
                 # A script's renders and captures come back as images beside its reply.
                 show_images=module == SCRIPT_MODULE,
             )
-            list_tool(name=name, annotations=tool_annotations(tool_name))(wrapped)
+            list_tool(name=name, annotations=tool_annotations(tool_name))(_in_worker_thread(wrapped))
             profile.document(mcp._tool_manager.get_tool(tool_name), fn)
         return fn
 
