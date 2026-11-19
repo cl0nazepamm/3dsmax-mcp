@@ -7,7 +7,10 @@ function call and no window, so setup inspection works headless.
 
 Two rules decide whether a write survives:
 
-* The camera is resolved by node handle (``node.handle``), not by name.
+* The camera is resolved by MAXScript node handle (``node.handle``), not by
+  name. That is not the handle every other tool takes (the animatable handle,
+  ``getHandleByAnim``), so it stays inside this module: setups report their
+  camera as a node reference, and edits take a camera name.
 * An open Scene Manager window owns the data: it keeps its own copy and writes
   it back over the attribute, so an external write made while it is open is
   lost. Writes are refused while the window exists.
@@ -178,7 +181,46 @@ def _notes_text(setup: dict[str, Any]) -> str | None:
     return str(notes) if notes else None
 
 
-def summarize(setup: dict[str, Any], index: int) -> dict[str, Any]:
+def stored_camera_handle(setup: dict[str, Any]) -> Any:
+    """The MAXScript node handle Scene Manager stored for the setup camera, if any."""
+    camera = setup.get("camera") or {}
+    return camera.get("handle") if isinstance(camera, dict) else None
+
+
+def _node_handle_literal(handle: Any) -> str:
+    return str(int(handle)) if isinstance(handle, (int, str)) and str(handle).strip().isdigit() else "-1"
+
+
+def camera_nodes(client: MaxClient, handles: list[Any]) -> list[dict[str, Any] | None]:
+    """Each stored camera as {handle, name} in the identity other tools take, or None.
+
+    None when the stored node handle is missing or no longer names a camera;
+    pulze_preflight says which.
+    """
+    if not handles:
+        return []
+    payload = _send(client, f'''(
+    local ss = stringStream ""
+    for h in #({",".join(_node_handle_literal(h) for h in handles)}) do (
+        local n = if h < 0 then undefined else (maxOps.getNodeByHandle h)
+        if n == undefined or superClassOf n != camera then format "NONE\\n" to:ss
+        else format "NODE|%|%\\n" (formattedPrint ((getHandleByAnim n) as integer64) format:"d") n.name to:ss
+    )
+    ss as string
+)''')
+    out: list[dict[str, Any] | None] = []
+    for line in payload.splitlines():
+        if line.startswith("NODE|"):
+            _, handle, name = line.split("|", 2)
+            out.append({"handle": int(handle), "name": name})
+        elif line.startswith("NONE"):
+            out.append(None)
+    if len(out) != len(handles):
+        raise RuntimeError("Unexpected Scene Manager camera lookup result")
+    return out
+
+
+def summarize(setup: dict[str, Any], index: int, camera_node: dict[str, Any] | None = None) -> dict[str, Any]:
     camera = setup.get("camera") or {}
     resolution = setup.get("resolution") or {}
     frames = setup.get("frames") or {}
@@ -193,7 +235,7 @@ def summarize(setup: dict[str, Any], index: int) -> dict[str, Any]:
         "render_enabled": bool((setup.get("render") or {}).get("enabled", False)),
         "camera": {
             "name": camera.get("name"),
-            "handle": camera.get("handle"),
+            "node": camera_node,
             "enabled": bool(camera.get("enabled", False)),
             "locked": bool(camera.get("locked", False)),
         },
@@ -306,8 +348,7 @@ def resolve_camera(client: MaxClient, name: str) -> int:
 def probe_scene(client: MaxClient, paths: list[str], cams: list[tuple[str, Any]]) -> dict[str, Any]:
     """One round trip: renderer, scene, output folders and each setup camera's handle."""
     encoded = ",".join(f'"{safe_string(p)}"' for p in paths)
-    handles = ",".join(
-        (str(int(h)) if isinstance(h, (int, str)) and str(h).strip().isdigit() else "-1") for _, h in cams)
+    handles = ",".join(_node_handle_literal(h) for _, h in cams)
     payload = _send(client, f'''(
     local ss = stringStream ""
     local probe = #({encoded})
@@ -351,18 +392,19 @@ def camera_issue(name: str | None, handle: Any, node: tuple[str, str] | None) ->
         return ("error", "camera_missing", "Setup has no camera assigned.")
     if handle in (None, "") or not str(handle).strip().lstrip("-").isdigit():
         return ("error", "camera_unbound",
-                f"Camera '{name}' has no node handle; Scene Manager cannot resolve it. Reassign it with pulze_set.")
+                f"Camera '{name}' has no stored node; Scene Manager cannot resolve it. Reassign it with pulze_set.")
     status, node_name = node or ("missing", "")
     if status == "missing":
         return ("error", "camera_handle_invalid",
-                f"Camera '{name}' (handle {handle}) no longer exists. A camera with the same name does not fix this; "
-                "reassign it with pulze_set so Scene Manager gets the new handle.")
+                f"Camera '{name}' no longer exists (Scene Manager stored it by node, not by name). A camera with the "
+                "same name does not fix this; reassign it with pulze_set so Scene Manager stores the new node.")
     if status == "not_camera":
-        return ("error", "camera_handle_not_camera", f"Handle {handle} now belongs to '{node_name}', which is not a camera.")
+        return ("error", "camera_handle_not_camera",
+                f"The node Scene Manager stored for camera '{name}' is now '{node_name}', which is not a camera.")
     if name and node_name != name:
         return ("warning", "camera_renamed",
-                f"Setup stores camera name '{name}' but handle {handle} is now '{node_name}'. It renders the right camera; "
-                "reassign with pulze_set to refresh the stored name.")
+                f"Setup stores camera name '{name}' but that camera is now called '{node_name}'. It renders the right "
+                "camera; reassign with pulze_set to refresh the stored name.")
     return None
 
 
@@ -371,8 +413,9 @@ def preflight(client: MaxClient, include_disabled: bool = False) -> dict[str, An
     setups, state = read_setups(client)
     rows = [summarize(s, i) for i, s in enumerate(setups)]
     active = [r for r in rows if r["render_enabled"] or include_disabled]
+    stored = {r["index"]: stored_camera_handle(setups[r["index"]]) for r in active}
     scene = probe_scene(client, [(r["output"]["path"] or "") for r in active],
-                        [(r["camera"]["name"], r["camera"]["handle"]) for r in active]) if active else None
+                        [(r["camera"]["name"], stored[r["index"]]) for r in active]) if active else None
 
     issues: list[dict[str, Any]] = []
 
@@ -386,7 +429,7 @@ def preflight(client: MaxClient, include_disabled: bool = False) -> dict[str, An
     for pos, row in enumerate(active):
         name = row["name"]
         node = scene["camera_nodes"][pos] if scene and pos < len(scene["camera_nodes"]) else None
-        issue = camera_issue(row["camera"]["name"], row["camera"]["handle"], node)
+        issue = camera_issue(row["camera"]["name"], stored[row["index"]], node)
         if issue:
             add(name, *issue)
 

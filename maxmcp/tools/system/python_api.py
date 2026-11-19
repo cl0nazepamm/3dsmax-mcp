@@ -169,7 +169,8 @@ def run_python(code: str, timeout_s: float = 300, where: str = "auto") -> dict:
       node.material = sdk.materials.new("PhysicalMaterial", "Red", base_color=(1, 0, 0)),
       with sdk.at(10): ..., with sdk.animate(): ..., node.bbox, sdk.contacts(nodes). mx.help("sdk") is its
       index, mx.help("sdk.nodes") one collection, mx.help("sdk.Node") one class. In pymxs a node is
-      rt.getAnimByHandle(node.handle).
+      rt.getAnimByHandle(node.handle). A pymxs node's own .handle is a different number (MAXScript's
+      per-scene node handle) that no tool takes.
 
     Parameters, one model for every class and plugin (objects, modifiers, materials, maps, controllers):
       reflect, then set by name; never guess a parameter or its units. mx.params(class_name="Bend",

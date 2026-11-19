@@ -506,7 +506,7 @@ _FALLBACK_SCRIPT = r"""(
                 else append skipped (mcpObject #(
                     (mcpField "kind" (mcpJs "object")),
                     (mcpField "object" (mcpJs obj.name)),
-                    (mcpField "handle" (obj.handle as string)),
+                    (mcpField "handle" (formattedPrint ((getHandleByAnim obj) as integer64) format:"d")),
                     (mcpField "reason" (mcpJs reason))))
             )
             for k = 1 to parents.count do (

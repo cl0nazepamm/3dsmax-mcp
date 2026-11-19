@@ -17,12 +17,17 @@ def pulze_inspect(detail: str = "summary") -> dict:
     Not when: you only want the current Max render settings (use query_scene).
     Reads a scene custom attribute; nothing in the scene changes. Also reports
     window_open: while the Scene Manager window is open, edits are refused.
-    detail=full returns each setup's raw JSON.
+    Each setup's camera.node is the scene camera as {handle, name}, the handle
+    other tools take; None when the stored camera is gone (pulze_preflight says
+    why). detail=full adds each setup's raw JSON as Scene Manager stores it:
+    its camera.handle is a MAXScript node handle, a different number from the
+    handle other tools take, so never pass it to them.
     """
     if detail not in {"summary", "full"}:
         raise ValueError("detail must be summary or full.")
     setups, state = impl.read_setups(client)
-    rows = [impl.summarize(setup, index) for index, setup in enumerate(setups)]
+    nodes = impl.camera_nodes(client, [impl.stored_camera_handle(setup) for setup in setups])
+    rows = [impl.summarize(setup, index, nodes[index]) for index, setup in enumerate(setups)]
     payload: dict[str, Any] = {"token": state["token"], "window_open": state["window_open"],
                                "count": len(rows), "setups": rows}
     if detail == "full":
@@ -51,7 +56,7 @@ def pulze_set(edits: list[dict[str, Any]], expected_token: str, confirm: bool = 
 
     Each edit selects exactly one setup with index (int), id or name, plus any of
     resolution {width, height} (whole pixels 1..32768), camera (unique scene
-    name; stored by node handle), output_path, render_enabled. Ambiguous names
+    camera name; Scene Manager stores its node), output_path, render_enabled. Ambiguous names
     or ids are refused. expected_token comes from pulze_inspect or
     pulze_preflight; confirm must be true.
 
@@ -104,7 +109,7 @@ def pulze_set(edits: list[dict[str, Any]], expected_token: str, confirm: bool = 
             handle = impl.resolve_camera(client, camera)
             block = setup.setdefault("camera", {})
             block["name"], block["handle"], block["enabled"] = camera, handle, True
-            changes.append(f"camera={camera} (handle {handle})")
+            changes.append(f"camera={camera}")
 
         output_path = edit.get("output_path")
         if output_path is not None:
