@@ -185,7 +185,9 @@ CUSTOM: dict[str, dict] = {
         ],
     },
     "list_dc_presets": {},
-    "introspect_osl": {"global_var": "MCP_SmokeOSL"},
+    "introspect_osl": {"class_name": "PhysicalMaterial"},
+    "parameters": {"name": SMOKE_TARGET},  # describe needs an owner: a node or a class
+    "edit_vertices": {"action": "get", "name": SMOKE_TARGET, "max_verts": 3},  # the box is no Editable_Poly
     "get_plugin_capabilities": {},
     "get_bridge_status": {},
     "get_session_context": {"max_roots": 5, "max_selection": 5},
@@ -246,7 +248,7 @@ def flags_for(name: str) -> int:
     flags = 0
     if name in SKIP_DEFAULT:
         flags |= FLAG_SKIP_DEFAULT
-    if name in {"capture_screen", "set_sub_material"}:
+    if name in {"capture_screen", "set_sub_material", "edit_vertices"}:
         flags |= FLAG_EXPECT_ERROR
     return flags
 

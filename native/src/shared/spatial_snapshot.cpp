@@ -206,7 +206,7 @@ json NodeOrientationJson(INode* node, TimeValue t) {
     json out;
     out["name"] = WideToUtf8(node->GetName());
     out["handle"] = NodeHandle(node);
-    out["class"] = os.obj ? WideToUtf8(os.obj->ClassName().data()) : "Unknown";
+    out["class"] = ObjectClassName(os.obj);
     out["parent"] = (parent && !parent->IsRootNode()) ? json(WideToUtf8(parent->GetName())) : json(nullptr);
     out["pivot"] = PointJson(pivot);
     out["position"] = PointJson(pivot);

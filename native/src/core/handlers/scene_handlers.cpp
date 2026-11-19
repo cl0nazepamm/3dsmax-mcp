@@ -75,7 +75,7 @@ std::string NativeHandlers::SceneInfo(const std::string& params, MCPBridgeGUP* g
         std::vector<INode*> matched;
         for (INode* n : nodes) {
             if (!filterClass.empty()) {
-                if (NodeClassName(n) != filterClass) continue;
+                if (!NodeClassMatches(n, filterClass)) continue;
             }
             if (!filterLayer.empty()) {
                 if (NodeLayerName(n) != filterLayer) continue;
@@ -352,7 +352,7 @@ std::string NativeHandlers::FindClassInstances(const std::string& params, MCPBri
         int count = 0;
 
         for (INode* n : allNodes) {
-            if (NodeClassName(n) == className) {
+            if (NodeClassMatches(n, className)) {
                 count++;
                 if ((int)instances.size() < limit) {
                     json obj;
@@ -502,6 +502,11 @@ std::string NativeHandlers::SceneDelta(
         bool forceCapture = p.value("capture", false);
         unsigned long long unchangedSince = p.value("unchanged_since", 0ULL);
         const std::string sessionKey = NormalizeSceneDeltaSessionId(session_id);
+
+        // On a pipe thread the executor delivered the node events of the work before
+        // this read. A script inside 3ds Max calls here on the main thread, between its
+        // own edits: deliver theirs now.
+        if (HostExecutor::IsMainThread()) McpHost::SceneJournal::FlushPending();
 
         Interface* ip = GetCOREInterface();
         // Epoch before seq: a reset in between then reads as a new epoch.

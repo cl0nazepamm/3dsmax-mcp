@@ -60,6 +60,17 @@ All notable changes to this project are documented here.
 - Octane's HDRI environment rendered black.
 - A script that calls `sys.exit()`, `exit()` or `quitMax` gets `SystemExit` back as an error; it ended 3ds Max on the spot, without a shutdown. After `quitMax`, 3ds Max closes by itself once the script has returned.
 - A 3ds Max that ends through `exit()`, from a script or another plug-in, no longer aborts in the bridge's dialog monitor.
+- `boolean_operation` works while the Modify panel shows another object, as it does after `mesh_edit`; BooleanMod refused every operand there. The panel's sub-object level is kept.
+- `cosmos_import` leaves the selection out of the import: an empty selection was not cleared, so the material landed on whatever was selected. A material whose name differs from the asset's is found and reported as `imported`, without the 30 second wait.
+- Scene tools report an object's class as MAXScript does (`Forest_Pro`, `Editable_Poly`, `Plane`). Forest Pack and RailClone objects read `ReferenceTarget`, so `inspect_plugin_instance` did not recognize them and `mx.find(class_name="Forest_Pro")` found nothing. Class filters take that name or the UI label (`Editable Poly`).
+- `render_setup` refuses a quality level, a kind or a renderer its preset does not have before it switches the renderer, and a call that fails after the switch gets the renderer it replaced back, with its settings. A refused call used to leave the scene on the new renderer.
+- `create_material_from_textures`, `palette_laydown` and `smart_import` fail with `PLUGIN_MISSING` when the renderer's material class is not installed, and report a script that failed as an error. Both came back as a result. A folder without images or matching textures is an error too.
+- `plugin_patch` names the field an edit lacks, a stale MCG graph hash is `STALE_GRAPH` (it was `AMBIGUOUS`), `write_osl_shader` names the file it wrote, and `modify_tyflow_operator` says why a property was not set.
+- `query_scene(action="delta")` sees a change the call before it made. 3ds Max reports new, deleted and changed nodes only when it next idles, so a delta read right behind an edit said `unchanged`.
+- A sample MCG tool forks and compiles: 37 of the 43 bundled tools do on 3ds Max 2027, and the other six use operators the safety policy blocks. Their compounds ship only in the sample pack, so 3ds Max did not know them and validation failed with "Only sub-graphs used as function can have unconnected inputs". The fork now takes them along (`pack_compounds` in the reply) and each compile loads them into the session.
+- `render_setup` runs on one renderer after another without naming its sun or camera: where another renderer's object holds the default name, this renderer's own goes beside it as `Sun_<preset>` (`Sun_octane`) and the reply says so. It failed with `KIND_MISMATCH`, which a name the caller gives still does.
+- `add_tyflow_event`, and `add_event` in `tyflow_apply_patch`, put a new event right of the rightmost one when no position is given, and `add_tyflow_event` reports where. Every new event landed on top of the first.
+- `smart_import` and `palette_laydown` fail with `NOT_FOUND` when a folder is missing or holds nothing to import, and `palette_laydown` with `BAD_PARAM` for an unknown `slot_content`. They answered with a sentence that read as a result.
 
 ## [1.7.8] — 2026-11-07
 

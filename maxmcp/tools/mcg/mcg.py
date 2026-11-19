@@ -220,7 +220,8 @@ def _context_with_fallback(*, require_bridge: bool = False) -> dict[str, Any]:
     context.update(
         {
             "workspace": str(_workspace_root()),
-            "workspace_policy": "process-scoped temporary files; no MCG path registration",
+            "workspace_policy": ("process-scoped temporary files; no MCG path registration. A sample fork's own "
+                                 "compounds are loaded into this session's operator depot when it compiles"),
             "system_compounds": str(compound_root(max_root)) if max_root else "",
             "sample_roots": [str(path) for path in sample_roots()],
             "supported_kinds": ["geometry", "modifier"],
@@ -365,12 +366,53 @@ def _executable_findings(info: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"kind": str(findings)}] if findings else []
 
 
+def _pack_compounds_dir(path: Path) -> Path:
+    """Where a fork keeps the compounds its sample pack ships and 3ds Max does not have."""
+    return path.parent / ".compounds" / path.stem
+
+
+def _stage_pack_compounds(template: Path, destination: Path, max_root: Path | None) -> list[str]:
+    """Copy the compounds a sample graph is built from beside its fork; returns their names.
+
+    A sample pack's tools use compounds only the pack carries (Twist-ext). 3ds Max does not
+    know them, and the fork then fails validation with "Only sub-graphs used as function
+    can have unconnected inputs". Every compile loads this folder into the session's
+    operator depot (_compile_script); nothing is installed, and a compound 3ds Max has
+    under the same name stays the one in use.
+    """
+    pack = next((root for root in sample_roots() if is_within(template, root)), None)
+    if pack is None:
+        return []
+    shipped = {source.stem.casefold(): source for source in sorted(pack.rglob("*.maxcompound"))}
+    installed = ({source.stem.casefold() for source in compound_root(max_root).rglob("*.maxcompound")}
+                 if max_root is not None else set())
+    needed: dict[str, Path] = {}
+    pending = [template]
+    while pending:
+        for node in inspect_graph(pending.pop()).get("nodes", []):
+            key = str(node.get("operator", "")).casefold() if isinstance(node, dict) else ""
+            if key in shipped and key not in needed and key not in installed:
+                needed[key] = shipped[key]
+                pending.append(shipped[key])
+    if not needed:
+        return []
+    folder = _pack_compounds_dir(destination)
+    folder.mkdir(parents=True, exist_ok=True)
+    for source in needed.values():
+        shutil.copy2(source, folder / source.name)
+    return sorted(source.stem for source in needed.values())
+
+
 def _compile_script(path: Path) -> str:
     path_literal = safe_string(str(path))
+    pack = _pack_compounds_dir(path)
+    # Loaded on every compile: mcg_reload_operators rebuilds the depot without them.
+    load_pack = f'bridge.LoadViperCompounds "{safe_string(str(pack))}" false' if pack.is_dir() else ""
     return f'''(
 try (
     local graphPath = "{path_literal}"
     local bridge = dotNetClass "Viper3dsMaxBridge.Main"
+    {load_pack}
     local messages = dotNetObject "System.Text.StringBuilder"
     local utf8 = (dotNetClass "System.Text.Encoding").UTF8
     local convert = dotNetClass "System.Convert"
@@ -1607,6 +1649,7 @@ def mcg_create_graph(
             raise ValueError(f"identifier already used in this MCG session: {identifier}")
 
     context = _context_with_fallback()
+    max_root = Path(context["max_root"]) if context.get("max_root") else None
     if context.get("bridge_available"):
         # A probe that could not run is not proof the name is free.
         if _class_is_available(identifier):
@@ -1618,7 +1661,6 @@ def mcg_create_graph(
         if not template_id.startswith("source_"):
             raise MCGSecurityError("template_id must name a read-only source")
     else:
-        max_root = Path(context["max_root"]) if context.get("max_root") else None
         if max_root is None:
             raise FileNotFoundError("No installed 3ds Max MCG templates were found")
         template = find_tool_template(max_root, normalized_kind)
@@ -1640,6 +1682,7 @@ def mcg_create_graph(
         description=description,
         category=category,
     )
+    pack_compounds = _stage_pack_compounds(template, destination, max_root)
     graph_id = _register_graph(destination)
     with _STATE_LOCK:
         _USED_IDENTIFIERS.add(identifier_key)
@@ -1650,6 +1693,9 @@ def mcg_create_graph(
         "creation": proof,
         "graph": inspect_graph(destination),
     }
+    if pack_compounds:
+        # The sample pack's own compounds, loaded into this session's depot at each compile.
+        result["pack_compounds"] = pack_compounds
     if not compile_graph:
         return result
     try:
@@ -1928,7 +1974,7 @@ def mcg_apply_patch(
         return _error(
             str(exc),
             error_type="MCGHashConflict",
-            code="AMBIGUOUS",
+            code="STALE_GRAPH",
             details={"graph_id": graph_id, "current_hash": graph_hash(path)},
             hint={"message": "The graph changed since inspection. Re-inspect and rebuild the patch."},
         )
@@ -2049,7 +2095,7 @@ def mcg_restore_checkpoint(
         return _error(
             "MCG graph changed since the checkpoint restore was requested",
             error_type="MCGHashConflict",
-            code="AMBIGUOUS",
+            code="STALE_GRAPH",
             details={"graph_id": graph_id, "current_hash": current_hash},
             hint={"message": "Re-inspect the graph and retry with its current hash."},
         )
@@ -2073,7 +2119,7 @@ def mcg_restore_checkpoint(
         return _error(
             str(exc),
             error_type="MCGHashConflict",
-            code="AMBIGUOUS",
+            code="STALE_GRAPH",
             details={"graph_id": graph_id, "current_hash": exc.actual},
             hint={"message": "The graph changed during restore. Re-inspect before retrying."},
         )
@@ -2188,7 +2234,7 @@ def mcg_cleanup_workspace(graph_id: str = "") -> dict[str, Any]:
             if candidate.is_file() and is_within(candidate, root):
                 candidate.unlink()
                 removed.append(str(candidate))
-        for directory in (root / ".checkpoints" / graph_id, root / ".journal" / graph_id):
+        for directory in (root / ".checkpoints" / graph_id, root / ".journal" / graph_id, _pack_compounds_dir(path)):
             if directory.is_dir() and is_within(directory, root):
                 shutil.rmtree(directory)
                 removed.append(str(directory))

@@ -206,7 +206,7 @@ def _assignment_lines(values: dict[str, Any], var_name: str, raw_strings: bool =
         expr = _mxs_value(prop_value, raw_strings=raw_strings)
         lines.append(
             f'try ({var_name}.{prop} = {expr}; append applied "{prop}") '
-            f'catch (append errors "Could not set {prop}")'
+            f'catch (append errors ("Could not set {prop}: " + (getCurrentException())))'
         )
         names.append(prop_name)
     return "\n".join(lines), names
@@ -675,10 +675,15 @@ if flow == undefined then (
 
 @mcp.tool()
 def add_tyflow_event(name: str, event_name: str, event_position: IntList | None = None) -> str:
-    """Add one event to an existing tyFlow object."""
-    pos = event_position or [0, 0]
-    if len(pos) != 2:
+    """Add one event to an existing tyFlow object.
+
+    event_position is the event's [x, y] in the tyFlow editor. Without it the event goes
+    right of the rightmost one, on its row; the reply's position says where.
+    """
+    if event_position is not None and len(event_position) != 2:
         raise ValueError("event_position must be [x, y]")
+    place = (f"[{int(event_position[0])},{int(event_position[1])}]" if event_position is not None
+             else "mcpTyFreeEventPosition flow")
 
     maxscript = f"""(
 {HELPERS}
@@ -686,11 +691,13 @@ local flow = {node_by_name(name, missing_ok=True)}
 if flow == undefined then (
     "{{\\"error\\":\\"Object not found: {safe_string(name)}\\"}}"
 ) else (
+    local place = {place}
     local evRef = flow.tyFlow.addEvent()
     local ev = evRef.Event
     ev.setName "{safe_string(event_name)}"
-    ev.setPosition [{int(pos[0])},{int(pos[1])}]
-    "{{\\"name\\":\\"" + (esc flow.name) + "\\",\\"event\\":\\"" + (esc (ev.getName())) +"\\"}}"
+    ev.setPosition place
+    local landed = ev.getPosition()
+    "{{\\"name\\":\\"" + (esc flow.name) + "\\",\\"event\\":\\"" + (esc (ev.getName())) + "\\",\\"position\\":[" + ((landed.x as integer) as string) + "," + ((landed.y as integer) as string) + "]}}"
 )
 )"""
     payload = _send_json(maxscript, {"error": "Could not parse add_tyflow_event response."})

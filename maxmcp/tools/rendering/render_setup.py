@@ -32,7 +32,10 @@ def render_setup(
                                                   scene has: kinds with their fields and
                                                   units, notes, lights, cameras, settings
       renderer="octane"                           make it the production renderer (a preset
-                                                  id or a renderer name; not undoable)
+                                                  id or a renderer name; not undoable, and
+                                                  the renderer it replaces loses its
+                                                  settings). A call that fails keeps the
+                                                  renderer the scene had.
       quality="draft"|"preview"|"final"           the preset's sampling level
       settings={"samples": 600, "denoise": True}  neutral names, or the renderer's own
                                                   parameter names for anything else
@@ -60,6 +63,9 @@ def render_setup(
     A name that already exists is updated, with only the fields given: run the same script
     again to adjust, e.g. lights=[{"name": "Lamp", "kind": "sphere", "intensity": 400}].
     Lights without a name are always created. Delete with mx.delete.
+    A sun, camera or environment without a name goes by its kind (Sun, Camera). Where
+    another renderer's object holds that name, it is left alone and this renderer's own
+    is Sun_<preset> (Sun_octane); the reply's name and notes say so.
 
     intensity: give unit (lm, cd, nits, W, or renderer for the renderer's own number); it
     defaults to the kind's unit. A unit the renderer lacks is converted when the shape

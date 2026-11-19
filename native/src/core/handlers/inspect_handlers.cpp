@@ -168,15 +168,12 @@ std::string NativeHandlers::InspectObject(const std::string& params, MCPBridgeGU
 
         // Class info
         ObjectState os = node->EvalWorldState(t);
-        result["class"] = os.obj ? SanitizeScriptName(WideToUtf8(os.obj->ClassName().data())) : "Unknown";
+        result["class"] = ObjectClassName(os.obj);
         result["superclass"] = os.obj ? SuperClassName(os.obj->SuperClassID()) : "Unknown";
 
         // Base object class (under modifiers)
-        Object* baseObj = node->GetObjectRef();
-        while (baseObj && baseObj->SuperClassID() == GEN_DERIVOB_CLASS_ID) {
-            baseObj = ((IDerivedObject*)baseObj)->GetObjRef();
-        }
-        result["baseObject"] = baseObj ? SanitizeScriptName(WideToUtf8(baseObj->ClassName().data())) : "Unknown";
+        Object* baseObj = NodeBaseObject(node);
+        result["baseObject"] = ObjectClassName(baseObj);
 
         // Transform
         Matrix3 tm = node->GetNodeTM(t);
@@ -361,7 +358,7 @@ std::string NativeHandlers::InspectProperties(const std::string& params, MCPBrid
             tgt = baseObj;
 
             ObjectState os = node->EvalWorldState(t);
-            className = os.obj ? SanitizeScriptName(WideToUtf8(os.obj->ClassName().data())) : "Unknown";
+            className = ObjectClassName(os.obj);
         }
 
         result["class"] = className;
@@ -452,8 +449,11 @@ std::string NativeHandlers::FindObjectsByProperty(const std::string& params, MCP
         for (INode* node : allNodes) {
             // Class filter
             if (!classFilter.empty()) {
-                std::string cls = NodeClassName(node);
-                if (!WildcardMatch(cls, "*" + classFilter + "*")) continue;
+                // The registry name, or the label the object shows in the UI.
+                ObjectState state = node->EvalWorldState(GetCOREInterface()->GetTime());
+                const std::string label = state.obj ? WideToUtf8(state.obj->ClassName().data()) : std::string();
+                if (!WildcardMatch(ObjectClassName(state.obj), "*" + classFilter + "*") &&
+                    !WildcardMatch(label, "*" + classFilter + "*")) continue;
             }
 
             std::string foundValue;

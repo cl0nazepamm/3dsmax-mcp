@@ -188,6 +188,24 @@ def _base_guard(name: str) -> str:
     )
 
 
+# BooleanMod reads the Modify panel. While the panel shows another object, appendOperand
+# raises once the base has been evaluated, and without that evaluation a fresh modifier
+# drops the operand's transform. So the edit runs with panel editing suspended (nothing
+# happens outside Modify mode), and the user's sub-object level comes back afterwards.
+_SUSPEND_EDITING = (
+    "local panelLevel = 0\n"
+    "local panelObject = undefined\n"
+    "if getCommandPanelTaskMode() == #modify do "
+    "(panelLevel = subObjectLevel; panelObject = modPanel.getCurrentObject())\n"
+    "suspendEditing()\n"
+)
+_RESUME_EDITING = (
+    "resumeEditing()\n"
+    "if panelLevel != undefined and panelLevel != 0 and panelObject != undefined do try ("
+    "if modPanel.getCurrentObject() == panelObject do subObjectLevel = panelLevel) catch ()\n"
+)
+
+
 def _find_boolmod() -> str:
     """Script fragment: topmost BooleanMod on `obj` into `bm` (undefined if none)."""
     return (
@@ -498,7 +516,8 @@ def boolean_operation(
     if missing != "" then ("__ERROR__|operand(s) not found: " + missing)
     else if badKind != "" then ("__ERROR__|operand(s) not geometry: " + badKind)
     else (
-        undo "Boolean" on (
+        {_SUSPEND_EDITING}
+        local reply = try (undo "Boolean" on (
             {find_or_make}
             {chr(10).join("            " + p for p in props)}
             -- Initialize the modifier context before capturing non-live operands.
@@ -530,7 +549,12 @@ def boolean_operation(
             local total = 0
             try (total = bm.GetNumOperands()) catch ()
             "OK|" + bm.name + "|" + (madeNew as string) + "|" + (total as string) + "|" + (tris as string) + "|" + failed + "|" + (reverted as string)
+        )) catch (
+            {_RESUME_EDITING}
+            throw()
         )
+        {_RESUME_EDITING}
+        reply
     )
 )
 )"""

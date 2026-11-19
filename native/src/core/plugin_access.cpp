@@ -566,20 +566,59 @@ const ParamDef& ClassParameter(ClassDesc* cd,const json& ref) {
 }
 }
 
+namespace {
+// The renderer the last assignment replaced, kept alive with its settings. Assigning a
+// renderer is not undoable, so this is the way back for a caller whose own work then
+// fails: it restores this instance, or releases it once its work is committed.
+// A plain pointer: one still kept when 3ds Max exits is left alone, not released into
+// a reference system that is already gone.
+McpHost::UndoRecords::Pin* g_replacedRenderer=nullptr;
+void KeepReplacedRenderer(Renderer* renderer) {
+    delete g_replacedRenderer; g_replacedRenderer=nullptr;
+    if(renderer) g_replacedRenderer=new McpHost::UndoRecords::Pin(renderer);
+}
+// The kept renderer, when `ref` (the `replaced` of the assignment's reply) names it.
+Renderer* ReplacedRenderer(const json& ref) {
+    auto* kept=g_replacedRenderer?static_cast<Renderer*>(g_replacedRenderer->GetReference(0)):nullptr;
+    if(!kept||!ref.is_object()) return nullptr;
+    const json mine=OwnerRef(kept);
+    for(const char* key:{"session","handle"}) if(!ref.contains(key)||ref[key]!=mine[key]) return nullptr;
+    return kept;
+}
+}
+
+void ReleaseReplacedRenderer() { KeepReplacedRenderer(nullptr); }
+
 json AssignRenderer(const json& p) {
+    if(p.contains("release")) {
+        const bool kept=ReplacedRenderer(p["release"])!=nullptr;
+        if(kept) KeepReplacedRenderer(nullptr);
+        return {{"status",kept?"released":"not_kept"}};
+    }
     if(theHold.Holding()) Fail("USER_BUSY","3ds Max has an open undo operation; no changes were made.");
     if(GetCOREInterface8()->IsRenderActive()) Fail("RENDER_BUSY","A production render is active; no changes were made.");
+    auto* ip=GetCOREInterface(); auto* current=ip->GetRenderer(RS_Production);
+    if(p.contains("restore")) {
+        auto* kept=ReplacedRenderer(p["restore"]);
+        if(!kept) Fail("STALE_RENDERER","The replaced renderer is no longer kept; the production renderer stays as it is.");
+        ip->AssignRenderer(RS_Production,kept);
+        if(ip->GetRenderer(RS_Production)!=kept) Fail("VERIFY_MISMATCH","The production renderer did not change.");
+        KeepReplacedRenderer(nullptr);
+        McpHost::SceneJournal::AppendSynthetic("assign_renderer",{{"renderer",Identity(Descriptor(ClassRef(kept)))["name"]}});
+        return {{"status","restored"},{"context",Context()}};
+    }
     auto* cd=Descriptor(p.at("class_ref"));
     if(cd->SuperClassID()!=RENDERER_CLASS_ID) Fail("BAD_CLASS_REF","Expected a renderer class.");
-    auto* ip=GetCOREInterface(); auto* current=ip->GetRenderer(RS_Production);
     if(current&&current->ClassID()==cd->ClassID()) return {{"status","unchanged"},{"context",Context()}};
     auto* renderer=static_cast<Renderer*>(ip->CreateInstance(RENDERER_CLASS_ID,cd->ClassID()));
     if(!renderer) Fail("CREATE_FAILED","Plugin did not construct a renderer.");
+    KeepReplacedRenderer(current);
+    const json replaced=OwnerRef(current);
     ip->AssignRenderer(RS_Production,renderer);
     auto* now=ip->GetRenderer(RS_Production);
     if(!now||now->ClassID()!=cd->ClassID()) Fail("VERIFY_MISMATCH","The production renderer did not change.");
     McpHost::SceneJournal::AppendSynthetic("assign_renderer",{{"renderer",Identity(cd)["name"]}});
-    return {{"status","assigned"},{"context",Context()}};
+    return {{"status","assigned"},{"replaced",replaced},{"context",Context()}};
 }
 
 json Apply(const json& p) {

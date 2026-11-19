@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 from ._material_tripback import (
+    nothing_to_do,
     unsupported_material_class_result,
     wrap_material_tool_result,
 )
@@ -571,7 +572,7 @@ def smart_import(
     """
     root = Path(folder)
     if not root.is_dir():
-        return f"Folder not found: {folder}"
+        return nothing_to_do(f"Folder not found: {folder}")
 
     renderer = _renderer_from_material_class(material_class)
     if renderer is None:
@@ -579,11 +580,11 @@ def smart_import(
 
     mesh_paths = _scan_mesh_files(root, recursive)
     if not mesh_paths:
-        return f"No mesh files found in: {folder}"
+        return nothing_to_do(f"No mesh files found in: {folder}")
 
     mesh_paths, lod_skipped = _filter_mesh_lods(mesh_paths, lod_filter)
     if not mesh_paths:
-        return (
+        return nothing_to_do(
             f"No mesh files left after lod_filter={lod_filter!r} "
             f"({len(lod_skipped)} LOD1+ files skipped)"
         )
@@ -592,14 +593,14 @@ def smart_import(
         mesh_paths, name_pattern, key=lambda p: p.stem, exclude=exclude_pattern,
     )
     if not mesh_paths:
-        return (
+        return nothing_to_do(
             f"No mesh files matched name_pattern={name_pattern!r} / "
             f"exclude_pattern={exclude_pattern!r} ({name_filtered} filtered out)"
         )
 
     tex_root = Path(texture_folder) if texture_folder else root
     if not tex_root.is_dir():
-        return f"Texture folder not found: {texture_folder}"
+        return nothing_to_do(f"Texture folder not found: {texture_folder}")
     texture_paths = _scan_image_files(tex_root, recursive)
 
     # USD / .max meshes never get texture-folder materials; only the "other" group does.

@@ -29,7 +29,7 @@ std::string NativeHandlers::GetObjectProperties(const std::string& params, MCPBr
 
         // Class info
         ObjectState os = node->EvalWorldState(t);
-        result["class"] = os.obj ? WideToUtf8(os.obj->ClassName().data()) : "Unknown";
+        result["class"] = ObjectClassName(os.obj);
         // Get superclass name via MAXScript — no direct SDK method
         if (os.obj) {
             SClass_ID scid = os.obj->SuperClassID();
@@ -844,7 +844,7 @@ std::string NativeHandlers::SelectObjects(const std::string& params, MCPBridgeGU
             for (INode* n : allNodes) {
                 // Both filters apply when both are given.
                 const bool match = (pattern.empty() || WildcardMatch(WideToUtf8(n->GetName()), pattern)) &&
-                                   (className.empty() || _stricmp(NodeClassName(n).c_str(), className.c_str()) == 0);
+                                   (className.empty() || NodeClassMatches(n, className));
                 if (match) {
                     ip->SelectNode(n, FALSE);
                     found++;

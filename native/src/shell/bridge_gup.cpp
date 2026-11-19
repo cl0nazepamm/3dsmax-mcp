@@ -210,6 +210,7 @@ DWORD MCPBridgeShellGUP::Start() {
     DialogWatch::Start({QtDialogs::Snapshot, QtDialogs::Click});
     StartPipe();
     SceneJournal::Register();
+    MainThreadExecutor::SetAfterWork([] { SceneJournal::FlushPending(); });
 
     // Render automation: hook NOTIFY_POST_RENDER so render_start jobs emit a
     // filesystem done-signal at the real completion event (no polling).
@@ -225,6 +226,7 @@ void MCPBridgeShellGUP::Stop() {
     // executor_.Shutdown() still runs last to destroy the window.
     executor_.StopAccepting();
     AgentViewport::Shutdown(true);
+    MainThreadExecutor::SetAfterWork(nullptr);
     SceneJournal::Unregister();
     RenderHost::UnregisterNotifications();
 

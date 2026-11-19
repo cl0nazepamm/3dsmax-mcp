@@ -8,6 +8,10 @@
 #include <cmath>
 #include <functional>
 #include <stdexcept>
+#include <atomic>
+#include <map>
+#include <mutex>
+#include <tuple>
 #include <nlohmann/json.hpp>
 #include <max.h>
 #include <maxapi.h>
@@ -168,13 +172,87 @@ inline std::string MaxScriptVisibleClassName(Animatable* value) {
         value->ClassID());
 }
 
+// ── Class names ─────────────────────────────────────────────────
+// The registry's name of each class met so far. The registry belongs to Max's
+// main thread and scene reads run on pipe threads (direct mode), so a name is
+// looked up once there and kept. A pipe thread that meets a class first asks
+// the main thread through offMainThread, which the core installs (core_api.cpp).
+namespace ClassNames {
+using Resolver = std::string (*)(SClass_ID, const Class_ID&);
+struct Table {
+    std::mutex mutex;
+    std::map<std::tuple<SClass_ID, ULONG, ULONG>, std::string> names;
+    std::atomic<Resolver> offMainThread{nullptr};
+};
+inline Table& Shared() {
+    static Table table;
+    return table;
+}
+// Max's main thread: the registry's name, "" when it has none; kept either way.
+inline std::string Resolve(SClass_ID superClassId, const Class_ID& classId) {
+    std::string name;
+    try { name = MaxScriptVisibleClassName(superClassId, classId); } catch (...) {}
+    Table& table = Shared();
+    std::lock_guard<std::mutex> lock(table.mutex);
+    table.names[{superClassId, classId.PartA(), classId.PartB()}] = name;
+    return name;
+}
+}  // namespace ClassNames
+
+// The class name every tool reports for a scene object: the one 3ds Max's class
+// registry holds, as MAXScript's classOf prints it (Forest_Pro, Editable_Poly).
+// An object's own ClassName() is a UI label ("Editable Poly"), and plugins that
+// never set it answer with their base class: Forest Pack and RailClone objects
+// say "ReferenceTarget". Never throws, on any thread: for a class the registry
+// does not know, or while the main thread cannot answer, the descriptor's name
+// or the object's label stands in.
+inline std::string ObjectClassName(Animatable* value) {
+    if (!value) return "Unknown";
+    const SClass_ID superClassId = value->SuperClassID();
+    const Class_ID classId = value->ClassID();
+    ClassNames::Table& table = ClassNames::Shared();
+    std::string name;
+    bool known = false;
+    {
+        std::lock_guard<std::mutex> lock(table.mutex);
+        const auto found = table.names.find({superClassId, classId.PartA(), classId.PartB()});
+        if (found != table.names.end()) { name = found->second; known = true; }
+    }
+    if (!known) {
+        if (GetCurrentThreadId() == GetCOREInterface15()->GetMainThreadID()) {
+            name = ClassNames::Resolve(superClassId, classId);
+        } else if (const ClassNames::Resolver resolver = table.offMainThread.load()) {
+            name = resolver(superClassId, classId);  // no lock held while this thread waits
+        }
+    }
+    if (name.empty()) name = ScriptClassName(value);
+    return name.empty() ? "Unknown" : name;
+}
+
 // ── Node property helpers ───────────────────────────────────────
+// The class of the node's evaluated object: MAXScript's `classOf node`.
 inline std::string NodeClassName(INode* node) {
     ObjectState os = node->EvalWorldState(GetCOREInterface()->GetTime());
-    if (os.obj) {
-        return SanitizeScriptName(WideToUtf8(os.obj->ClassName().data()));
+    return ObjectClassName(os.obj);
+}
+
+// The object beneath the node's modifiers: MAXScript's `node.baseObject`.
+inline Object* NodeBaseObject(INode* node) {
+    Object* base = node ? node->GetObjectRef() : nullptr;
+    while (base && base->SuperClassID() == GEN_DERIVOB_CLASS_ID) {
+        base = static_cast<IDerivedObject*>(base)->GetObjRef();
     }
-    return "Unknown";
+    return base;
+}
+
+// A class filter takes the registry name (Editable_Poly) or the label the object
+// shows in the UI (Editable Poly), in any case.
+inline bool NodeClassMatches(INode* node, const std::string& requested) {
+    ObjectState os = node->EvalWorldState(GetCOREInterface()->GetTime());
+    if (!os.obj) return false;
+    const std::wstring wanted = Utf8ToWide(requested);
+    return MatchesClassName(wanted, Utf8ToWide(ObjectClassName(os.obj)).c_str()) ||
+           MatchesClassName(wanted, os.obj->ClassName().data());
 }
 
 inline std::string NodeLayerName(INode* node) {

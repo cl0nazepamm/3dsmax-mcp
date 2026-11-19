@@ -30,6 +30,7 @@ from ._material_assign import existing_material_script, existing_material_result
 from ...core.native_compat import is_missing_native_route_error
 from ._material_tripback import (
     material_class_hint,
+    nothing_to_do,
     unsupported_material_class_result,
     wrap_material_tool_result,
 )
@@ -886,7 +887,8 @@ def write_osl_shader(
             # parameter was not set, so the envelope surfaces its warnings.
             if data.get("warnings"):
                 return raw
-            return data.get("message", raw)
+            message = data.get("message", raw)
+            return f"{message} | File: {data['file']}" if data.get("file") and data.get("message") else message
         except Exception:
             return raw
 
@@ -961,7 +963,7 @@ def create_material_from_textures(
     # -- Step 1: Scan folder (Python-side) --
     files = _scan_texture_folder(texture_folder)
     if not files:
-        return f"No image files found in: {texture_folder}"
+        return nothing_to_do(f"No image files found in: {texture_folder}")
 
     # -- Step 2: Match textures to channels (Python-side) --
     patterns = dict(_DEFAULT_CHANNEL_PATTERNS)
@@ -971,7 +973,9 @@ def create_material_from_textures(
     matched = _match_textures_to_channels(files, patterns)
     if not matched:
         suffixes = [f.stem for f in files[:10]]
-        return f"No textures matched any channel pattern. File stems: {suffixes}"
+        return {"status": "error", "code": "NOT_FOUND",
+                "error": f"No textures matched any channel pattern. File stems: {suffixes}",
+                "hint": "Name the files by channel (basecolor, roughness, normal, ...) or pass custom_patterns."}
 
     # -- Step 3: Determine renderer / material class --
     if not material_class:
@@ -1308,10 +1312,11 @@ def _palette_laydown_impl(
     }:
         slot_content = "pbr_material"
     else:
-        return (
+        return nothing_to_do(
             f"Unsupported slot_content: {slot_content}. "
             "Use 'material' for OpenPBR preview materials, 'bitmap' for raw Bitmaptexture maps, "
-            "or 'pbr_material' for grouped full PBR materials."
+            "or 'pbr_material' for grouped full PBR materials.",
+            code="BAD_PARAM",
         )
 
     try:
@@ -1347,7 +1352,7 @@ def _palette_laydown_impl(
         if not picked:
             files = _scan_material_editor_palette_files(texture_folder, recursive)
             if not files:
-                return f"No image files found in: {texture_folder}"
+                return nothing_to_do(f"No image files found in: {texture_folder}")
             filter_extra["used_subfolder_sampling"] = False
             filter_extra["subfolder_count"] = 0
         elif slot_content == "pbr_material":
@@ -1359,7 +1364,7 @@ def _palette_laydown_impl(
         groups = None
         files = _scan_material_editor_palette_files(texture_folder, recursive)
         if not files:
-            return f"No image files found in: {texture_folder}"
+            return nothing_to_do(f"No image files found in: {texture_folder}")
 
     if slot_content == "pbr_material":
         if groups is None:
@@ -1368,7 +1373,7 @@ def _palette_laydown_impl(
             duplicate_count += len(duplicates)
             if not groups:
                 stems = [f.stem for f in files[:10]]
-                return f"No texture sets matched any PBR channel pattern. File stems: {stems}"
+                return nothing_to_do(f"No texture sets matched any PBR channel pattern. File stems: {stems}")
 
             if sample_mode_norm == "random":
                 import random as _random
@@ -1381,7 +1386,7 @@ def _palette_laydown_impl(
             groups, name_pattern, key=lambda g: str(g["name"]), exclude=exclude_pattern,
         )
         if not groups:
-            return (
+            return nothing_to_do(
                 f"No texture sets matched name_pattern={name_pattern!r} / "
                 f"exclude_pattern={exclude_pattern!r} ({name_filtered} filtered out)"
             )
@@ -1440,7 +1445,7 @@ def _palette_laydown_impl(
         files, name_pattern, key=lambda p: p.stem, exclude=exclude_pattern,
     )
     if not files:
-        return (
+        return nothing_to_do(
             f"No image files matched name_pattern={name_pattern!r} / "
             f"exclude_pattern={exclude_pattern!r} ({name_filtered} filtered out)"
         )

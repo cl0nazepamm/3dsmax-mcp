@@ -767,6 +767,8 @@ class Compiler:
 
         if item.is_node:
             found = find_node(name)
+            if not spec.get("name"):
+                name, found = self._own_default(item, name, found)
             if found is not None:
                 identity = found["identity"]
                 if not matches(recipe, identity["class_id"]):
@@ -811,6 +813,26 @@ class Compiler:
         self._emit(item, creating)
         self.items.append(item)
         return item
+
+    def _own_default(self, item: Item, name: str, found: dict[str, Any] | None) -> tuple[str, dict[str, Any] | None]:
+        """The node a defaulted name stands for on this renderer: (name, the node or None).
+
+        Every preset calls its sun "Sun", so after a renderer switch that name belongs to
+        the other renderer's object. It is left alone, and this renderer's own lives beside
+        it as "Sun_<preset>": found there on later calls too, also once the other is gone.
+        A name the caller gave is never replaced; a mismatch there is refused.
+        """
+        if found is not None and matches(item.recipe, found["identity"]["class_id"]):
+            return name, found
+        own = f"{name}_{self.preset['id']}"
+        own_found = find_node(own)
+        if found is None and own_found is None:
+            return name, None
+        if own_found is None:
+            item.notes.append(f"'{name}' is a {found['identity']['label']}, which this renderer does not use; it was "
+                              f"left as it is and this renderer's {item.kind} is '{own}'.")
+        item.name = own
+        return own, own_found
 
     def _bind_map(self, item: Item) -> Item:
         """Bind a texture map that already exists (a procedural sky, an inspected map) as the
@@ -1091,57 +1113,120 @@ def find_renderers(requested: str, renderers: list[dict[str, Any]]) -> list[dict
             or [r for r in renderers if _plain(r["label"]).startswith(wanted)])
 
 
-def switch_renderer(requested: str, ctx: dict[str, Any]) -> dict[str, Any]:
-    """Make `requested` (a preset id, or a renderer's name or label) the production renderer."""
+def target_renderer(requested: str, ctx: dict[str, Any]) -> dict[str, Any]:
+    """The one installed renderer `requested` names: a preset id, or a renderer's name or label."""
     found = find_renderers(requested, ctx["renderers"])
     if len(found) != 1:
         names = ", ".join(r["name"] + (f" = {r['label']}" if _plain(r["label"]) != _plain(r["name"]) else "")
                           + (f" ({_preset_id(r)})" if _preset_id(r) else "") for r in ctx["renderers"])
         fail("NOT_FOUND" if not found else "AMBIGUOUS",
              f"renderer {requested!r} names {len(found)} installed renderers. Installed: {names}.")
+    return found[0]
+
+
+def switch_renderer(target: dict[str, Any], ctx: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Make `target` the production renderer: the context after it, and the bridge's ref to
+    the renderer it replaced (None when nothing changed, or when the bridge keeps none)."""
     current = ctx.get("renderer")
-    if current and tuple(current["class_id"]) == tuple(found[0]["class_id"]):
-        return ctx
+    if current and tuple(current["class_id"]) == tuple(target["class_id"]):
+        return ctx, None
     result = api.native("native:assign_renderer", {"class_ref": {"superclass_id": presets.SUPERCLASSES["renderer"],
-                                                                 "class_id": list(found[0]["class_id"])}})
-    return result["context"]
+                                                                 "class_id": list(target["class_id"])}})
+    return result["context"], result.get("replaced")
+
+
+def restore_renderer(replaced: dict[str, Any] | None, before: dict[str, Any] | None, now: dict[str, Any]) -> str:
+    """Put back the renderer a failed call replaced, with the settings it had. Returns what
+    to add to the failure when the switch stays; nothing when the renderer is back."""
+    reason = "this 3ds Max bridge keeps no replaced renderer"
+    if replaced is not None:
+        try:
+            api.native("native:assign_renderer", {"restore": replaced})
+            return ""
+        except Exception as exc:  # noqa: BLE001 - reported beside the failure that brought us here
+            reason = str(exc)
+    was = f" (it was {before['label']})" if before else ""
+    return f" The production renderer is now {now['label']}{was} and could not be put back: {reason}."
+
+
+def _asked_items(lights: Any, sun: Any, environment: Any, camera: Any) -> list[tuple[str, str, Any, int]]:
+    """(slot, kind, spec, index) for everything a call creates or updates, in report order."""
+    asked: list[tuple[str, str, Any, int]] = []
+    for index, spec in enumerate(lights or []):
+        kind = (spec or {}).get("kind") if isinstance(spec, dict) else None
+        if not isinstance(kind, str):
+            fail("BAD_PARAM", "Each light needs a kind, e.g. {'kind': 'sphere', 'radius': 5, ...}.")
+        asked.append(("lights", kind, spec, index))
+    for slot, spec, default_kind in (("sun", sun, "sun"), ("environment", environment, "hdri"), ("camera", camera, "camera")):
+        if spec is not None:
+            asked.append((slot, (spec.get("kind") if isinstance(spec, dict) else None) or default_kind, spec, 0))
+    return asked
 
 
 def apply(*, renderer: str = "", quality: str = "", settings: dict[str, Any] | None = None,
           lights: list[dict[str, Any]] | None = None, sun: dict[str, Any] | None = None,
           environment: dict[str, Any] | None = None, camera: dict[str, Any] | None = None,
           distance_unit: str = "scene") -> dict[str, Any]:
-    """Switch renderer, then create or update everything asked for in one transaction."""
+    """Switch renderer, then create or update everything asked for in one transaction.
+
+    Assigning a renderer is not undoable and discards the settings of the one it replaces.
+    So what the target's preset alone decides is refused before the switch, and a call that
+    fails after it gets the renderer it replaced back.
+    """
     ctx = context()
     before = ctx.get("renderer")
+    target = target_renderer(renderer, ctx) if renderer else before
+    preset = active_preset({**ctx, "renderer": target})
+    levels = preset.get("quality") or {}
+    if quality and quality not in levels:
+        fail("BAD_PARAM", f"{preset['label']} has no quality '{quality}'. Levels: {', '.join(sorted(levels)) or 'none'}.")
+    asked = _asked_items(lights, sun, environment, camera)
+    for _, kind, spec, _ in asked:
+        if not isinstance(spec, dict):
+            fail("BAD_PARAM", f"A {kind} is described by a dict of fields.")
+        recipe_of(preset, kind)
+    distance_scale(distance_unit, ctx)
+
+    replaced: dict[str, Any] | None = None
     if renderer:
-        ctx = switch_renderer(renderer, ctx)
-    preset = active_preset(ctx)
+        ctx, replaced = switch_renderer(target, ctx)
+    switched = bool(renderer) and (not before or tuple(before["class_id"]) != tuple(ctx["renderer"]["class_id"]))
+    try:
+        out = _apply(ctx, preset, quality, settings, asked, distance_unit)
+    except Exception as exc:
+        left = restore_renderer(replaced, before, ctx["renderer"]) if switched else ""
+        if left:
+            code, text = getattr(exc, "code", None) or "FAILED", str(exc)
+            raise api.PluginGuardError(code, text[len(code) + 2:] + left if text.startswith(code + ": ") else text + left) from exc
+        raise
+    if replaced is not None:
+        try:
+            api.native("native:assign_renderer", {"release": replaced})
+        except Exception:  # noqa: BLE001 - the work is committed; the bridge lets go at its next assignment
+            pass
+    if renderer:
+        out["renderer"]["switched"] = switched
+        if switched and "undo" in out:
+            out["undo"] += " (the renderer switch itself is not undoable)"
+    return out
+
+
+def _apply(ctx: dict[str, Any], preset: dict[str, Any], quality: str, settings: dict[str, Any] | None,
+           asked: list[tuple[str, str, Any, int]], distance_unit: str) -> dict[str, Any]:
+    """Compile the call against the active renderer and apply it as one plugin_patch."""
     compiler = Compiler(ctx, preset, distance_unit)
     out: dict[str, Any] = {"renderer": {"name": ctx["renderer"]["name"], "preset": preset["id"]}}
-    if renderer:
-        out["renderer"]["switched"] = not before or tuple(before["class_id"]) != tuple(ctx["renderer"]["class_id"])
 
     wanted_settings: dict[str, Any] = {}
     if quality:
-        levels = preset.get("quality") or {}
-        if quality not in levels:
-            fail("BAD_PARAM", f"{preset['label']} has no quality '{quality}'. Levels: {', '.join(sorted(levels)) or 'none'}.")
-        wanted_settings.update(levels[quality])
+        wanted_settings.update((preset.get("quality") or {})[quality])
     wanted_settings.update(settings or {})
     written = compiler.settings(wanted_settings)
 
     slots: list[str] = []  # where each item is reported, in the order they were added
-    for index, spec in enumerate(lights or []):
-        kind = (spec or {}).get("kind") if isinstance(spec, dict) else None
-        if not isinstance(kind, str):
-            fail("BAD_PARAM", "Each light needs a kind, e.g. {'kind': 'sphere', 'radius': 5, ...}.")
+    for slot, kind, spec, index in asked:
         compiler.add(kind, spec, index)
-        slots.append("lights")
-    for slot, spec, default_kind in (("sun", sun, "sun"), ("environment", environment, "hdri"), ("camera", camera, "camera")):
-        if spec is not None:
-            compiler.add((spec.get("kind") if isinstance(spec, dict) else None) or default_kind, spec, 0)
-            slots.append(slot)
+        slots.append(slot)
 
     if compiler.plan.empty:
         if written:
@@ -1183,7 +1268,7 @@ def apply(*, renderer: str = "", quality: str = "", settings: dict[str, Any] | N
         state = _inspect({"root": "renderer"}, names)
         out["settings"] = {name: _round(state["values"].get(presets.binding_of(bound[name])["param"] if name in bound else name))
                            for name in sorted(wanted_settings)}
-    out["undo"] = "one step" + (" (the renderer switch itself is not undoable)" if out["renderer"].get("switched") else "")
+    out["undo"] = "one step"
     return out
 
 

@@ -8,7 +8,10 @@ This directory contains a pinned, read-only subset of
 - Included: `Tools/**/*.maxtool`, `Compounds/**/*.maxcompound`, and `LICENSE`
 - Excluded: `Scenes`, `Packages`, generated `.ms` and `.txt` files, and all other assets
 
-The graphs are discovery and forking references. 3dsmax-mcp does not install or
-globally load them into 3ds Max. An agent must fork a selected graph into its
-temporary MCG workspace, then validate, compile, and verify that copy against
-the active 3ds Max version.
+The graphs are discovery and forking references. 3dsmax-mcp does not install
+them into 3ds Max. An agent must fork a selected graph into its temporary MCG
+workspace, then validate, compile, and verify that copy against the active
+3ds Max version. A fork takes the compounds its graph is built from with it
+(most tools here use `-ext` compounds only this pack carries), and each compile
+loads those into the running session's operator depot; they are gone when
+3ds Max exits.

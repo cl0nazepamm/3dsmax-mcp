@@ -66,6 +66,26 @@ fn mcpTyEditorRestore flowNode wasOpen =
 (
     if not wasOpen do (try (flowNode.tyFlow.editor_close()) catch ())
 )
+
+fn mcpTyFreeEventPosition flowNode =
+(
+    -- Where a new event goes when the caller names no place: right of the rightmost
+    -- event, on its row. tyFlow itself puts it at [0,0], on top of the first event.
+    -- Call before the event is added.
+    local right = undefined
+    local top = 0
+    local bo = flowNode.baseobject
+    for i = 1 to bo.numSubs do (
+        local realEv = undefined
+        try (realEv = bo[i].object) catch ()
+        if realEv != undefined do try (
+            local p = realEv.Event.getPosition()
+            local w = try (realEv.Event.getWidth()) catch (200)
+            if right == undefined or p.x + w > right do (right = p.x + w; top = p.y)
+        ) catch ()
+    )
+    if right == undefined then [0, 0] else [(right + 60) as integer, top as integer]
+)
 """
 
 # Shared MAXScript helpers (esc/jsonStringArray/find*SubAnim come from tyflow.HELPERS

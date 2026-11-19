@@ -187,6 +187,50 @@ RENDERER_LABELS: dict[str, str] = {
 }
 
 
+# The plugin class each renderer's material is built from. openpbr and materialx are not
+# here: they take the first OpenPBR class this 3ds Max has, or PhysicalMaterial.
+RENDERER_CLASSES: dict[str, str] = {
+    "arnold": "ai_standard_surface",
+    "redshift": "RS_Standard_Material",
+    "vray": "VRayMtl",
+    "corona": "CoronaPhysicalMtl",
+    "fstorm": "FStorm",
+    "fstorm_pbr": "FStormPBR",
+    "octane_standard": "Std_Surface_Mtl",
+    "octane_pbr": "Open_PBR_Surf__Mtl",
+    "octane_universal": "Universal_material",
+}
+# Starts the message a script throws when that class is missing (see script_failure).
+PLUGIN_MISSING = "PLUGIN_MISSING: "
+
+
+def renderer_installed_lines(renderer: str) -> list[str]:
+    """Refuse, before anything is built, a renderer whose material class this 3ds Max lacks.
+
+    An unknown class name is undefined in MAXScript, so building with it fails later
+    with "Call needs function or class, got: undefined", which names nothing.
+    """
+    class_name = RENDERER_CLASSES.get(renderer)
+    if not class_name:
+        return []
+    message = safe_string(f"{PLUGIN_MISSING}{RENDERER_LABELS[renderer]} is not installed in this 3ds Max "
+                          f"(no {class_name} class).")
+    return [f'if not (isKindOf {class_name} MAXClass) do throw "{message}"']
+
+
+def script_failure(message: str) -> tuple[str, str | None] | None:
+    """(text, code) when a builder script's reply is its caught exception, else None."""
+    for prefix in ("Error:", "smart_import error:"):
+        if message.startswith(prefix):
+            text = message[len(prefix):].strip()
+            if text.startswith("-- Runtime error:"):
+                text = text[len("-- Runtime error:"):].strip()
+            if text.startswith(PLUGIN_MISSING):
+                return text[len(PLUGIN_MISSING):], "PLUGIN_MISSING"
+            return text, None
+    return None
+
+
 def _ms_path(p: Path) -> str:
     """Convert a Path to a MAXScript-safe forward-slash string."""
     return str(p).replace("\\", "/")
@@ -249,9 +293,9 @@ def pbr_renderer_setup_lines(
     needs_uberbitmap_osl: bool,
 ) -> list[str]:
     """Renderer-specific top-level setup (OSL paths, MaterialX OSL helpers, …)."""
-    lines: list[str] = []
+    lines: list[str] = renderer_installed_lines(renderer)
     if renderer in {"fstorm", "fstorm_pbr"}:
-        return fstorm_setup_lines()
+        return lines + fstorm_setup_lines()
     if renderer == "corona":
         lines.extend([
             "fn mcp_coronaBitmap path nodeName rawData = (",

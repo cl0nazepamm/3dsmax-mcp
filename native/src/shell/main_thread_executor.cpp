@@ -9,6 +9,7 @@ thread_local MainThreadExecutor::WorkLabel MainThreadExecutor::tl_label_;
 WPARAM MainThreadExecutor::s_execute_cookie_ = 0;
 std::atomic<DWORD> MainThreadExecutor::s_main_thread_id_{0};
 bool MainThreadExecutor::s_executing_ = false;
+std::atomic<void (*)()> MainThreadExecutor::s_after_work_{nullptr};
 std::deque<std::shared_ptr<MainThreadExecutor::WorkItem>> MainThreadExecutor::s_deferred_;
 std::mutex MainThreadExecutor::s_waiting_mutex_;
 std::unordered_map<UINT64, std::shared_ptr<MainThreadExecutor::WorkItem>> MainThreadExecutor::s_waiting_;
@@ -329,6 +330,9 @@ void MainThreadExecutor::RunWorkItem(const std::shared_ptr<WorkItem>& item) {
         error = "Unknown exception on main thread";
     }
     SetRunning(nullptr);
+    if (const auto hook = s_after_work_.load(std::memory_order_acquire)) {
+        try { hook(); } catch (...) {}
+    }
     // Destroy the closure before its caller resumes, so nothing it captured
     // outlives the request that created it.
     work = nullptr;

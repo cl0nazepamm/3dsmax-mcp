@@ -326,19 +326,23 @@ def download(client, package_id, wait_seconds, renderer):
     return result
 
 
-_ASSET_SNAPSHOT = "(\n fn compactName value = (\n  (dotNetClass \"System.Text.RegularExpressions.Regex\").Replace (toLower(value as string)) \"[^a-z0-9]\" \"\"\n )\n local key=\"__KEY__\"\n local aid=\"__ASSET__\"\n fn matchesName value key = ((findString (compactName value) key)!=undefined)\n fn fileOf value = (\n  local f=try(value.filename as string)catch(\"\")\n  if f==\"\" do f=try(value.HDRIMapName as string)catch(\"\")\n  f\n )\n fn quoteJSON value = (\"\\\"\" + (MCP_Server.escapeJsonString(value as string)) + \"\\\"\")\n fn refJSON value isNode = (\n  local h=formattedPrint ((getHandleByAnim value) as integer64) format:\"d\"\n  \"{\\\"handle\\\":\"+(quoteJSON h)+\",\\\"name\\\":\"+(quoteJSON(try(value.name)catch(\"\")))+\",\\\"class\\\":\"+(quoteJSON(classof value))+\",\\\"filename\\\":\"+(quoteJSON(fileOf value))+\"}\"\n )\n fn joinJSON values = (\n  local s=\"[\"\n  for i=1 to values.count do (if i>1 do s+=\",\"; s+=values[i])\n  s+\"]\"\n )\n local minHandle=__MINHANDLE__\n local maxHandle=0\n local nodes=#()\n fn addTree n nodes minHandle = (appendIfUnique nodes n; for c in n.children where c.handle>minHandle do addTree c nodes minHandle)\n for n in objects do (\n  if n.handle>maxHandle do maxHandle=n.handle\n  if (try(n.cosmosAssetId==aid)catch(false)) then appendIfUnique nodes n\n  else if minHandle>=0 and n.handle>minHandle and ((matchesName n.name key) or (matchesName (fileOf n.baseObject) key)) do addTree n nodes minHandle\n )\n local mats=#()\n for n in nodes where n.material!=undefined do appendIfUnique mats n.material\n for c in material.classes do try(\n  for m in (getClassInstances c processAllAnimatables:true) where (matchesName m.name key) do appendIfUnique mats m\n )catch()\n local maps=#()\n fn visitMaps value maps visited depth = (\n  if value!=undefined and depth<12 and findItem visited value==0 do (\n   append visited value\n   if superclassof value==textureMap do appendIfUnique maps value\n   for i=1 to (try(getNumSubTexmaps value)catch(0)) do visitMaps (getSubTexmap value i) maps visited (depth+1)\n   for i=1 to (try(getNumSubMtls value)catch(0)) do visitMaps (getSubMtl value i) maps visited (depth+1)\n  )\n )\n local visited=#()\n for m in mats do visitMaps m maps visited 0\n for c in textureMap.classes where (matchPattern (c as string) pattern:\"*bitmap*\" or matchPattern (c as string) pattern:\"*hdri*\") do try(\n  for m in (getClassInstances c processAllAnimatables:true) where ((matchesName m.name key) or (matchesName (fileOf m) key)) do appendIfUnique maps m\n )catch()\n \"{\\\"nodes\\\":\"+(joinJSON(for n in nodes collect(refJSON n true)))+\",\\\"materials\\\":\"+(joinJSON(for m in mats collect(refJSON m false)))+\",\\\"maps\\\":\"+(joinJSON(for m in maps collect(refJSON m false)))+\",\\\"max_handle\\\":\"+(maxHandle as string)+\"}\"\n)"
+_ASSET_SNAPSHOT = "(\n fn compactName value = (\n  (dotNetClass \"System.Text.RegularExpressions.Regex\").Replace (toLower(value as string)) \"[^a-z0-9]\" \"\"\n )\n local key=\"__KEY__\"\n local aid=\"__ASSET__\"\n fn matchesName value key = ((findString (compactName value) key)!=undefined)\n fn fileOf value = (\n  local f=try(value.filename as string)catch(\"\")\n  if f==\"\" do f=try(value.HDRIMapName as string)catch(\"\")\n  f\n )\n fn quoteJSON value = (\"\\\"\" + (MCP_Server.escapeJsonString(value as string)) + \"\\\"\")\n fn refJSON value isNode = (\n  local h=formattedPrint ((getHandleByAnim value) as integer64) format:\"d\"\n  \"{\\\"handle\\\":\"+(quoteJSON h)+\",\\\"name\\\":\"+(quoteJSON(try(value.name)catch(\"\")))+\",\\\"class\\\":\"+(quoteJSON(classof value))+\",\\\"filename\\\":\"+(quoteJSON(fileOf value))+\"}\"\n )\n fn joinJSON values = (\n  local s=\"[\"\n  for i=1 to values.count do (if i>1 do s+=\",\"; s+=values[i])\n  s+\"]\"\n )\n local minHandle=__MINHANDLE__\n local maxHandle=0\n local minAnim=__MINANIM__\n local maxAnim=0L\n local nodes=#()\n fn addTree n nodes minHandle = (appendIfUnique nodes n; for c in n.children where c.handle>minHandle do addTree c nodes minHandle)\n for n in objects do (\n  if n.handle>maxHandle do maxHandle=n.handle\n  if (try(n.cosmosAssetId==aid)catch(false)) then appendIfUnique nodes n\n  else if minHandle>=0 and n.handle>minHandle and ((matchesName n.name key) or (matchesName (fileOf n.baseObject) key)) do addTree n nodes minHandle\n )\n local mats=#()\n for n in nodes where n.material!=undefined do appendIfUnique mats n.material\n for c in material.classes do try(\n  for m in (getClassInstances c processAllAnimatables:true) do (\n   local h=(getHandleByAnim m) as integer64\n   if h>maxAnim do maxAnim=h\n   if (matchesName m.name key) or (minAnim>=0 and h>minAnim) do appendIfUnique mats m\n  )\n )catch()\n local maps=#()\n fn visitMaps value maps visited depth = (\n  if value!=undefined and depth<12 and findItem visited value==0 do (\n   append visited value\n   if superclassof value==textureMap do appendIfUnique maps value\n   for i=1 to (try(getNumSubTexmaps value)catch(0)) do visitMaps (getSubTexmap value i) maps visited (depth+1)\n   for i=1 to (try(getNumSubMtls value)catch(0)) do visitMaps (getSubMtl value i) maps visited (depth+1)\n  )\n )\n local visited=#()\n for m in mats do visitMaps m maps visited 0\n for c in textureMap.classes where (matchPattern (c as string) pattern:\"*bitmap*\" or matchPattern (c as string) pattern:\"*hdri*\") do try(\n  for m in (getClassInstances c processAllAnimatables:true) where ((matchesName m.name key) or (matchesName (fileOf m) key)) do appendIfUnique maps m\n )catch()\n \"{\\\"nodes\\\":\"+(joinJSON(for n in nodes collect(refJSON n true)))+\",\\\"materials\\\":\"+(joinJSON(for m in mats collect(refJSON m false)))+\",\\\"maps\\\":\"+(joinJSON(for m in maps collect(refJSON m false)))+\",\\\"max_handle\\\":\"+(maxHandle as string)+\",\\\"max_anim_handle\\\":\"+(quoteJSON(formattedPrint maxAnim format:\"d\"))+\"}\"\n)"
 
 
-def _asset_snapshot(client, asset, min_handle=-1):
+def _asset_snapshot(client, asset, min_handle=-1, min_anim_handle=-1):
     # Match this asset only. Do not snapshot unrelated scene/material metadata.
     # Chaos importers do not tag nodes with the asset ID (V-Ray never sets cosmosAssetId),
     # so nodes above min_handle (the pre-import maximum) count when their name or proxy
     # file matches the asset, together with their new children.
+    # A material's name is not the asset's either ("Metal Pattern B 5cm" imports as
+    # Metal_Pattern_C_5cm). The snapshot gives every material a handle and reports the
+    # highest one, so a material above min_anim_handle did not exist before the import.
     key = re.sub(r"[^a-z0-9]", "", asset["name"].lower())
     if len(key) < 4:
         raise CosmosError("Asset has no usable identity for import verification.")
     script = (_ASSET_SNAPSHOT.replace("__KEY__", key).replace("__ASSET__", normalize_id(asset["id"]))
-              .replace("__MINHANDLE__", str(int(min_handle))))
+              .replace("__MINHANDLE__", str(int(min_handle)))
+              .replace("__MINANIM__", "%dL" % int(min_anim_handle)))
     return _max(client, script)
 
 
@@ -347,9 +351,12 @@ def _selection(client, handles=None):
         return _max(client, '(local s="["; local a=selection as array; '
                     'for i=1 to a.count do (if i>1 do s+=","; s+=(a[i].handle as string)); s+"]")')
     values = ",".join(str(int(h)) for h in handles)
+    # `select #()` leaves the selection as it is, so an empty list has to clear it:
+    # the importer assigns a material to whatever is selected.
     client.send_command('(if theHold.Holding() then throw "USER_BUSY" else '
-                        '(select (for h in #(' + values + ') '
-                        'where (maxOps.getNodeByHandle h)!=undefined collect(maxOps.getNodeByHandle h)); "OK"))')
+                        '(local nodes=for h in #(' + values + ') '
+                        'where (maxOps.getNodeByHandle h)!=undefined collect(maxOps.getNodeByHandle h); '
+                        'if nodes.count==0 then clearSelection() else select nodes; "OK"))')
 
 
 
@@ -359,7 +366,8 @@ def _wait_import(client, asset, before, timeout=30):
     old = {item["handle"] for item in before.get(expected, [])}
     deadline = time.monotonic() + timeout
     while True:
-        after = _asset_snapshot(client, asset, before.get("max_handle", -1))
+        after = _asset_snapshot(client, asset, before.get("max_handle", -1),
+                                before.get("max_anim_handle", -1))
         if expected and any(item["handle"] not in old for item in after[expected]):
             return after
         if time.monotonic() >= deadline:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ._pbr_material_builder import RENDERER_LABELS
+from ._pbr_material_builder import RENDERER_LABELS, script_failure
 
 # One row per wired PBR renderer. ask_as = values users/agents can pass to material_class.
 PBR_RENDERER_REGISTRY: list[dict[str, Any]] = [
@@ -123,6 +123,11 @@ def unsupported_material_class_result(
     }
 
 
+def nothing_to_do(message: str, code: str = "NOT_FOUND") -> dict[str, Any]:
+    """A request that found nothing to work on: an error, not a message that reads as done."""
+    return {"status": "error", "code": code, "error": message}
+
+
 def wrap_material_tool_result(
     message: str,
     *,
@@ -134,6 +139,18 @@ def wrap_material_tool_result(
 ) -> dict[str, Any]:
     resolved_class = (material_class or "").strip() or "OpenPBRMaterial"
     label = RENDERER_LABELS.get(renderer, renderer)
+    failure = script_failure(message)
+    if failure is not None:
+        # The script's own catch answered: nothing was built, so this is not a result.
+        text, code = failure
+        error: dict[str, Any] = {"status": "error", "error": text, "material_class": resolved_class,
+                                 "material_renderer": renderer}
+        if code:
+            error["code"] = code
+            hint = material_class_hint(tool=tool)
+            error["hint"] = hint
+            error["supported_material_classes"] = hint["supported_material_classes"]
+        return error
     payload: dict[str, Any] = {
         "message": message,
         "material_class": resolved_class,

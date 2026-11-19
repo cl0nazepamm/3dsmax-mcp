@@ -180,14 +180,17 @@ def _op_body(operation: dict[str, Any], index: int) -> str:
 
     kind = str(operation["op"])
     if kind == "add_event":
-        lines = [
+        # Without a position the event goes right of the rightmost one: tyFlow's own
+        # default stacks every new event on the first.
+        position = operation.get("position")
+        place = (f"[{int(position[0])},{int(position[1])}]"
+                 if isinstance(position, (list, tuple)) and len(position) == 2 else "mcpTyFreeEventPosition flow")
+        return "\n".join([
+            f"local place = {place}",
             "local eh = flow.tyFlow.addEvent()",
             f'eh.Event.setName "{safe_string(str(operation["event"]))}"',
-        ]
-        position = operation.get("position")
-        if isinstance(position, (list, tuple)) and len(position) == 2:
-            lines.append(f"eh.Event.setPosition [{int(position[0])},{int(position[1])}]")
-        return "\n".join(lines)
+            "eh.Event.setPosition place",
+        ])
     if kind == "remove_event":
         return (
             f'local ev = mcpTyRequireEvent flow "{safe_string(str(operation["event"]))}"\n'

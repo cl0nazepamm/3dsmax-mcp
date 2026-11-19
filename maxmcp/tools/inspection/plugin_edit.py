@@ -9,6 +9,9 @@ from . import _plugin_schema as plugin_schema
 from ._plugin_semantics import resolve_enum
 
 
+_EDIT_KEYS = ("owner_ref", "property_ref", "expected_schema", "expected_state", "value")
+
+
 @mcp.tool()
 def plugin_patch(edits: list[dict[str, Any]]) -> dict:
     """Atomically edit inspected PB2 properties with native typed readback.
@@ -25,7 +28,12 @@ def plugin_patch(edits: list[dict[str, Any]]) -> dict:
     if not edits or len(edits) > 512:
         raise ValueError("Supply 1..512 property edits.")
     compiled = []
-    for edit in edits:
+    for index, edit in enumerate(edits):
+        missing = [key for key in _EDIT_KEYS if not isinstance(edit, dict) or key not in edit]
+        if missing:
+            raise ValueError(f"edits[{index}] needs {', '.join(missing)}: owner_ref, schema_token (expected_schema) "
+                             "and state_token (expected_state) come from inspect_plugin_instance(schema_version=2), "
+                             "property_ref from the property's row.")
         value = edit.get("value")
         if isinstance(value, dict) and "enum" in value:
             schema = plugin_schema.inspect(owner_ref=edit["owner_ref"], fields=[edit["property_ref"]])

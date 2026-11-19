@@ -496,7 +496,7 @@ std::string NativeHandlers::IntrospectInstance(const std::string& params, MCPBri
         if (!obj)
             throw std::runtime_error("Cannot evaluate object: " + objName);
 
-        result["class"] = SanitizeScriptName(WideToUtf8(obj->ClassName().data()));
+        result["class"] = ObjectClassName(obj);
         result["classID"] = json::array({
             (unsigned int)obj->ClassID().PartA(),
             (unsigned int)obj->ClassID().PartB()

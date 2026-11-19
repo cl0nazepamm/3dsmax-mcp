@@ -5,6 +5,7 @@
 #include "mcp_bridge/core_bridge.h"
 #include "mcp_bridge/command_dispatcher.h"
 #include "mcp_bridge/native_handlers.h"
+#include "mcp_bridge/plugin_access.h"
 #include "mcp_bridge/window_capture.h"
 
 #include <atomic>
@@ -18,12 +19,36 @@ namespace {
 MCPBridgeGUP g_bridge;
 std::atomic<bool> g_initialized{false};
 
+// A pipe thread's first sight of a class: the main thread looks its name up and keeps
+// it (handler_helpers.h, ClassNames). The wait is short, so a busy main thread (a
+// render, a long script) does not hold a scene read: that read then reports the
+// descriptor's name, pipe threads stop asking for a while, and a later read asks again.
+std::string ClassNameFromMainThread(SClass_ID superClassId, const Class_ID& classId) {
+    static std::atomic<ULONGLONG> busyUntil{0};
+    if (GetTickCount64() < busyUntil.load()) return {};
+    try {
+        // In direct mode ExecuteSync would run the lookup on this thread.
+        struct LeaveDirectMode {
+            const bool direct = HostExecutor::IsDirectMode();
+            LeaveDirectMode() { if (direct) HostExecutor::DisableDirectMode(); }
+            ~LeaveDirectMode() { if (direct) HostExecutor::EnableDirectMode(); }
+        } leave;
+        return HostExecutor().ExecuteSync([superClassId, classId]() {
+            return HandlerHelpers::ClassNames::Resolve(superClassId, classId);
+        }, 1000);
+    } catch (...) {
+        busyUntil = GetTickCount64() + 5000;
+        return {};
+    }
+}
+
 int Initialize(const McpHostApi* host, McpSink error) noexcept {
     if (!host || host->version != kMcpHostApiVersion) {
         McpWriteText(error, "the bridge host API version does not match this core");
         return 1;
     }
     McpHost::Bind(host);
+    HandlerHelpers::ClassNames::Shared().offMainThread = &ClassNameFromMainThread;
     g_initialized = true;
     return 0;
 }
@@ -31,6 +56,9 @@ int Initialize(const McpHostApi* host, McpSink error) noexcept {
 // Leaves no pointer into this module with Max or the shell, so the shell may
 // unload it afterwards. Max's main thread, nothing in flight.
 int Shutdown(McpSink error) noexcept {
+    // Before any refusal: 3ds Max may be exiting, and a kept renderer must be let go
+    // while its reference system is alive.
+    try { PluginAccess::ReleaseReplacedRenderer(); } catch (...) {}
     if (NativeHandlers::SceneWatcherCallbackActive()) {
         McpWriteText(error, "a 3ds Max notification is running inside the native core; retry");
         return 1;
@@ -42,6 +70,7 @@ int Shutdown(McpSink error) noexcept {
         return 1;
     }
     g_initialized = false;
+    HandlerHelpers::ClassNames::Shared().offMainThread = nullptr;
     try { NativeHandlers::ShutdownSceneWatcher(); } catch (...) {}
     WindowCapture::ReleaseFactories();
     McpHost::Bind(nullptr);
