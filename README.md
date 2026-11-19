@@ -33,11 +33,10 @@ The installer includes Python and it's dependencies.
 **Tool profile.** That default is the **Code Mode** profile. The installer also offers **Full**,
 the 1.x profile that lists every tool, with heavily trimmed tool schemas.
 
-**How it works.** The agent writes Python scripts against the `mx` API. `mx.tools.<name>(...)`
-calls any tool in the catalog below and `mx.help("<name>")` prints its manual. A script that
-runs inside 3ds Max is one undo step, rolled back if it fails.
-
-Call these from a `run_python` script as `mx.tools.<name>
+**How it works.** The agent writes Python scripts against the `mx` API and runs them with
+`run_python`. `mx.tools.<name>(...)` calls any tool, `mx.help()` lists them all and
+`mx.help("<name>")` prints one tool's manual. A script that runs inside 3ds Max is one undo
+step, rolled back if it fails.
 
 # This is a highly experimental release. 
 
