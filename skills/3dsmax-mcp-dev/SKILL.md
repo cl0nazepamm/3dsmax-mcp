@@ -33,6 +33,7 @@ MAXScript pitfalls.
 - Token-guarded plugin edits (shared or animated resources, concurrent sessions): `inspect_plugin_class` or `inspect_plugin_instance` with `schema_version=2`, then `plugin_patch` with the returned schema and state tokens.
 
 ### Modeling
+- Reach for the dedicated modeling tools (`curve_model`, `loft_mesh`, `mesh_edit`, `boolean_operation`) for curved, profiled, recessed or hero forms instead of approximating them with stacked primitives.
 - Polygon edits: `inspect_mesh` or an AGENT VIEWPORT capture → `pick_component` with the capture's `view_token` as `expected_view` → `mesh_edit(expected_mesh=...)` → verify with `inspect_mesh`, `geometry_qa` or a capture.
 - Construction: `create_mesh` for computed vertex/face arrays; `loft_mesh` for parameterized section lofts; `curve_model`, `inspect_curve` and `edit_curve` for curve-driven forms (read [curve-construction.md](curve-construction.md) first); `draw_spline` plus Lathe/Extrude/Bevel_Profile/Sweep through `add_modifier`, refined with spline knot edits or `edit_vertices` conform.
 - `boolean_operation`: prefer inline `cutters`, and never consume a node other tools still reference by name.
