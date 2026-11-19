@@ -9,13 +9,13 @@
 
 Connect AI agents to Autodesk 3ds Max through the [Model Context Protocol](https://modelcontextprotocol.io).
 
-This is a preview release of 3dsmax-mcp 2.0.1
+This is 3dsmax-mcp 2.0.1.
 Mainly the new `Code Mode` profile. 
 
 It has a single tool. `run_python` wraps all the existing tools from 1.7.8 to be used by AI agent. 
 
 
-**Current release: 2.0.1 Preview** — see [CHANGELOG.md](docs/CHANGELOG.md).
+**Current release: 2.0.1** — see [CHANGELOG.md](docs/CHANGELOG.md).
 
 ## Features
 
