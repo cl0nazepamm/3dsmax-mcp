@@ -616,7 +616,11 @@ json AssignRenderer(const json& p) {
     const json replaced=OwnerRef(current);
     ip->AssignRenderer(RS_Production,renderer);
     auto* now=ip->GetRenderer(RS_Production);
-    if(!now||now->ClassID()!=cd->ClassID()) Fail("VERIFY_MISMATCH","The production renderer did not change.");
+    if(!now||now->ClassID()!=cd->ClassID()) {
+        KeepReplacedRenderer(nullptr);
+        if(now!=renderer) renderer->MaybeAutoDelete();
+        Fail("VERIFY_MISMATCH","The production renderer did not change.");
+    }
     McpHost::SceneJournal::AppendSynthetic("assign_renderer",{{"renderer",Identity(cd)["name"]}});
     return {{"status","assigned"},{"replaced",replaced},{"context",Context()}};
 }

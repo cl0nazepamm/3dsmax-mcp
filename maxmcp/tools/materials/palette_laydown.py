@@ -21,7 +21,7 @@ def palette_laydown(
     sample_mode: str = "first",
     overflow_mode: str = "truncate",
     random_seed: int | None = None,
-) -> str:
+) -> str | dict:
     """Lay down folder textures into Compact Material Editor palette slots.
 
     slot_content: material = one preview per bitmap (OpenPBR by default); bitmap = raw

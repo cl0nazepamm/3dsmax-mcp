@@ -110,11 +110,14 @@ class Node:
     def __repr__(self) -> str:
         return f"Node({self._name!r}, handle={self.handle})"
 
+    def _identity(self) -> tuple[Any, ...]:
+        return (self.handle,) if self.handle is not None else (None, self._name)
+
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, Node) and (self.handle, self._name) == (other.handle, other._name)
+        return isinstance(other, Node) and self._identity() == other._identity()
 
     def __hash__(self) -> int:
-        return hash((self.handle, self._name))
+        return hash(self._identity())
 
     def _target(self) -> dict[str, Any]:
         return {"handle": self.handle} if self.handle else {"name": self._name}

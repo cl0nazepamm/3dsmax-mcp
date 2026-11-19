@@ -526,7 +526,7 @@ def smart_import(
     lod_filter: str = "lod0",
     name_pattern: str = "",
     exclude_pattern: str = "",
-) -> str:
+) -> str | dict:
     """Batch-import 3D meshes from a folder, auto-assigning materials by stem matching.
 
     folder:
