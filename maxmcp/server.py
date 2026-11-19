@@ -3,8 +3,7 @@
 Every tool is a Python function in maxmcp/tools, declared with @mcp.tool() and called
 from scripts as mx.tools.<name>(**arguments). By default MCP clients list five of them:
 run_python, which runs a script against the mx API, and the four that choose which
-3ds Max the server talks to. The full, core and progressive tool profiles list more
-(maxmcp/profiles.py).
+3ds Max the server talks to. The full tool profile lists every tool (maxmcp/profiles.py).
 """
 
 import logging
@@ -19,7 +18,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .core.max_client import MaxClient
 from .core.tool_response import make_structured_tool
-from .profiles import PROGRESSIVE_INSTRUCTIONS, ROUTING_MODULE, SCRIPT_MODULE, ToolProfile, tool_annotations
+from .profiles import ROUTING_MODULE, SCRIPT_MODULE, ToolProfile, tool_annotations
 from .registry import ToolRegistry
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -43,7 +42,7 @@ def _install_tool_decorator() -> None:
         registry.add(fn, name)
         module = fn.__module__.partition(".tools.")[2]
         tool_name = name or fn.__name__
-        if profile.lists(module, tool_name):
+        if profile.lists(module):
             wrapped = make_structured_tool(
                 fn,
                 before_call=client.clear_last_response,
@@ -70,8 +69,7 @@ for _module in profile.startup_modules(registry):
     import_module(f".tools.{_module}", package=__package__)
 # Its @mcp.resource() entries (plugin manifests and guides) exist once it is imported.
 import_module(".tools.inspection.plugins", package=__package__)
-profile.add_own_tools(
-    mcp, registry, before_call=client.clear_last_response, transport_provider=client.get_last_transport)
+profile.add_own_tools(mcp, before_call=client.clear_last_response, transport_provider=client.get_last_transport)
 
 
 SKILL_RESOURCE_URI = "resource://3dsmax-mcp/skill"
@@ -126,12 +124,6 @@ def max_assistant() -> str:
         )
     else:
         reach = "For user requests about the live 3ds Max scene, call the MCP tool that matches the task directly.\n"
-        if profile.name == "progressive":
-            reach = (
-                "This server uses the progressive tool profile: instance routing tools, the most common "
-                "operational tools, and find_tools, list_toolsets, describe_toolset and call_tool are advertised.\n"
-                f"{PROGRESSIVE_INSTRUCTIONS}\n"
-            )
         fallback, failed, explicit = "direct MCP tools are", "tool", "tool usage structured and explicit"
         replies = (
             "MCP tool replies are structured objects: `{ok, result}` on success, `{ok, error}` on failure, optional top-level `hint` (`message`, `suggested_tools`, `next`). Transport only when present on errors. Set MCP_TRIPBACK_MODE=full for elapsed_ms and full transport metadata.\n"

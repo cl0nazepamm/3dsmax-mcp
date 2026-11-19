@@ -1,6 +1,6 @@
 // In-process calls to the bridge's own handlers. The request is the one a
 // named-pipe client sends, routed by the bridge the same way (reload gate,
-// safe mode, main thread; on the main thread the handler runs inline). Heavy
+// main thread; on the main thread the handler runs inline). Heavy
 // operations reuse their existing handlers through this; typed wrappers turn
 // the JSON reply into Python values.
 #include "mx_common.h"

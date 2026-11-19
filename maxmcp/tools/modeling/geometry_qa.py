@@ -122,8 +122,7 @@ def geometry_qa(
     with tempfile.TemporaryDirectory(prefix="mcp_geometry_qa_") as directory:
         path = Path(directory) / "snapshot.txt"
         # The native bridge writes the same snapshot without formatting every
-        # vertex in MAXScript, and safe mode does not block it the way it
-        # blocks the script's createFile.
+        # vertex in MAXScript.
         if client.native_available:
             request = {"name": name, "handle": handle, "path": str(path), "max_faces": max_faces}
             response = str(client.send_command(

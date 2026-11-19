@@ -39,7 +39,6 @@ def _legacy_bridge_status() -> str:
         ",\"renderer\":\"" + (esc rendererName) + "\"" + \
         ",\"objectCount\":" + (objects.count as string) + \
         ",\"selectionCount\":" + (selection.count as string) + \
-        ",\"safeMode\":" + (if MCP_Server.safeMode then "true" else "false") + \
         ",\"port\":" + (MCP_Server.port as string) + \
         "}"
     )"""

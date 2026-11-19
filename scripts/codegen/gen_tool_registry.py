@@ -305,7 +305,7 @@ def main() -> int:
         uniq.append({
             "name": "execute_maxscript",
             "cmdType": "maxscript",
-            "description": "Run arbitrary MAXScript code. Subject to safe_mode filter.",
+            "description": "Run arbitrary MAXScript code.",
             "schema": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]},
         })
 

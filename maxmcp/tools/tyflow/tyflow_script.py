@@ -394,8 +394,8 @@ def tyflow_script(
               enabled floats (read with GetFloat(name)) and settings.
       check - compile `code` (or the operator's current code) against tyFlow's API.
               Returns diagnostics with line/column; nothing runs.
-      set   - check, then apply `code` to the operator. Needs safe mode off and
-              allow_executable=true: the code runs inside 3ds Max. Code with errors
+      set   - check, then apply `code` to the operator. Needs allow_executable=true:
+              the code runs inside 3ds Max. Code with errors
               is refused unchanged. With frames > 0 it also runs (see run).
       run   - reset and simulate the flow to `frames`; returns `compiled` (tyFlow
               compiled this operator), `output` (Print lines), `exceptions` thrown

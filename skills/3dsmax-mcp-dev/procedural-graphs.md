@@ -9,7 +9,7 @@ The tools' manuals cover their own arguments; this holds what they do not say.
 - In raw MAXScript, `operator_order` holds 0-based storage IDs while UI/operator indexes are 1-based positions, and deletion leaves stale entries in `operators`.
 - Validate a complete reorder permutation before assigning `operator_order`; Autodesk's `ReorderStackOperator` does not bounds-check and unsafe input can destabilize Max.
 - Max 2027 stores `operator_ops` as 0=unset, 1=Replace, 2=Add through 7=Cross despite older MAXScript help claiming 0..6; a fresh stack's first Input must be explicitly set to 1 or Max leaves the graph invalid and unevaluated.
-- Treat Maxscript, Maxscript Process, and Expression operators as executable code; require explicit authorization and fail closed unless MCP safe mode is disabled.
+- Treat Maxscript, Maxscript Process, and Expression operators as executable code; set them only with `allow_executable=true` and the user's explicit authorization.
 
 ## Max Creation Graph
 
@@ -23,9 +23,9 @@ The tools' manuals cover their own arguments; this holds what they do not say.
 
 ### Safety
 
-- Treat `EvalMAXScript`, nonblank `<customui>`, and executable compound dependencies as code-execution surfaces; block them by default and never override MCP safe mode.
+- Treat `EvalMAXScript`, nonblank `<customui>`, and executable compound dependencies as code-execution surfaces: they compile only with `allow_executable=true`, which needs the user's explicit authorization.
 - Treat live-catalog `Impure` operators as unsafe, not diagnostic warnings: disposable verification can execute scene-mutating operators such as selection, parenting, or cloning outside the probe object's cleanup boundary. Offline `OperatorMetaInfo.xml` does not declare impurity, so treat it as unknown until the live operator depot confirms.
-- Embree operators (`RayTraceScene`, `RayTraceAddGeometry`, face-intersection variants) are `impure: true` and blocked under MCP safe mode even with `allow_executable`.
+- Embree operators (`RayTraceScene`, `RayTraceAddGeometry`, face-intersection variants) are `impure: true`, so a graph with one compiles only with `allow_executable=true`.
 
 ### Authoring
 

@@ -30,8 +30,8 @@ It has a single tool. `run_python` wraps all the existing tools from 1.7.8 to be
 
 The installer includes Python and it's dependencies.
 
-**Tool profile.** That default is the **Code Mode** profile. The installer also offers the profiles
-of 1.x with heavily trimmed tool schemas
+**Tool profile.** That default is the **Code Mode** profile. The installer also offers **Full**,
+the 1.x profile that lists every tool, with heavily trimmed tool schemas.
 
 **How it works.** The agent writes Python scripts against the `mx` API. `mx.tools.<name>(...)`
 calls any tool in the catalog below and `mx.help("<name>")` prints its manual. A script that

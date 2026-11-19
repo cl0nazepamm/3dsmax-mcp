@@ -9,10 +9,8 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <chrono>
-#include <initializer_list>
 #include <optional>
 #include <unordered_set>
-#include <shlobj.h>
 
 #include <max.h>
 #include <maxapi.h>
@@ -22,20 +20,6 @@
 #include <CoreFunctions.h>
 
 using json = nlohmann::json;
-
-// ── Safe mode config ───────────────────────────────────────────
-// Read from %LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini
-// [mcp] safe_mode = true|false  (default: true)
-static bool g_safeMode = true;
-static bool g_safeModeLoaded = false;
-
-static bool IsSafeModeEnabled() {
-    if (!g_safeModeLoaded) {
-        g_safeMode = McpEnvelope::ReadSafeModeSetting();
-        g_safeModeLoaded = true;
-    }
-    return g_safeMode;
-}
 
 // ── Thread mode classification ──────────────────────────────────
 // Read-only handlers run directly on the pipe worker thread,
@@ -309,10 +293,9 @@ static std::string BuildResponse(
     const std::string& cmd_type,
     int duration_ms) {
     // Same envelope as the shell's own answers (response_envelope.h).
-    const bool safe_mode = IsSafeModeEnabled();
     const bool direct = HostExecutor::IsDirectMode();
     std::string response = McpEnvelope::Build(success, result, error, request_id, cmd_type, duration_ms,
-                                              safe_mode, direct, McpHost::DialogWatch::OpenDialogs());
+                                              direct, McpHost::DialogWatch::OpenDialogs());
     if (tl_quiet_override.empty()) return response;
     // A script ran with Max's quiet mode off although the caller left quiet
     // unset. Rare, so the envelope is reparsed only then.
@@ -321,52 +304,10 @@ static std::string BuildResponse(
     return resp.dump();
 }
 
-// ── Safe mode filter ────────────────────────────────────────────
-static bool ContainsBlockedCommand(const std::string& cmd) {
-    // Case-insensitive check for dangerous MAXScript commands
-    std::string lower = cmd;
-    for (auto& c : lower) c = (char)tolower((unsigned char)c);
-
-    static const char* blocked[] = {
-        "doscommand",
-        "shelllaunch",
-        "deletefile",
-        "python.execute",
-        "createfile",
-        "hiddendoscommand",
-    };
-    for (const char* b : blocked) {
-        if (lower.find(b) != std::string::npos) return true;
-    }
-    return false;
-}
-
-static void RejectBlockedScript(const std::string& script) {
-    if (IsSafeModeEnabled() && ContainsBlockedCommand(script)) {
-        throw std::runtime_error("Blocked by safe mode: command contains a restricted function. Set safe_mode=false in %LOCALAPPDATA%\\3dsmax-mcp\\mcp_config.ini to disable.");
-    }
-}
-
-// Native payloads that carry MAXScript get the maxscript route's screen. The
-// decoded strings are checked: JSON escapes can spell a blocked name.
-static void RejectBlockedPayloadScripts(const std::string& command, std::initializer_list<const char*> keys) {
-    if (!IsSafeModeEnabled()) return;
-    json payload = json::parse(command, nullptr, false);
-    if (!payload.is_object()) return;
-    for (const char* key : keys) {
-        auto it = payload.find(key);
-        if (it != payload.end() && it->type() == json::value_t::string)
-            RejectBlockedScript(it->get<std::string>());
-    }
-}
-
 // ── MAXScript handler ───────────────────────────────────────────
 static std::string HandleMaxScript(
     const std::string& command,
     bool quiet) {
-
-    RejectBlockedScript(command);
-
     // MAXScript runs on Max's main thread only, whatever the thread mode.
     return McpHost::RunOnMainThread([&command, quiet]() -> std::string {
         HandlerHelpers::RequireMaxScriptThread();
@@ -542,7 +483,6 @@ std::string CommandDispatcher::Dispatch(
         } else if (cmd_type == "native:scene_qa_fix") {
             result = NativeHandlers::SceneQAFix(command, gup);
         } else if (cmd_type == "native:mesh_script") {
-            RejectBlockedPayloadScripts(command, {"resolve", "script", "finish"});
             result = NativeHandlers::MeshScript(command, gup);
         } else if (cmd_type == "native:geometry_snapshot") {
             result = NativeHandlers::GeometrySnapshot(command, gup);

@@ -1,8 +1,8 @@
 // In-process entry point for Python running inside 3ds Max (maxmcp.inmax / mx).
 //
 // mcp_bridge_call takes the same request JSON a pipe client sends and returns the
-// same response, routed through CoreHost::Dispatch: the reload gate, CORE_BUSY,
-// safe mode and main-thread rules are identical. Called on Max's main thread (the
+// same response, routed through CoreHost::Dispatch: the reload gate, CORE_BUSY
+// and main-thread rules are identical. Called on Max's main thread (the
 // usual case for pymxs scripts), main-thread work runs inline, as for a handler
 // that re-enters Dispatch; from another thread it is marshalled like a pipe request.
 //

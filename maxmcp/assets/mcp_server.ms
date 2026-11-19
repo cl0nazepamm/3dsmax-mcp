@@ -21,7 +21,6 @@ struct MCPServerStruct
 	listener = undefined,
 	isRunning = false,
 	port = 8765,
-	safeMode = true,
 	protocolVersion = 2,
 	idlePollIntervalMs = 1500,
 	activePollIntervalMs = 50,
@@ -68,17 +67,8 @@ struct MCPServerStruct
 	),
 
 	-- Load shared config from %LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini
-	fn loadSafeMode =
-	(
-		local val = loadConfigString "safe_mode" "true"
-		if val == "" do val = "true"
-		val = toLower (trimLeft (trimRight val))
-		not (val == "false" or val == "0" or val == "off")
-	),
-
 	fn loadConfig =
 	(
-		safeMode = loadSafeMode()
 		idlePollIntervalMs = loadConfigInt "tcp_idle_poll_interval_ms" idlePollIntervalMs 250 60000
 		activePollIntervalMs = loadConfigInt "tcp_active_poll_interval_ms" activePollIntervalMs 10 5000
 		activePollTicksAfterRequest = loadConfigInt "tcp_active_poll_ticks_after_request" activePollTicksAfterRequest 0 1000
@@ -158,7 +148,6 @@ struct MCPServerStruct
 			"\"meta\":{" + \
 				"\"protocolVersion\":" + (protocolVersion as string) + "," + \
 				"\"cmdType\":\"" + safeCmdType + "\"," + \
-				"\"safeMode\":" + (if safeMode then "true" else "false") + "," + \
 				"\"durationMs\":" + (durationMs as string) + \
 			"}" + \
 		"}"
@@ -256,7 +245,6 @@ struct MCPServerStruct
 			local result = undefined
 			local success = true
 			local errorMsg = ""
-			local savedSafeMode = safeMode
 
 			try
 			(
@@ -271,42 +259,14 @@ struct MCPServerStruct
 						",\"renderer\":\"" + (escapeJsonString rendererName) + "\"" + \
 						",\"objectCount\":" + (objects.count as string) + \
 						",\"selectionCount\":" + (selection.count as string) + \
-						",\"safeMode\":" + (if safeMode then "true" else "false") + \
 						",\"port\":" + (port as string) + "}"
 				)
 				else if cmdType == "maxscript" then
-				(
-					if safeMode then
-					(
-						-- Block dangerous commands
-						local lowerCmd = toLower command
-						local blocked = #("doscommand", "shelllaunch", "deletefile", "python.execute", "createfile", "hiddendoscommand")
-						local isBlocked = false
-						for b in blocked while not isBlocked do
-							if findString lowerCmd b != undefined do isBlocked = true
-						if isBlocked then
-						(
-							success = false
-							errorMsg = "Blocked by safe mode. Set safe_mode=false in %LOCALAPPDATA%\\3dsmax-mcp\\mcp_config.ini to disable."
-						)
-						else
-							result = execute command
-					)
-					else
-						result = execute command
-				)
+					result = execute command
 				else if cmdType == "python" then
 				(
-					if safeMode then
-					(
-						success = false
-						errorMsg = "Python execution blocked by safe mode"
-					)
-					else
-					(
-						python.Execute command
-						result = "Python executed"
-					)
+					python.Execute command
+					result = "Python executed"
 				)
 				else
 				(
@@ -319,9 +279,6 @@ struct MCPServerStruct
 				success = false
 				errorMsg = getCurrentException()
 			)
-
-			-- Restore safeMode so commands cannot tamper with it
-			safeMode = savedSafeMode
 
 			response = buildResponse success result errorMsg requestId:requestId startedAt:startedAt cmdType:cmdType
 		)
@@ -500,8 +457,8 @@ if MCP_Server != undefined and MCP_Server.isRunning then
 )
 MCP_Server = MCPServerStruct()
 MCP_Server.loadConfig()
-format "MCP: helpers loaded (safe_mode = %, native bridge = %, tcp idle poll = % ms)\n" \
-	MCP_Server.safeMode (MCP_Server.nativeBridgeAvailable()) MCP_Server.idlePollIntervalMs
+format "MCP: helpers loaded (native bridge = %, tcp idle poll = % ms)\n" \
+	(MCP_Server.nativeBridgeAvailable()) MCP_Server.idlePollIntervalMs
 
 macroScript MCP_Claim_This_Max category:"MCP" tooltip:"Make this Max the active MCP target" buttonText:"MCP Claim This Max"
 (

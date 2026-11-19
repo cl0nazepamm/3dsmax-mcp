@@ -182,7 +182,6 @@ def _live_context() -> dict[str, Any]:
         "max_year": year,
         "max_root": str(max_root) if max_root else "",
         "secure_mode": parts[2].strip().lower() == "true",
-        "safe_mode": bool(meta.get("safeMode", meta.get("safe_mode", True))),
         "user_tools": _b64_decode(parts[3]),
         "user_compounds": _b64_decode(parts[4]),
         "user_packages": _b64_decode(parts[5]),
@@ -210,7 +209,6 @@ def _context_with_fallback(*, require_bridge: bool = False) -> dict[str, Any]:
             "max_year": int(latest["year"]) if latest else 0,
             "max_root": str(latest["root"]) if latest else "",
             "secure_mode": None,
-            "safe_mode": None,
             "user_tools": "",
             "user_compounds": "",
             "user_packages": "",
@@ -317,8 +315,8 @@ def _exception_code(exc: BaseException) -> str:
             if isinstance(payload, dict) and payload.get("code"):
                 return str(payload["code"])
     message = str(exc).casefold()
-    if "safe mode" in message or isinstance(exc, MCGSecurityError):
-        return "SAFE_MODE"
+    if isinstance(exc, MCGSecurityError):
+        return "BAD_PARAM"
     connection_markers = (
         "bridge",
         "could not connect",
@@ -504,7 +502,6 @@ def _compile_path(path: Path, timeout_seconds: int = 120) -> dict[str, Any]:
             "diagnostic_graph": str(txt_path) if txt_path.is_file() else "",
         },
         "transport": meta.get("transport", ""),
-        "safe_mode": meta.get("safeMode", meta.get("safe_mode")),
     }
 
 
@@ -1307,10 +1304,6 @@ def _compile_and_verify(
                 str(finding.get("message") or finding.get("kind") or "unsafe MCG content")
                 for finding in findings
             ]
-        )
-    if findings and context.get("safe_mode") is not False:
-        raise MCGSecurityError(
-            "Executable or scene-mutating MCG content cannot compile while MCP safe mode is enabled"
         )
     compile_result = _compile_path(path, timeout_seconds=timeout_seconds)
     proof: dict[str, Any] = {
@@ -2194,12 +2187,6 @@ def mcg_reload_operators() -> dict[str, Any]:
             error_type="MCGReloadError",
             code="BRIDGE_DOWN",
             retryable=True,
-        )
-    if context.get("safe_mode") is not False:
-        return _error(
-            "Global MCG operator reload is blocked while MCP safe mode is enabled",
-            error_type="MCGSecurityError",
-            code="SAFE_MODE",
         )
     script = '''(
 try (

@@ -109,37 +109,27 @@ To expose tools of your own, write your own MCP server around `maxmcp.mx`, which
 
 ### Tool profiles
 
-The default above is the **code** profile. The other profiles list tools directly, for clients and models that work better that way. A profile decides only what a client lists, and so how much of the context window the server takes before any work starts; `run_python` scripts reach every tool in every profile.
+The default above is the **code** profile. The **full** profile lists every tool directly, for clients and models that work better that way. A profile decides only what a client lists, and so how much of the context window the server takes before any work starts; `run_python` scripts reach every tool in both profiles.
 
 | Profile | Advertised surface | Tool definitions per request (Claude tokens) |
 |---------|--------------------|----------------------------------------------|
 | **code** (default) | `run_python` and the 4 instance routing tools | ~2k |
-| **progressive** | The routing tools, the 14 most common tools and `run_python` (`DIRECT_TOOLS` in `maxmcp/profiles.py`), and `find_tools`, `list_toolsets`, `describe_toolset`, `call_tool` | ~7k |
-| **core** | Scene, object, modeling, material, controller, viewport, file, plugin, lighting and render setup tools | ~19k |
-| **full** | Every tool: core plus tyFlow, MCG, Forest Pack, RailClone, Data Channel, Pulze, effects, state sets, wire params, render automations, and the development-only native core reload | ~28k |
+| **full** | Every tool, including tyFlow, MCG, Forest Pack, RailClone, Data Channel, Pulze, effects, state sets, wire params, render automations, and the development-only native core reload | ~28k |
 
 Figures are approximate, with the default `hybrid` tool docs. Other models' tokenizers count differently.
 
-The installer persists the choice as `[mcp] tool_profile` in `%LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini`. The Windows setup shows the installed profile selected and changes the setting only when another one is picked; it accepts `/TOOLPROFILE=code|full|progressive|core` for unattended installs. `MCP_TOOL_PROFILE` (or `THREEDSMAX_MCP_TOOL_PROFILE`) overrides the setting for one launch:
+The installer persists the choice as `[mcp] tool_profile` in `%LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini`. The Windows setup shows the installed profile selected and changes the setting only when another one is picked; it accepts `/TOOLPROFILE=code|full` for unattended installs. `MCP_TOOL_PROFILE` (or `THREEDSMAX_MCP_TOOL_PROFILE`) overrides the setting for one launch:
 
 ```powershell
-$env:MCP_TOOL_PROFILE = "progressive"
+$env:MCP_TOOL_PROFILE = "full"
 uv run 3dsmax-mcp
 ```
 
-A server with no installed setting and no override uses **code**, and so does one given a name that is not a profile.
-
-Progressive workflow:
-
-1. Use a directly listed tool when one fits.
-2. Otherwise call `find_tools(query)` with what you need, for example `"boolean subtract"` or `"spline knots"`. It returns the best matches with their exact input schemas. `list_toolsets` and `describe_toolset(toolset, tools=[...])` browse the groups instead; a toolset is one folder of `maxmcp/tools`, the same groups `mx.help()` prints.
-3. Call `call_tool(name, arguments)`. A wrong or unknown argument name is refused with the tool's signature, and an unknown tool name suggests close matches.
-
-The tools `call_tool` reaches are not registered with the client, so `tools/list` does not change after discovery. `call_tool` runs a tool through the same registry as `mx.tools`, with the same argument check and the same `ToolEnvelope`. It does not make mutating tools safer: bridge `safe_mode`, tool-specific dry-run controls, and normal mutation precautions still apply.
+A server with no installed setting and no override uses **code**, and so does one given a name that is not a profile, such as the `core` and `progressive` profiles that 1.x offered.
 
 ### Tool docs
 
-In `full`, `core` and `progressive`, `[mcp] tool_docs` in `mcp_config.ini`, or `MCP_TOOL_DOCS` (`THREEDSMAX_MCP_TOOL_DOCS`) for one launch, decides how the advertised tools are documented. `code` advertises five tools and always documents them in full.
+In `full`, `[mcp] tool_docs` in `mcp_config.ini`, or `MCP_TOOL_DOCS` (`THREEDSMAX_MCP_TOOL_DOCS`) for one launch, decides how the advertised tools are documented. `code` advertises five tools and always documents them in full.
 
 | Mode | Advertised tools | Full profile |
 |------|------------------|--------------|
@@ -154,7 +144,7 @@ Move, rotate, and/or scale an object by world/local offsets.
 (name:str='', handle:int=0, move:list[float]=None, rotate:list[float]=None, scale:list[float]=None, coordinate_system:str='world')
 ```
 
-A signature tool advertises `{"type": "object"}` as its input schema, so its arguments are validated against the Python signature, strictly: an argument name the tool does not take is refused instead of dropped, and the error repeats the signature. `tool_help(name)`, which `full` and `core` list in these modes, returns any listed tool's full manual and JSON Schema. Models often pass numbers and arrays to signature tools as strings; numeric strings and JSON-encoded lists, objects and models are converted, but a `str` parameter keeps what it was given. In hybrid and signature mode `expected_pid` is accepted by every tool but advertised once, in the server instructions, instead of in each schema. What `find_tools` and `describe_toolset` return is always a tool's full manual and schema.
+A signature tool advertises `{"type": "object"}` as its input schema, so its arguments are validated against the Python signature, strictly: an argument name the tool does not take is refused instead of dropped, and the error repeats the signature. `tool_help(name)`, which `full` lists in these modes, returns any listed tool's full manual and JSON Schema. Models often pass numbers and arrays to signature tools as strings; numeric strings and JSON-encoded lists, objects and models are converted, but a `str` parameter keeps what it was given. In hybrid and signature mode `expected_pid` is accepted by every tool but advertised once, in the server instructions, instead of in each schema.
 
 In every mode, advertised input schemas omit Pydantic titles and spell optional `X | None = None` parameters as plain `X`; arguments are still validated against the Python signature, so an explicit `null` is accepted.
 
@@ -162,16 +152,15 @@ In every mode, advertised input schemas omit Pydantic titles and spell optional 
 
 `run_python(code)` runs a script with `mx` (`maxmcp.mx`) pre-imported. The reply's `ran_in` says where it ran:
 
-- **`max`**: inside 3ds Max's own Python, when the bridge allows Python (`safe_mode` off) and exports the in-process
-  entry point `mcp_bridge_call`. 3ds Max 2027 runs the server's Python (3.13) and loads the server's packages; 2023
+- **`max`**: inside 3ds Max's own Python, when the bridge exports the in-process entry point `mcp_bridge_call`. 3ds Max 2027 runs the server's Python (3.13) and loads the server's packages; 2023
   to 2026 run Python 3.9 to 3.11 and load the copy of pydantic and Pillow built for it (`maxmcp/inmax/site`), and
   each bridge ships the `_mx` built for its 3ds Max and Python (`mx_<year>` beside the plugin).
   `mx` reaches the native handlers in-process instead of over the named pipe, and `sdk`, `rt` (`pymxs.runtime`) and
   `pymxs` are in scope. Everything the script changes (tool calls, `sdk` and `rt` edits) is one undo step, rolled
   back entirely if the script raises. A script never joins an operation the user has open: it is refused with
   `USER_BUSY`.
-- **`server`**: otherwise, in the MCP server process, sandboxed, each tool call its own undo step; `note` says why
-  it could not run in Max. `where="max"` or `"server"` forces one.
+- **`server`**: otherwise, in the MCP server process, each tool call its own undo step; `note` says why it could
+  not run in Max. `where="max"` or `"server"` forces one.
 
 A tool call checks its arguments against the function's signature before anything is sent to 3ds Max. An argument
 name the tool does not take, or a value of the wrong type, raises `mx.MaxToolError` with code `BAD_PARAM` and the
@@ -190,7 +179,8 @@ result = {"bbox": blk.bbox, "faces": mx.qa(blk)["counts"]["triangles"]}
 ```
 
 Helpers live in `maxmcp/mx/objects.py`, `modeling.py`, `shading.py` and `view.py`. A script that runs in the server
-may import only `mx` and the standard math/json/re/itertools family; every script stops at `timeout_s`.
+may import only `mx` and the standard math/json/re/itertools family, a convenience rather than a security boundary;
+every script stops at `timeout_s`.
 
 ## Config file
 
@@ -204,39 +194,21 @@ Example:
 
 ```ini
 [mcp]
-safe_mode = false
 tool_profile = code
 tcp_idle_poll_interval_ms = 1500
 ```
 
-## Safe mode
+## Security
 
-A fresh install has `safe_mode = false`. That is what lets `run_python` scripts run inside 3ds Max, with `sdk`, `rt` and one undo step per script.
+A connected client runs code in 3ds Max as your Windows user: MAXScript, Python and every native handler, with no
+filter. Connect only clients you trust. The named pipe uses default ACLs, so any process running as your user can
+connect to it.
 
-With `safe_mode = true`:
+Before 2.0 a `safe_mode` setting blocked scripts that named one of six MAXScript functions. Scripts got around it by
+building the name as a string, through .NET or through `python.import`, and it kept `run_python` out of 3ds Max, so it
+was removed. A `safe_mode` line left in `mcp_config.ini` is ignored.
 
-- `run_python` scripts run in the MCP server's sandbox instead, each tool call its own undo step, without `sdk` or `rt`.
-- `execute_python` is refused.
-- `execute_maxscript` blocks scripts that contain `DOSCommand`, `HiddenDOSCommand`, `ShellLaunch`, `deleteFile`, `createFile` or `python.Execute`.
-- Script and expression operators of tyFlow, Data Channel and MCG are refused.
-
-```ini
-[mcp]
-safe_mode = true
-```
-
-Restart 3ds Max after changing the setting. An update keeps the `mcp_config.ini` that is installed, so a config written by 1.x still says `safe_mode = true` until you change it. With no setting at all (a missing file or line) the bridge treats safe mode as on.
-
-### Scope — read this
-
-Safe mode is an **accident preventer**, not a sandbox. It is a case-insensitive substring blocklist, so determined authors can bypass it with concatenation or indirect calls.
-
-What it does **not** cover:
-
-- Native handlers run unfiltered: `delete_objects`, `manage_scene`, `render_setup`, `merge_from_file`, `write_osl_shader`, viewport capture (disk writes), etc.
-- The named pipe uses default ACLs — any process running as your user can connect on a typical dev machine.
-
-### Quiet mode and the save prompt
+## Quiet mode and the save prompt
 
 Tool scripts run in Max's quiet mode, so prompts take their default answer. For the "save changes?" prompt of a reset, open, fetch or quit, that default discards unsaved work, so a script that mentions one of those commands runs with prompts shown and the prompt reaches the agent as `BLOCKED_BY_DIALOG`. While the scene has unsaved changes, `execute_maxscript` and `execute_python` refuse such a script with `UNSAVED_CHANGES` unless `allow_discard=True` is passed. `manage_scene` fetch and reset always keep their prompt. The `execute_maxscript` manual lists the commands and the exact rules.
 ## Multi-instance Max
@@ -323,7 +295,7 @@ Regenerate the smoke catalog with `python scripts/codegen/gen_tool_smoke.py`.
 |------|---------|
 | `maxmcp/server.py` | FastMCP entry; advertises the tools the profile lists, by default `run_python` and the instance routing tools |
 | `maxmcp/registry.py` | Finds a tool by name, checks its arguments, and backs `mx.help` and `mx.find_tools` |
-| `maxmcp/profiles.py`, `maxmcp/user_config.py` | The `code`, `full`, `core` and `progressive` tool profiles and their `tool_docs` modes; the `mcp_config.ini` settings that select them |
+| `maxmcp/profiles.py`, `maxmcp/user_config.py` | The `code` and `full` tool profiles and the `tool_docs` modes of `full`; the `mcp_config.ini` settings that select them |
 | `maxmcp/mx/`, `maxmcp/inmax/` | The script API, and its host inside 3ds Max |
 | `maxmcp/tools/<group>/` | One folder per subject. Modules without a leading underscore declare tools; `_*.py` are their helpers |
 | `maxmcp/core/` | Named-pipe client, response envelopes, MAXScript escaping, hung-Max diagnostics |

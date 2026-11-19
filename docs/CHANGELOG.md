@@ -9,16 +9,16 @@ All notable changes to this project are documented here.
 ### Scripts
 
 - **`run_python` and the `mx` API.** One script does a whole step. `mx.box`, `mx.boolean`, `mx.render_setup`, `mx.capture` and other helpers return nodes with live readback, and `mx.tools.<name>(**arguments)` reaches every tool through the same validation and guards. `mx.help()` lists the tools by group, `mx.find_tools("boolean subtract")` searches them and `mx.help("<name>")` prints one manual. A wrong argument name or type raises `mx.MaxToolError` before anything reaches 3ds Max. `print()` output, a `result` variable, images (`mx.show`) and the list of tool calls come back with the reply.
-- **Scripts run inside 3ds Max**, 2023 to 2027, when `safe_mode` is off. There `rt`/`pymxs` and `sdk` are in scope, and everything a script changes (tool calls, `sdk` and `rt` edits) is one undo step, rolled back if the script raises; the reply says when a rollback was incomplete. With safe mode on, a script runs sandboxed in the server and each tool call is its own undo step.
+- **Scripts run inside 3ds Max**, 2023 to 2027. There `rt`/`pymxs` and `sdk` are in scope, and everything a script changes (tool calls, `sdk` and `rt` edits) is one undo step, rolled back if the script raises; the reply says when a rollback was incomplete. Where a bridge cannot run it (an older bridge, or a Max whose Python differs from the server's), a script runs in the server and each tool call is its own undo step.
 - **`sdk`, the scene object model bound from the 3ds Max SDK**, with calls in microseconds. What the scene has many of is a collection that answers like `bpy.data`: `sdk.nodes["Ball"]`, `sdk.nodes("Wall*", cls="Box")`, `sdk.nodes.new("Sphere", "Ball", radius=10)`, and the same for `selection`, `materials`, `texmaps`, `layers`, `groups`, `selection_sets`, `classes`, `plugins` and more. Nodes have `pos`, `rot`, `scale`, `transform`, `params`, modifiers, tracks and keys; `with sdk.at(10):` and `with sdk.animate():` set the time and key. Every signature is typed. `mx.help("sdk")` is the index and `docs/mx-sdk-reference.md` the reference.
 - **One node type.** The `mx` helpers return sdk nodes inside 3ds Max and `mx.Node` outside it, with the same core under the same names: `handle`, `name`, `exists`, `class_name`, `pos`, `bbox`, `hidden`, `delete()`.
 
 ### Tool profiles
 
 - **`code` is the default profile** ([#38](https://github.com/cl0nazepamm/3dsmax-mcp/issues/38)): the server lists `run_python` and the four tools that choose which 3ds Max it talks to. Their definitions take about 2k Claude tokens of every request, where the tool list of 1.7.8 took about 103k.
-- **`full`, `core` and `progressive` stay as a choice**, through `MCP_TOOL_PROFILE`, `[mcp] tool_profile` in `mcp_config.ini`, `install.py --tool-profile` or the Windows setup's profile page (`/TOOLPROFILE=`). An update keeps the profile that is installed. Both installers mark the three as deprecated.
-- **Listed tools take 63% less context**: full is about 28k tokens, core 19k. The 14 most used tools keep their full description and JSON Schema; every other tool is its first line plus a Python-style signature, and `tool_help(name)` returns the full manual. `[mcp] tool_docs = complete` lists everything in full, `signature` nothing in full.
-- **Progressive** lists the 14 common tools, `run_python` and the discovery tools, about 7k tokens. `find_tools(query)` returns the best matches with their schemas and `call_tool` runs one.
+- **`full` stays as a choice**, through `MCP_TOOL_PROFILE`, `[mcp] tool_profile` in `mcp_config.ini`, `install.py --tool-profile` or the Windows setup's profile page (`/TOOLPROFILE=`). An update keeps the profile that is installed. Both installers mark it as deprecated.
+- **`core` and `progressive` are gone**, with progressive's `find_tools`, `list_toolsets`, `describe_toolset` and `call_tool`. A config or `MCP_TOOL_PROFILE` that names one gets `code`.
+- **Listed tools take 63% less context**: full is about 28k tokens. The 14 most used tools keep their full description and JSON Schema; every other tool is its first line plus a Python-style signature, and `tool_help(name)` returns the full manual. `[mcp] tool_docs = complete` lists everything in full, `signature` nothing in full.
 
 ### New tools
 
@@ -30,10 +30,10 @@ All notable changes to this project are documented here.
 ### Changed
 
 - `lighting_capabilities`, `create_lights`, `inspect_lights`, `edit_lights` and `render_scene` are gone; `render_setup` replaces them.
-- Tools listed as a signature, and `call_tool`, refuse an argument name the tool does not take instead of dropping it.
+- Tools listed as a signature refuse an argument name the tool does not take instead of dropping it.
 - `transform_object` and `scene_patch` rotate like MAXScript's `rotate node (eulerAngles x y z)`: `rotate=[0, 0, 90]` turns +X to +Y. They turned the other way.
 - With several 3ds Max instances the default is the one the user can see, not the one that registered last, and `list_max_instances` reports each window's title, `minimized` and `foreground`.
-- A fresh install has `safe_mode = false`, so scripts run inside 3ds Max out of the box. An update keeps the installed `mcp_config.ini`: a config from 1.x still says `safe_mode = true`, and scripts stay in the server's sandbox until that line is changed.
+- **Safe mode is gone.** It refused MAXScript that named one of six functions (`DOSCommand`, `ShellLaunch`, `deleteFile`, ...), which a script got around by building the name as a string, through .NET or through `python.import`, and it kept `run_python` scripts out of 3ds Max. A `safe_mode` line left in `mcp_config.ini` is ignored, and the `SAFE_MODE` error code and the `safeMode` field of bridge replies are gone. tyFlow, Data Channel and MCG script operators still need `allow_executable=true`.
 - The server and the Windows setup run Python 3.13.
 - The source is reorganized: one folder per subject under `maxmcp/tools`, shared code in `maxmcp/core`, files that are not Python in `maxmcp/assets`. Code that imports `maxmcp` modules directly needs the new paths; tool names are unchanged.
 - The repository carries no built bridges. A release ships them with their `_mx`; a checkout builds its own with CMake before `install.py`.

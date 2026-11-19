@@ -5,8 +5,8 @@ Connect AI agents to **Autodesk 3ds Max** through the [Model Context Protocol](h
 Ask in natural language; the agent creates objects, builds materials, drives modifiers and
 controllers, captures viewports, and inspects plugins. By default it works through one tool,
 `run_python`, writing Python scripts against an API with about 180 tools behind it, so the tool
-list takes about 2k tokens of context. The `full`, `core` and `progressive` profiles list the
-tools to the client directly instead.
+list takes about 2k tokens of context. The `full` profile lists every tool to the client
+directly instead.
 
 - **Native bridge** — a C++ plugin for 3ds Max 2023–2027, no MAXScript polling
 - **Scripts inside 3ds Max** — a script runs in Max's own Python with `sdk`, the scene object model bound from the SDK, and everything it changes is one undo step
@@ -34,7 +34,7 @@ chooses one without the prompt. **Restart 3ds Max afterwards** so the plugin loa
 
 **Requirements:** Windows · Python 3.13+ · 3ds Max 2023–2027
 
-Manual MCP client setup, tool profiles, safe mode and architecture notes are documented in
+Manual MCP client setup, tool profiles, security and architecture notes are documented in
 [docs/ADVANCED.md](https://github.com/cl0nazepamm/3dsmax-mcp/blob/master/docs/ADVANCED.md).
 
 ---
@@ -46,7 +46,7 @@ Manual MCP client setup, tool profiles, safe mode and architecture notes are doc
 
 用中文描述你要做的事，智能体直接操作场景——创建物体、构建材质、驱动修改器与控制器、
 截取视口、检查插件。服务器默认只公开 `run_python` 一个操作工具，智能体编写 Python 脚本调用背后约 180 个工具，工具定义约占 2k token；
-也可以选择 `full`、`core` 或 `progressive` 配置，把工具直接公开给客户端。
+也可以选择 `full` 配置，把全部工具直接公开给客户端。
 
 - **原生桥接**：3ds Max 2023–2027 的 C++ 插件，无需 MAXScript 轮询
 - **脚本在 3ds Max 内运行**：脚本使用 Max 自带的 Python 和绑定自 SDK 的场景对象模型 `sdk`，一次脚本的全部修改是一个撤销步骤

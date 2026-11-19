@@ -1,9 +1,9 @@
 """run_python: one script against the mx API instead of many tool calls.
 
 The script runs inside 3ds Max when it can: mx calls reach the native bridge in-process,
-pymxs is in scope and the whole script is one undo step. Otherwise (bridge safe mode on,
-an older bridge, or a Max whose Python differs from the server's) it runs here, in the
-MCP server, sandboxed, with each tool call its own undo step.
+pymxs is in scope and the whole script is one undo step. Otherwise (an older bridge, or a
+Max whose Python differs from the server's) it runs here, in the MCP server, with imports
+limited to mx and the standard library's math/json/re family, each tool call its own undo step.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def _import(name: str, globals: Any = None, locals: Any = None, fromlist: Any = 
 
 
 def _run_in_server(code: str, timeout_s: float) -> dict[str, Any]:
-    """Sandboxed: only mx and the standard math/json/re family, no files or processes."""
+    """Imports limited to mx and the standard math/json/re family: a guard rail, not a security boundary."""
     safe_builtins: dict[str, Any] = {name: getattr(builtins, name) for name in _BUILTINS}
     safe_builtins["__import__"] = _import
     namespace: dict[str, Any] = {"__builtins__": safe_builtins, "__name__": "__mx_script__", "mx": mx}
@@ -150,9 +150,8 @@ def run_python(code: str, timeout_s: float = 300, where: str = "auto") -> dict:
     mx.MaxToolError (.code, .message, .hint) on failure. Units are scene units; positions are
     (x, y, z).
 
-    Where it runs (`ran_in` in the reply): inside 3ds Max when the bridge allows Python
-    (safe_mode off). There `sdk`, `rt` (pymxs.runtime)
-    and pymxs are in scope too, and everything the script changes (tool calls, sdk and rt
+    Where it runs (`ran_in` in the reply): inside 3ds Max whenever it can. There `sdk`,
+    `rt` (pymxs.runtime) and pymxs are in scope too, and everything the script changes (tool calls, sdk and rt
     edits) is ONE undo step, rolled back entirely if the script raises. An undo inside the
     script (mx.tools.undo_last(), sdk.undo()) first commits what it changed so far as its own
     step. Otherwise in the MCP server: imports limited to mx and the standard math/json/re

@@ -113,10 +113,6 @@ def _authorize_executable(allow_executable: bool) -> str | None:
             "Executable tyFlow operators are blocked by default; "
             "pass allow_executable=true explicitly"
         )
-    probe = client.send_command("true")
-    meta = probe.get("meta") if isinstance(probe.get("meta"), dict) else {}
-    if meta.get("safeMode", meta.get("safe_mode", True)) is not False:
-        return "Executable tyFlow operators are blocked while MCP safe_mode is enabled"
     return None
 
 
@@ -780,7 +776,7 @@ def tyflow_apply_patch(
     set_event_position) roll back via synthesized inverse operations — no clone
     churn; patches containing other ops use a checkpoint clone that replaces the
     patched flow (caveat: external references to the flow node do not survive
-    the swap). Script operators require safe mode off plus allow_executable=true.
+    the swap). Script operators require allow_executable=true.
     """
     operations = [
         dict(operation) if isinstance(operation, dict) else operation

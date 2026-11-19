@@ -152,15 +152,6 @@ _MESSAGE_HINT_RULES: tuple[tuple[re.Pattern[str], ToolHint], ...] = (
             "suggested_tools": ["query_scene", "select_objects"],
         },
     ),
-    (
-        re.compile(r"blocked by safe mode", re.IGNORECASE),
-        {
-            "message": (
-                "Command blocked by safe mode. Do not retry the same call; "
-                "use a dedicated MCP tool or adjust safe_mode settings."
-            ),
-        },
-    ),
     # A script exception that the bridge relayed. The transport worked, so this
     # must win over the "bridge" rule below.
     (

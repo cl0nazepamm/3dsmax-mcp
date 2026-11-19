@@ -104,14 +104,12 @@ def choose_tool_profile(requested: str | None = None) -> str:
     print("     agents: the 3ds Max SDK as Python objects, and every tool as a function. One script")
     print("     does a whole task, checks its own result and is a single undo step")
     print("  2) Full (deprecated) - every tool listed for the model to call one at a time")
-    print("  3) Progressive (deprecated) - common tools listed, the rest found on demand")
-    print("  4) Core (deprecated) - the everyday tools listed, without the plugin and specialty ones")
     print("  Listed tools are sent with every request, so a longer list takes room from each one.")
     try:
         choice = input("  Choice [1]: ").strip()
     except EOFError:
         choice = ""
-    return {"2": "full", "3": "progressive", "4": "core"}.get(choice, "code")
+    return "full" if choice == "2" else "code"
 
 
 def set_ini_value(path: Path, section: str, key: str, value: str) -> None:
@@ -331,8 +329,8 @@ def deploy_config(tool_profile: str = TOOL_PROFILES[0]) -> bool:
         shutil.copy2(CONFIG_SRC, CONFIG_DST)
         print("  mcp_config.ini: installed template")
     else:
-        CONFIG_DST.write_text("[mcp]\nsafe_mode = false\n", "utf-8")
-        print("  mcp_config.ini: created default (safe_mode=false)")
+        CONFIG_DST.write_text("[mcp]\n", "utf-8")
+        print("  mcp_config.ini: created default")
 
     set_ini_value(CONFIG_DST, "mcp", "tool_profile", tool_profile)
     print(f"  MCP tools:       {tool_profile}")

@@ -2,7 +2,7 @@
 
 The mcp_bridge .gup exports mcp_bridge_call(request, length, &responseLength): the same
 request JSON a named-pipe client sends, routed through the same dispatch (reload gate,
-safe mode, main-thread rules). No compiled Python extension is involved.
+main-thread rules). No compiled Python extension is involved.
 """
 
 from __future__ import annotations

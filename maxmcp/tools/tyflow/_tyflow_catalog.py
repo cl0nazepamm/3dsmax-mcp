@@ -210,8 +210,7 @@ TYFLOW_OPERATOR_NAMES: tuple[str, ...] = (
 )
 
 # Operators that execute arbitrary user code. Creating one (empty) is inert, but
-# tools that SET script/expression content must gate on safe mode + explicit
-# authorization.
+# tools that SET script/expression content must require explicit authorization.
 EXECUTABLE_OPERATOR_NAMES: frozenset[str] = frozenset({"Script", "MAXScript"})
 
 # Operator type IDs as tyFlow saves them (chunk 0x1775 of each operator; see

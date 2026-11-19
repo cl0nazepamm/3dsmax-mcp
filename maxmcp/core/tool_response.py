@@ -36,7 +36,6 @@ class ErrorCode(str, Enum):
     USER_BUSY = "USER_BUSY"
     MAX_BUSY = "MAX_BUSY"
     MAX_NOT_RESPONDING = "MAX_NOT_RESPONDING"
-    SAFE_MODE = "SAFE_MODE"
     BAD_PARAM = "BAD_PARAM"
     BAD_NODE_REF = "BAD_NODE_REF"
     NODE_REF_MISMATCH = "NODE_REF_MISMATCH"
@@ -83,7 +82,6 @@ _ERROR_PREFIXES = (
     "no textures matched",
     "failed:",
     "failed to ",
-    "blocked by safe mode",
     "maxscript error",
 )
 _ERROR_SUBSTRINGS = (" not found:",)
@@ -304,8 +302,6 @@ def parse_error_payload(value: Any) -> dict[str, Any] | None:
 
 def _classify_error_code(message: str, error_type: str = "") -> ErrorCode:
     lowered = f"{error_type} {message}".lower()
-    if "safe mode" in lowered:
-        return ErrorCode.SAFE_MODE
     if "maxscript did not complete" in lowered:
         return ErrorCode.MAXSCRIPT_INTERRUPTED
     if "3ds max (" in lowered and "not responding" in lowered:  # max_client's "3ds Max (PID n) is not responding"

@@ -134,17 +134,11 @@ McpCoreStatus Status() {
     return status;
 }
 
-bool SafeMode() {
-    static const bool enabled = McpEnvelope::ReadSafeModeSetting();
-    return enabled;
-}
-
 // The pipe envelope, from the shell's own state (the core fills the same one).
 std::string Envelope(bool success, const std::string& result, const std::string& error,
                      const std::string& requestId, const std::string& cmdType, int durationMs) {
-    const bool safeMode = SafeMode();
     const bool direct = MainThreadExecutor::IsDirectMode();
-    return McpEnvelope::Build(success, result, error, requestId, cmdType, durationMs, safeMode, direct,
+    return McpEnvelope::Build(success, result, error, requestId, cmdType, durationMs, direct,
                               DialogWatch::OpenDialogs());
 }
 

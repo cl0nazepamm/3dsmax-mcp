@@ -3,8 +3,6 @@
 // compiled into both sides, so the core's dispatcher and the shell's own
 // answers (ping, native:max_dialogs, native:core, busy) share one shape.
 // Callers supply what each side reads from its own state.
-#include <windows.h>
-#include <shlobj.h>
 #include <algorithm>
 #include <ctype.h>
 #include <string>
@@ -12,28 +10,11 @@
 
 namespace McpEnvelope {
 
-// %LOCALAPPDATA%\3dsmax-mcp\mcp_config.ini, [mcp] safe_mode = true|false
-// (default: true).
-inline bool ReadSafeModeSetting() {
-    char localAppData[MAX_PATH];
-    if (FAILED(SHGetFolderPathA(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, localAppData)))
-        return true;  // default: safe
-
-    std::string iniPath = std::string(localAppData) + "\\3dsmax-mcp\\mcp_config.ini";
-
-    char buf[16] = {};
-    GetPrivateProfileStringA("mcp", "safe_mode", "true", buf, 16, iniPath.c_str());
-
-    std::string val(buf);
-    return !(val == "false" || val == "0" || val == "off");
-}
-
 inline std::string ErrorCodeForMessage(const std::string& message) {
     std::string lower = message;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
     if (lower.find("user_busy") != std::string::npos) return "USER_BUSY";
     if (lower.find("stale_view") != std::string::npos) return "STALE_VIEW";
-    if (lower.find("safe mode") != std::string::npos) return "SAFE_MODE";
     // The executor refused or failed the request before it started (Max is
     // exiting, the bridge never came up, or the post failed): bridge down,
     // and the work provably never ran.
@@ -87,7 +68,7 @@ inline std::string NormalizeError(const std::string& message) {
 // `openDialogs`: DialogWatch::OpenDialogs() at the time of the response.
 inline std::string Build(bool success, const std::string& result, const std::string& error,
                          const std::string& requestId, const std::string& cmdType, int durationMs,
-                         bool safeMode, bool direct, nlohmann::json openDialogs) {
+                         bool direct, nlohmann::json openDialogs) {
     nlohmann::json resp;
     resp["success"] = success;
     resp["requestId"] = requestId;
@@ -96,7 +77,6 @@ inline std::string Build(bool success, const std::string& result, const std::str
     resp["meta"] = {
         {"protocolVersion", 2},
         {"cmdType", cmdType},
-        {"safeMode", safeMode},
         {"durationMs", durationMs},
         {"transport", "namedpipe"},
         {"threadMode", direct ? "direct" : "mainThread"}

@@ -90,8 +90,6 @@ static bool LooksLikeToolError(const std::string& raw) {
 
             return lower.rfind("error", 0) == 0
 
-                || lower.find("blocked by safe mode") != std::string::npos
-
                 || lower.find(" not found:") != std::string::npos
 
                 || lower.find("failed") != std::string::npos;

@@ -243,12 +243,6 @@ def _authorize_executable(allow_executable: bool) -> None:
             "Executable Data Channel operators are blocked by default; "
             "pass allow_executable=true explicitly"
         )
-    probe = client.send_command("true")
-    meta = probe.get("meta") if isinstance(probe.get("meta"), dict) else {}
-    if meta.get("safeMode", meta.get("safe_mode", True)) is not False:
-        raise ValueError(
-            "Executable Data Channel operators are blocked while MCP safe_mode is enabled"
-        )
 
 
 def _dc_catalog_helpers() -> list[str]:
