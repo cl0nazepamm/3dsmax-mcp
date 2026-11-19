@@ -18,9 +18,9 @@ The action tables 3ds Max has registered: action_tables['Main UI'] by name, acti
 
 ### classes
 
-The classes 3ds Max has registered. classes['TurboSmooth'] is one by MAXScript or UI name, and classes['Bend', 'modifier'] names the kind where several share a name; classes('modifier', '*Bend*') lists by kind, wildcard name and plugin file.
+The classes 3ds Max has registered. classes['TurboSmooth'] is one by MAXScript or UI name, and classes['Bend', 'modifier'] names the kind where several share a name; classes('*Bend*', kind='modifier') lists by wildcard name, kind and plugin file.
 
-- `classes(kind: str | None = None, pattern: str | None = None, plugin: str | None = None) -> list[_mx.ClassInfo]`: Registered classes by kind, wildcard name and plugin file: classes('modifier', '*Bend*'), classes(plugin='tyFlow*').
+- `classes(pattern: str | None = None, kind: str | None = None, plugin: str | None = None) -> list[_mx.ClassInfo]`: Registered classes by wildcard name, kind and plugin file: classes('*Bend*', kind='modifier'), classes(plugin='tyFlow*').
 - `classes[key: str | tuple[str, str]] -> _mx.ClassInfo`: The item of that key; NotFound or Ambiguous otherwise. `key in classes`, `len(classes)` and `for item in classes` work as on a list.
 - `.get(key: str | tuple[str, str]) -> _mx.ClassInfo | None`: The item [key] gives, or None when there is none; a key several items share is still Ambiguous.
 

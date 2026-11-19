@@ -1589,17 +1589,17 @@ static void BindClasses(nb::module_& m) {
     BindCollection<ClassCollection, ClassInfo, NameKindKey>(m, "classes", "Classes",
         "The classes 3ds Max has registered. classes['TurboSmooth'] is one by MAXScript or UI name, and "
         "classes['Bend', 'modifier'] names the kind where several share a name; "
-        "classes('modifier', '*Bend*') lists by kind, wildcard name and plugin file.",
+        "classes('*Bend*', kind='modifier') lists by wildcard name, kind and plugin file.",
         [] { return Classes(std::nullopt, std::nullopt, std::nullopt); },
         [](const NameKindKey& key) {
             const auto [name, kind] = SplitKey(key.value, "classes[key]", "kind");
             return FindClassInfo(name, kind);
         })
-        .def("__call__", [](const ClassCollection&, const std::optional<std::string>& kind,
-                            const std::optional<std::string>& pattern, const std::optional<std::string>& plugin) {
+        .def("__call__", [](const ClassCollection&, const std::optional<std::string>& pattern,
+                            const std::optional<std::string>& kind, const std::optional<std::string>& plugin) {
             return Classes(kind, pattern, plugin);
-        }, "kind"_a = nb::none(), "pattern"_a = nb::none(), "plugin"_a = nb::none(),
-           "Registered classes by kind, wildcard name and plugin file: classes('modifier', '*Bend*'), "
+        }, "pattern"_a = nb::none(), "kind"_a = nb::none(), "plugin"_a = nb::none(),
+           "Registered classes by wildcard name, kind and plugin file: classes('*Bend*', kind='modifier'), "
            "classes(plugin='tyFlow*').");
 
     struct PluginCollection {};

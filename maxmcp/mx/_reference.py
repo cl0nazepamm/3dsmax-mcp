@@ -314,8 +314,9 @@ def lint(module: Any) -> dict[str, list[str]]:
     doc: a function, class, property or method without a description.
     object: a plugin-object wrapper (a class with params) that lacks one of OBJECT_MEMBERS.
     shape: a name that is a property on one class and a method on another (HOMONYMS excepted).
-    collection: a collection that lacks one of COLLECTION_MEMBERS, or a function that does a
-        collection's work (a singular beside its plural: node() beside nodes).
+    collection: a collection that lacks one of COLLECTION_MEMBERS, whose listing call takes a
+        pattern but not first, or a function that does a collection's work (a singular beside its
+        plural: node() beside nodes).
     node: a member the node outside 3ds Max has (mx/_node.py) that sdk.Node lacks, either way round.
     untyped: a signature with an untyped annotation that DYNAMIC does not name. A dict result
         whose description names its keys (report_keys) is a report, not an untyped value.
@@ -343,7 +344,20 @@ def lint(module: Any) -> dict[str, list[str]]:
             signatures, text = _split(getattr(vars(cls).get("__call__"), "__doc__", None))
             if not text:
                 found["doc"].append(f"{name}(): no description")
-            note_untyped(f"{name}()", _signature_untyped(signatures[0], text) if signatures else "")
+            if signatures:
+                note_untyped(f"{name}()", _signature_untyped(signatures[0], text))
+                params_match = re.search(r"\(([^)]*)\)", signatures[0])
+                if params_match:
+                    param_names = [
+                        p.strip().split(":", 1)[0].split("=", 1)[0].lstrip("*").strip()
+                        for p in params_match.group(1).split(",")
+                        if p.strip()
+                    ]
+                    if param_names and param_names[0] == "self":
+                        param_names = param_names[1:]
+                    if "pattern" in param_names and param_names[0] != "pattern":
+                        found["collection"].append(
+                            f"{name}(): pattern must be the first parameter (got {param_names[0]} first)")
         elif kind == "function":
             signatures, text = _split(value.__doc__)
             if not text:

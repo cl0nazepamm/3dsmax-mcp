@@ -157,6 +157,15 @@ def run_python(code: str, timeout_s: float = 300, where: str = "auto") -> dict:
     step. Otherwise in the MCP server: imports limited to mx and the standard math/json/re
     family, each tool call its own undo step. where="max" or "server" forces one.
 
+    Which API to use (inside Max):
+      - `mx.tools.<name>(...)` (canonical for every tool; `mx.*` below are thin shorthands) for guarded
+        workflows: curve_model, loft_mesh, mesh_edit, boolean_operation, geometry_qa, contact_check,
+        render_setup, capture_viewport, capture_multi_view and the tyflow group (mx.help("tyflow")).
+      - `sdk` for fast scene loops, transforms, layers, materials, modifiers and inspection (`sdk.nodes.new`,
+        `node.pos`/`node.rot`, `sdk.materials.new`, `node.add_modifier`).
+      - `rt` (pymxs) only for Max surfaces neither `mx` nor `sdk` wraps. Prefer `sdk` over `rt` for
+        creating/placing objects (in `rt`, setting `.rotation` after `.pos` orbits around the origin).
+
     sdk (inside Max; also mx.sdk): the scene object model bound straight from the 3ds Max SDK,
       calls in microseconds. What the scene has many of is a collection, the same way on every one:
       sdk.nodes["Ball"], sdk.nodes.get("Ball"), "Ball" in sdk.nodes, len(sdk.nodes), for n in sdk.nodes,
