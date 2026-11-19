@@ -267,6 +267,14 @@ static std::vector<std::optional<MaterialRef>> SubMaterials(const MaterialRef& r
     return out;
 }
 
+// The viewport builds a material's shader when the material first reports a
+// change. One made here has reported none (its parameters were set before
+// anything referenced it), so once something uses it, it says so; otherwise
+// 3ds Max draws it black until it is next edited.
+static void AnnounceInUse(Mtl* mtl) {
+    if (mtl) mtl->NotifyDependents(FOREVER, PART_ALL, REFMSG_CHANGE);
+}
+
 // Sub-material `index` as Mtl::SetSubMtl counts it: the slot, or for a
 // Multi/Sub-Object the material ID minus one (it adds a slot for a new ID).
 static void SetSubMaterial(const MaterialRef& r, int index, std::optional<MaterialRef> material) {
@@ -284,6 +292,7 @@ static void SetSubMaterial(const MaterialRef& r, int index, std::optional<Materi
     mtl->SetSubMtl(index, sub);
     if (mtl->GetSubMtl(index) != sub)
         throw BadParam("3ds Max refused sub-material " + std::to_string(index) + " of " + Label(mtl));
+    AnnounceInUse(sub);
 }
 
 // Whether `target` is `base` or in its sub-material and sub-map tree. `known`
@@ -356,6 +365,7 @@ static nb::dict ReplaceWith(const MaterialRef& oldRef, const MaterialRef& freshR
         std::set<Mtl*> visited{fresh, old};
         for (INode* node : all) ReplaceInTree(node->GetMtl(), old, fresh, visited, slots, skipped);
     }
+    AnnounceInUse(fresh);
     nb::dict out;
     out["nodes"] = nodes;
     out["slots"] = slots;
@@ -696,7 +706,9 @@ std::optional<MaterialRef> NodeMaterial(const Node& n) {
 
 void SetNodeMaterial(const Node& n, std::optional<MaterialRef> material) {
     INode* node = Resolve(n);
-    node->SetMtl(material ? ResolveMaterial(*material) : nullptr);
+    Mtl* mtl = material ? ResolveMaterial(*material) : nullptr;
+    node->SetMtl(mtl);
+    AnnounceInUse(mtl);
 }
 
 static std::vector<MaterialRef> SceneMaterials(const std::optional<std::string>& pattern) {

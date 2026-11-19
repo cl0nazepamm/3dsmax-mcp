@@ -71,6 +71,7 @@ All notable changes to this project are documented here.
 - `render_setup` runs on one renderer after another without naming its sun or camera: where another renderer's object holds the default name, this renderer's own goes beside it as `Sun_<preset>` (`Sun_octane`) and the reply says so. It failed with `KIND_MISMATCH`, which a name the caller gives still does.
 - `add_tyflow_event`, and `add_event` in `tyflow_apply_patch`, put a new event right of the rightmost one when no position is given, and `add_tyflow_event` reports where. Every new event landed on top of the first.
 - `smart_import` and `palette_laydown` fail with `NOT_FOUND` when a folder is missing or holds nothing to import, and `palette_laydown` with `BAD_PARAM` for an unknown `slot_content`. They answered with a sentence that read as a result.
+- A material made with `sdk.materials.new` draws in the viewport once it is assigned through `node.material`, `set_sub_material` or `replace_with`. It drew black until it was next edited: the viewport builds a material's shader on its first change report, and assigning one sent none.
 
 ## [1.7.8] — 2026-11-07
 
