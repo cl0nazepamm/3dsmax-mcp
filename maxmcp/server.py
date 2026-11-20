@@ -1,343 +1,97 @@
-import configparser
+"""The 3dsmax-mcp MCP server.
+
+Every tool is a Python function in maxmcp/tools, declared with @mcp.tool() and called
+from scripts as mx.tools.<name>(**arguments). By default MCP clients list five of them:
+run_python, which runs a script against the mx API, and the four that choose which
+3ds Max the server talks to. The full tool profile lists every tool (maxmcp/profiles.py).
+"""
+
 import logging
 import os
 import sys
+from functools import lru_cache, partial, wraps
 from importlib import import_module
-from functools import lru_cache
 from pathlib import Path
+from typing import Any, Callable
+
+import anyio
 from mcp.server.fastmcp import FastMCP
-from .max_client import MaxClient
-from .tool_discovery import register_progressive_tools
-from .tool_response import make_structured_tool
+
+from .core.max_client import MaxClient
+from .core.tool_response import make_structured_tool
+from .profiles import ROUTING_MODULE, SCRIPT_MODULE, ToolProfile, tool_annotations
+from .registry import ToolRegistry
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-mcp = FastMCP("3dsmax-mcp")
-# Operational tools loaded by the progressive profile live here.  This server
-# is never run, so its tools remain callable without being advertised by the
-# public MCP list_tools surface.
-_progressive_mcp = FastMCP("3dsmax-mcp-progressive-hidden")
+# Which tools MCP clients list: MCP_TOOL_PROFILE, else the user's mcp_config.ini, else code.
+profile = ToolProfile.configured()
+mcp = FastMCP("3dsmax-mcp", instructions=profile.instructions())
 client = MaxClient()
+# Every tool function by name, for mx. run_python itself is not callable from a script.
+registry = ToolRegistry(client, skip=("python_api",))
 
 if __name__ == "__main__" and __spec__ is not None:
     sys.modules.setdefault(__spec__.name, sys.modules[__name__])
 
 
-_READ_ONLY_TOOLS = {
-    "cosmos_search",
-    "pulze_inspect",
-    "pulze_preflight",
-    "material_roles",
-    "get_bridge_status",
-    "get_plugin_capabilities",
-    "lighting_capabilities",
-    "query_scene",
-    "resolve_node_refs",
-    "get_object_properties",
-    "analyze_node_orientation",
-    "inspect_mesh",
-    "geometry_qa",
-    "contact_check",
-    "pick_component",
-    "inspect_curve",
-    "get_hierarchy",
-    "get_instances",
-    "get_dependencies",
-    "get_materials",
-    "get_material_library",
-    "get_material_slots",
-    "inspect_material_network",
-    "inspect_object",
-    "inspect_properties",
-    "discover_plugin_surface",
-    "get_plugin_manifest",
-    "inspect_plugin_class",
-    "inspect_plugin_constructor",
-    "inspect_plugin_instance",
-    "get_session_context",
-    "capture_viewport",
-    "capture_multi_view",
-    "capture_screen",
-    "get_effects",
-    "get_state_sets",
-    "get_camera_sequence",
-    "inspect_track_view",
-    "inspect_controller",
-    "list_wireable_params",
-    "get_wired_params",
-    "inspect_max_file",
-    "search_max_files",
-    "batch_file_info",
-    "watch_scene",
-    "walk_references",
-    "map_class_relationships",
-    "learn_scene_patterns",
-    "mcg_get_context",
-    "mcg_list_graphs",
-    "mcg_inspect_graph",
-    "mcg_search_operators",
-}
+def _in_worker_thread(tool: Callable[..., Any]) -> Callable[..., Any]:
+    """The tool as a coroutine that runs it in a worker thread.
 
-_DESTRUCTIVE_TOOLS = {
-    "mesh_edit",
-    "pulze_set",
-    "pulze_restore",
-    "scene_patch",
-    "scene_qa",
-    "delete_objects",
-    "collapse_modifier_stack",
-    "batch_replace_materials",
-    "replace_material",
-    "remove_modifier",
-    "batch_rename_objects",
-    "manage_layers",
-    "manage_groups",
-    "manage_selection_sets",
-    "merge_from_file",
-    "render_cancel",
-    "delete_effect",
-    "undo_last",
-    "mcg_cleanup_workspace",
-    "mcg_reload_operators",
-}
+    FastMCP calls a plain function on its event loop, so a call waiting on a blocked 3ds Max
+    stopped the server reading anything else: the client's cancel went unanswered and every
+    later call timed out as if the connection had dropped. Off the loop, a later call gets
+    the bridge's own busy or not-responding reply. A call still runs start to finish on one
+    thread, as its thread-local state (target, transport, script run) requires.
 
-_IDEMPOTENT_TOOLS = {
-    "cosmos_search",
-    "pulze_inspect",
-    "pulze_preflight",
-    "material_roles",
-    "cosmos_download",
-    "get_bridge_status",
-    "get_plugin_capabilities",
-    "query_scene",
-    "resolve_node_refs",
-    "get_object_properties",
-    "analyze_node_orientation",
-    "contact_check",
-    "get_hierarchy",
-    "get_instances",
-    "get_dependencies",
-    "get_materials",
-    "get_material_library",
-    "get_material_slots",
-    "inspect_material_network",
-    "inspect_object",
-    "inspect_properties",
-    "get_session_context",
-    "capture_viewport",
-    "capture_multi_view",
-    "capture_screen",
-    "select_objects",
-    "set_visibility",
-    "mcg_get_context",
-    "mcg_list_graphs",
-    "mcg_inspect_graph",
-    "mcg_search_operators",
-}
+    A cancelled call is abandoned: the SDK has already answered it, and a handler that
+    returns after its cancel makes the SDK answer twice, which ends the server. The thread
+    runs on until Max answers, keeping the pipe, so later calls are told Max is busy.
+    """
+
+    @wraps(tool)
+    async def run(*args: Any, **kwargs: Any) -> Any:
+        return await anyio.to_thread.run_sync(partial(tool, *args, **kwargs), abandon_on_cancel=True)
+
+    return run
 
 
-def _tool_annotations(name: str) -> dict[str, bool]:
-    annotations: dict[str, bool] = {}
-    if name in _READ_ONLY_TOOLS or name.startswith(("get_", "inspect_", "discover_", "list_")):
-        annotations["readOnlyHint"] = True
-    if name in _DESTRUCTIVE_TOOLS:
-        annotations["destructiveHint"] = True
-    if name in _IDEMPOTENT_TOOLS:
-        annotations["idempotentHint"] = True
-    return annotations
+def _install_tool_decorator() -> None:
+    """Make @mcp.tool() add a function to the registry, and list it for MCP clients when the profile does."""
+    list_tool = mcp.tool
 
-
-def _register_raw_tool(raw_tool, wrapped, annotations: dict[str, bool]) -> None:
-    if annotations:
-        try:
-            raw_tool(wrapped, annotations=annotations)
-            return
-        except TypeError:
-            pass
-    raw_tool(wrapped)
-
-
-def _raw_tool_decorator(raw_tool, decorator_args, decorator_kwargs, annotations: dict[str, bool]):
-    if annotations and "annotations" not in decorator_kwargs:
-        annotated_kwargs = dict(decorator_kwargs)
-        annotated_kwargs["annotations"] = annotations
-        try:
-            return raw_tool(*decorator_args, **annotated_kwargs)
-        except TypeError:
-            pass
-    return raw_tool(*decorator_args, **decorator_kwargs)
-
-
-def _pid_guarded(fn) -> bool:
-    """Every tool takes expected_pid except the routing tools, which pick the target."""
-    return not fn.__module__.endswith(".routing")
-
-
-def _install_structured_tool_results() -> None:
-    """Register MCP tools with stable JSON envelopes while keeping raw callables."""
-    raw_tool = mcp.tool
-    progressive_raw_tool = _progressive_mcp.tool
-
-    def registration_tool(fn):
-        if fn.__module__.endswith(".routing"):
-            return raw_tool
-        return progressive_raw_tool if _tool_profile() == "progressive" else raw_tool
-
-    def structured_tool(*decorator_args, **decorator_kwargs):
-        if decorator_args and callable(decorator_args[0]) and len(decorator_args) == 1 and not decorator_kwargs:
-            fn = decorator_args[0]
-            annotations = _tool_annotations(getattr(fn, "__name__", "") or "")
+    def register(fn: Any, name: str | None = None) -> Any:
+        registry.add(fn, name)
+        module = fn.__module__.partition(".tools.")[2]
+        tool_name = name or fn.__name__
+        if profile.lists(module):
             wrapped = make_structured_tool(
                 fn,
                 before_call=client.clear_last_response,
                 transport_provider=client.get_last_transport,
-                pid_guard=_pid_guarded(fn),
+                # The routing tools pick the target, so they take no expected_pid.
+                pid_guard=module != ROUTING_MODULE,
+                # A script's renders and captures come back as images beside its reply.
+                show_images=module == SCRIPT_MODULE,
             )
-            _register_raw_tool(registration_tool(fn), wrapped, annotations)
-            return fn
+            list_tool(name=name, annotations=tool_annotations(tool_name))(_in_worker_thread(wrapped))
+            profile.document(mcp._tool_manager.get_tool(tool_name), fn)
+        return fn
 
-        def decorate(fn):
-            annotations = _tool_annotations(getattr(fn, "__name__", "") or "")
-            raw_decorator = _raw_tool_decorator(
-                registration_tool(fn),
-                decorator_args,
-                decorator_kwargs,
-                annotations,
-            )
-            wrapped = make_structured_tool(
-                fn,
-                before_call=client.clear_last_response,
-                transport_provider=client.get_last_transport,
-                pid_guard=_pid_guarded(fn),
-            )
-            raw_decorator(wrapped)
-            return fn
+    def tool(*args: Any, **kwargs: Any) -> Any:
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            return register(args[0])
+        return lambda fn: register(fn, kwargs.get("name"))
 
-        return decorate
-
-    mcp.tool = structured_tool  # type: ignore[method-assign]
+    mcp.tool = tool  # type: ignore[method-assign]
 
 
-_install_structured_tool_results()
-
-CORE_TOOL_MODULES = (
-    "execute",
-    "bridge",
-    "diagnostics",
-    "capabilities",
-    "session_context",
-    "query_scene",
-    "scene_query",
-    "scene_manage",
-    "scene_patch",
-    "scene_qa",
-    "objects",
-    "transform",
-    "orientation",
-    "hierarchy",
-    "selection",
-    "visibility",
-    "clone",
-    "modifiers",
-    "booleans",
-    "splines",
-    "poly_edit",
-    "mesh_ops",
-    "geometry_qa",
-    "contact_check",
-    "component_pick",
-    "loft",
-    "curve_model",
-    "curve_edit",
-    "materials",
-    "material_ops",
-    "material_network",
-    "material_roles",
-    "palette_laydown",
-    "smart_import",
-    "cosmos",
-    "material_replace",
-    "inspect",
-    "plugins",
-    "plugin_edit",
-    "lighting",
-    "organize",
-    "viewport",
-    "identify",
-    "file_access",
-    "learning",
-    "controllers",
-    "keyframes",
-    "tool_test",
-    "mainthread",
-)
-
-SPECIALTY_TOOL_MODULES = (
-    "data_channel",
-    "pulze",
-    "effects",
-    "mcg",
-    "railclone",
-    "render",
-    "render_automations",
-    "scattering",
-    "state_sets",
-    "tyflow",
-    "tyflow_graph",
-    "tyflow_patch",
-    "tyflow_manifest",
-    "tyflow_census",
-    "tyflow_script",
-    "wire_params",
-    "core_reload",  # Development: native core hot reload; full/progressive only.
-)
-
-
-def _tool_profile() -> str:
-    value = os.environ.get("MCP_TOOL_PROFILE") or os.environ.get("THREEDSMAX_MCP_TOOL_PROFILE")
-    if value is not None:
-        normalized = value.strip().lower()
-        return normalized if normalized in {"core", "full", "progressive"} else "full"
-
-    local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
-    if local_appdata:
-        config_path = Path(local_appdata) / "3dsmax-mcp" / "mcp_config.ini"
-        parser = configparser.ConfigParser()
-        try:
-            parser.read(config_path, encoding="utf-8")
-            normalized = parser.get("mcp", "tool_profile", fallback="").strip().lower()
-            if normalized in {"core", "full", "progressive"}:
-                return normalized
-        except (OSError, configparser.Error):
-            pass
-    return "full"
-
-
-def _register_tool_modules() -> None:
-    import_module(".tools.routing", package=__package__)
-    if _tool_profile() == "progressive":
-        register_progressive_tools(
-            public_mcp=mcp,
-            hidden_mcp=_progressive_mcp,
-            package=__package__,
-            tools_dir=Path(__file__).resolve().parent / "tools",
-            allowed_modules=CORE_TOOL_MODULES + SPECIALTY_TOOL_MODULES,
-            before_call=client.clear_last_response,
-            transport_provider=client.get_last_transport,
-        )
-        return
-
-    modules = list(CORE_TOOL_MODULES)
-    if _tool_profile() == "full":
-        modules.extend(SPECIALTY_TOOL_MODULES)
-    for name in modules:
-        import_module(f".tools.{name}", package=__package__)
-
-
-# Import tool modules to trigger @mcp.tool() registration. Default is full;
-# set MCP_TOOL_PROFILE=core for everyday tools or progressive for the three
-# lazy discovery/dispatch meta-tools.
-_register_tool_modules()
+_install_tool_decorator()
+for _module in profile.startup_modules(registry):
+    import_module(f".tools.{_module}", package=__package__)
+# Its @mcp.resource() entries (plugin manifests and guides) exist once it is imported.
+import_module(".tools.inspection.plugins", package=__package__)
+profile.add_own_tools(mcp, before_call=client.clear_last_response, transport_provider=client.get_last_transport)
 
 
 SKILL_RESOURCE_URI = "resource://3dsmax-mcp/skill"
@@ -379,23 +133,30 @@ def get_skill() -> str:
 @mcp.prompt()
 def max_assistant() -> str:
     """Default assistant instructions for MCP clients like Claude Desktop."""
-    scene_call_rule = (
-        "For user requests about the live 3ds Max scene, call the MCP tool that matches the task directly.\n"
-    )
-    if _tool_profile() == "progressive":
-        scene_call_rule = (
-            "This server uses the progressive tool profile. Instance routing tools plus list_toolsets, "
-            "describe_toolset, and call_tool are advertised.\n"
-            "Use list_toolsets to choose a capability group, describe_toolset to load its exact "
-            "schemas, then invoke the selected operational tool through call_tool. Never call a "
-            "hidden operational name as a top-level MCP tool.\n"
+    if profile.scripted:
+        reach = (
+            f"{profile.instructions()}\n"
+            "The tool names in the rules below are not top-level MCP tools: call each one inside a run_python "
+            "script as mx.tools.<name>(**arguments).\n"
         )
-    base_rules = (
+        fallback, failed, explicit = "run_python is", "call", "scripts explicit about what they read and change"
+        replies = (
+            "run_python replies are structured objects: `{ok, result}` on success, `{ok, error}` on failure. A tool call that fails inside a script raises mx.MaxToolError (.code, .message, .hint) and ends the script unless the script catches it. Set MCP_TRIPBACK_MODE=full for elapsed_ms and full transport metadata.\n"
+            "If ok is false, read error.message and error.details (script line, tool, code, hint) before retrying or choosing a fallback.\n"
+        )
+    else:
+        reach = "For user requests about the live 3ds Max scene, call the MCP tool that matches the task directly.\n"
+        fallback, failed, explicit = "direct MCP tools are", "tool", "tool usage structured and explicit"
+        replies = (
+            "MCP tool replies are structured objects: `{ok, result}` on success, `{ok, error}` on failure, optional top-level `hint` (`message`, `suggested_tools`, `next`). Transport only when present on errors. Set MCP_TRIPBACK_MODE=full for elapsed_ms and full transport metadata.\n"
+            "If ok is false, read error.message and any hint.suggested_tools before retrying or choosing a fallback.\n"
+        )
+    return (
         "You are a 3ds Max assistant connected via MCP.\n"
-        f"{scene_call_rule}"
-        "Do not inspect repository source files, run Python imports, or run repository tests for live scene requests unless the user explicitly asks for repo/debug/test work or direct MCP tools are unavailable.\n"
+        f"{reach}"
+        f"Do not inspect repository source files, run Python imports, or run repository tests for live scene requests unless the user explicitly asks for repo/debug/test work or {fallback} unavailable.\n"
         "Do not call get_bridge_status or get_session_context as a session preamble or before every task.\n"
-        "Use get_bridge_status only when a tool fails with a connection/transport error and you need to diagnose the bridge.\n"
+        f"Use get_bridge_status only when a {failed} fails with a connection/transport error and you need to diagnose the bridge.\n"
         "Use query_scene(action=overview|filter|class|property|selection|delta) for scene reads.\n"
         "Use get_session_context only when the user explicitly wants bridge + capabilities + scene + selection in one call.\n"
         "Use inspect_track_view to browse an object's animation/controller hierarchy before targeting a specific param_path.\n"
@@ -411,26 +172,24 @@ def max_assistant() -> str:
         "Prefer dedicated tools over raw MAXScript when available.\n"
         "Inspect objects/properties before edits when you do not already have the needed data.\n"
         "After any meaningful mutation, verify with query_scene(action=delta) or re-inspect.\n"
-        "Work in natural language with the user, but keep tool usage structured and explicit.\n"
+        f"Work in natural language with the user, but keep {explicit}.\n"
         "DO NOT render unless the user asks.\n"
         "Use capture_viewport for fast viewport context.\n"
-        "MCP tool replies are structured objects: `{ok, result}` on success, `{ok, error}` on failure, optional top-level `hint` (`message`, `suggested_tools`, `next`). Transport only when present on errors. Set MCP_TRIPBACK_MODE=full for elapsed_ms and full transport metadata.\n"
-        "If ok is false, read error.message and any hint.suggested_tools before retrying or choosing a fallback.\n"
+        f"{replies}"
         f"Reference resource: {SKILL_RESOURCE_URI}\n"
         "Load the reference resource only when you need detailed project rules or MAXScript examples.\n"
     )
-    return base_rules
 
 
 def main():
-    from .parent_watchdog import start_parent_watchdog
+    from .core.parent_watchdog import start_parent_watchdog
 
     start_parent_watchdog()
     mcp.run(transport="stdio")
     # Client closed stdin: exit even if non-daemon threads linger, but never
     # while a diagnostics capture holds a Max thread suspended.
     try:
-        from .suspend_guard import release_all
+        from .core.suspend_guard import release_all
 
         release_all()
         for stream in (sys.stdout, sys.stderr):

@@ -13,4 +13,10 @@ json DescribeInterface(FPInterface* interfaceValue);
 json Inspect(const json& request);
 json Context();
 json Apply(const json& request);
+// Make the class in request.class_ref the production renderer. Not undoable, as in Max
+// itself: the reply's `replaced` names the renderer that was there, which stays alive
+// until {restore: replaced} puts it back or {release: replaced} lets it go.
+json AssignRenderer(const json& request);
+// Lets go of the renderer the last assignment replaced. Max's main thread.
+void ReleaseReplacedRenderer();
 }

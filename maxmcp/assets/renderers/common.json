@@ -1,0 +1,25 @@
+{
+  "preset": 1,
+  "id": "common",
+  "label": "Shared by every renderer",
+  "renderers": [],
+  "verified": "3ds Max 2027: a Physical camera created and moved through plugin_patch, fov read back in degrees.",
+  "notes": [],
+  "recipes": {
+    "camera": {
+      "objects": {"camera": {"class": [1181315608, 686293133], "super": "camera"}},
+      "set": {"targeted": false, "specify_fov": true},
+      "aim": "-z",
+      "oriented": true,
+      "defaults": {"fov": 50},
+      "fields": {
+        "fov": {"param": "fov", "min": 1, "max": 179},
+        "vertical_shift": "vertical_shift",
+        "horizontal_shift": "horizontal_shift"
+      }
+    }
+  },
+  "settings": {},
+  "quality": {},
+  "enums": []
+}

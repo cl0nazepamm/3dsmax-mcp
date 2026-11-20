@@ -16,6 +16,11 @@ inline bool MatchesVfb(const std::string& target, std::wstring title, std::wstri
         return windowClass==L"#32770" && title.rfind(L"fstorm rt: samples ",0)==0 &&
             title.find(L",  resolution ")!=std::wstring::npos && title.find(L",  zoom ")!=std::wstring::npos;
     }
+    if(target=="tyflow_editor") {
+        // "<flow name> : [tyFlow PRO v1.234 Editor]", a native dialog.
+        return windowClass==L"#32770" && title.find(L" : [tyflow ")!=std::wstring::npos &&
+            title.size()>=8 && title.compare(title.size()-8,8,L" editor]")==0;
+    }
     if(target=="corona_vfb") {
         // VFB 2 has a product/version caption rather than the text "VFB".
         // Require its renderer-owned Qt class and frame metadata so a Corona

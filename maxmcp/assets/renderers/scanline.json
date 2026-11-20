@@ -1,0 +1,11 @@
+{
+  "preset": 1,
+  "id": "scanline",
+  "label": "Scanline Renderer",
+  "extends": "photometric",
+  "renderers": [[1, 0]],
+  "verified": "3ds Max 2027, with the photometric recipes.",
+  "notes": [
+    "Scanline has no sampling settings to bind; render size and camera come from the render call."
+  ]
+}

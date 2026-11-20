@@ -3,16 +3,19 @@
 Connect AI agents to **Autodesk 3ds Max** through the [Model Context Protocol](https://modelcontextprotocol.io).
 
 Ask in natural language; the agent creates objects, builds materials, drives modifiers and
-controllers, captures viewports, and inspects plugins through a broad dedicated MCP catalog.
-The optional progressive profile advertises three discovery/dispatch tools and lazy-loads
-exact operational schemas on demand, reducing context use for local or smaller models.
+controllers, captures viewports, and inspects plugins. By default it works through one tool,
+`run_python`, writing Python scripts against an API with about 180 tools behind it, so the tool
+list takes about 2k tokens of context. The `full` profile lists every tool to the client
+directly instead.
 
 - **Native bridge** — a C++ plugin for 3ds Max 2023–2027, no MAXScript polling
+- **Scripts inside 3ds Max** — a script runs in Max's own Python with `sdk`, the scene object model bound from the SDK, and everything it changes is one undo step
+- **One lighting and render command** — `render_setup` works the same on Octane, FStorm, V-Ray, Corona, Scanline and ART
 - **Agent viewport** — an independent floating view for navigation, visual targeting and captures
 - **Editable modeling** — guarded component edits, named curves, sweeps and lofts with parameters saved in the scene
-- **Introspection** — discover arbitrary Max classes, plugin surfaces, and parameters at runtime
-- **Deep plugin support** — tyFlow, Data Channel, MCG, OSL, Forest Pack, RailClone, Octane
-- **Bundled agent skill** — MAXScript reference shipped for writing your own tools
+- **Introspection** — describe, read and set the parameters of any class or plugin by name
+- **Plugin tools** — tyFlow, Data Channel, MCG, OSL, Forest Pack, RailClone
+- **Bundled agent skill** — rules, workflows and a MAXScript reference for the agent
 
 MIT licensed. Source and full documentation:
 **https://github.com/cl0nazepamm/3dsmax-mcp**
@@ -25,14 +28,13 @@ pip install 3dsmax-mcp
 ```
 
 `3dsmax-mcp-install` deploys the native bridge plugin into Autodesk's `ApplicationPlugins`
-directory, asks which MCP tool profile to expose (`full` is the compatibility default), writes
-user config, and registers the server with the AI clients it can find. Local or smaller models
-can save context with `3dsmax-mcp-install --tool-profile progressive` for an unattended install.
-**Restart 3ds Max afterwards** so the plugin loads.
+directory, asks which MCP tool profile to expose (`code` is the default), writes user config,
+and registers the server with the AI clients it can find. `3dsmax-mcp-install --tool-profile full`
+chooses one without the prompt. **Restart 3ds Max afterwards** so the plugin loads.
 
-**Requirements:** Windows · Python 3.12+ · 3ds Max 2023–2027
+**Requirements:** Windows · Python 3.13+ · 3ds Max 2023–2027
 
-Manual MCP client setup, tool profiles, safe mode and architecture notes are documented in
+Manual MCP client setup, tool profiles, security and architecture notes are documented in
 [docs/ADVANCED.md](https://github.com/cl0nazepamm/3dsmax-mcp/blob/master/docs/ADVANCED.md).
 
 ---
@@ -42,15 +44,18 @@ Manual MCP client setup, tool profiles, safe mode and architecture notes are doc
 **3dsmax-mcp** 通过 [Model Context Protocol](https://modelcontextprotocol.io) 把 AI 智能体接入
 **Autodesk 3ds Max**。
 
-用中文描述你要做的事，智能体通过专用 MCP 工具直接操作场景——创建物体、构建材质、驱动修改器与控制器、
-截取视口、检查插件。可选的 progressive 配置只公开三个发现/调用工具，按需加载精确工具参数，可减少本地或较小模型的上下文占用。
+用中文描述你要做的事，智能体直接操作场景——创建物体、构建材质、驱动修改器与控制器、
+截取视口、检查插件。服务器默认只公开 `run_python` 一个操作工具，智能体编写 Python 脚本调用背后约 180 个工具，工具定义约占 2k token；
+也可以选择 `full` 配置，把全部工具直接公开给客户端。
 
 - **原生桥接**：3ds Max 2023–2027 的 C++ 插件，无需 MAXScript 轮询
+- **脚本在 3ds Max 内运行**：脚本使用 Max 自带的 Python 和绑定自 SDK 的场景对象模型 `sdk`，一次脚本的全部修改是一个撤销步骤
+- **统一的灯光与渲染命令**：`render_setup` 在 Octane、FStorm、V-Ray、Corona、Scanline 和 ART 上用法相同
 - **智能体视口**：独立浮动视口，用于导航、视觉定位和截图
 - **可编辑建模**：带校验的组件编辑、命名曲线、扫描和放样，参数保存在场景中
-- **运行时自省**：可发现任意 Max 类、插件接口与参数
-- **深度插件支持**：tyFlow、Data Channel、MCG、OSL、Forest Pack、RailClone、Octane
-- **内置智能体技能包**：附带 MAXScript 参考文档，方便你编写自己的工具
+- **运行时自省**：按名称查看、读取和设置任意类或插件的参数
+- **插件工具**：tyFlow、Data Channel、MCG、OSL、Forest Pack、RailClone
+- **内置智能体技能包**：为智能体提供规则、工作流程和 MAXScript 参考
 
 MIT 开源协议。源码与完整文档：
 **https://github.com/cl0nazepamm/3dsmax-mcp**
@@ -64,11 +69,11 @@ pip install 3dsmax-mcp -i https://pypi.tuna.tsinghua.edu.cn/simple
 3dsmax-mcp-install
 ```
 
-`3dsmax-mcp-install` 会让你选择 MCP 工具配置（默认使用兼容性最好的 `full`），把原生桥接插件部署到 Autodesk 的
-`ApplicationPlugins` 目录、写入用户配置，并尽可能自动注册到已安装的 AI 客户端。本地或较小模型可用
-`3dsmax-mcp-install --tool-profile progressive`。**装完请重启 3ds Max**，插件才会加载。
+`3dsmax-mcp-install` 会让你选择 MCP 工具配置（默认 `code`），把原生桥接插件部署到 Autodesk 的
+`ApplicationPlugins` 目录、写入用户配置，并尽可能自动注册到已安装的 AI 客户端。也可以用
+`3dsmax-mcp-install --tool-profile full` 直接指定。**装完请重启 3ds Max**，插件才会加载。
 
-**环境要求：** Windows · Python 3.12+ · 3ds Max 2023–2027
+**环境要求：** Windows · Python 3.13+ · 3ds Max 2023–2027
 
 国内常用的 **Cline + DeepSeek** 配置方式、建筑可视化与 MMD 动画上手示例、以及其他国内镜像，
 见中文文档

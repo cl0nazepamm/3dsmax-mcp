@@ -54,6 +54,13 @@ public:
     static void DisableDirectMode();
     static bool IsDirectMode();
 
+    // Run on the main thread after each piece of queued work, before its caller
+    // resumes. The bridge delivers the node events that work queued, so its reply
+    // leaves with the scene journal current and a read on a pipe thread right
+    // behind it (scene_delta) sees the change; Max delivers them on its own only
+    // when it next idles. Set before work arrives.
+    static void SetAfterWork(void (*hook)()) { s_after_work_.store(hook, std::memory_order_release); }
+
     // True on the thread that called Initialize() (Max's main thread), where
     // ExecuteSync runs work inline.
     bool IsOwnThread() const {
@@ -207,6 +214,7 @@ private:
     // are deferred and drained after it completes. Main-thread-only state.
     static bool s_executing_;
     static std::deque<std::shared_ptr<WorkItem>> s_deferred_;
+    static std::atomic<void (*)()> s_after_work_;
 
     // Per-process random secret. Sent in wParam alongside every
     // WM_MCP_EXECUTE so other processes can't start queued requests — same-user

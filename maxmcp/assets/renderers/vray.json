@@ -1,0 +1,148 @@
+{
+  "preset": 1,
+  "id": "vray",
+  "label": "V-Ray",
+  "renderers": [[1941615238, 2012806412], [1770671000, 1323107829]],
+  "verified": "Carried over from the bindings checked on V-Ray 7 update 3. V-Ray was not installed when this preset was written, so it has not been run in this form.",
+  "notes": [
+    "A rectangle's width is V-Ray's Length (local X) and its height V-Ray's Width (local Y).",
+    "hdri makes a spherical dome light around a scene-linear EXR or HDR.",
+    "No sun, camera settings or render settings are bound yet; use the parameters' own names in native and settings."
+  ],
+  "recipes": {
+    "_area": {
+      "objects": {"light": {"class": [1012233633, 1607860959], "super": "light"}},
+      "set": {"targeted": false, "texmap_on": false},
+      "aim": "-z",
+      "defaults": {"kelvin": 6500, "double_sided": false, "visible": true},
+      "fields": {
+        "enabled": "on",
+        "cast_shadows": "castShadows",
+        "double_sided": "doubleSided",
+        "visible": {"param": "invisible", "invert": true},
+        "kelvin": {"param": "color_temperature", "with": {"color_mode": 1}},
+        "rgb": {"param": "color", "with": {"color_mode": 0}}
+      },
+      "intensity": {
+        "units": {
+          "renderer": {"param": "multiplier", "with": {"normalizeColor": 0}},
+          "lm": {"param": "multiplier", "with": {"normalizeColor": 1}},
+          "nits": {"param": "multiplier", "with": {"normalizeColor": 2}}
+        },
+        "default": {"value": 1500, "unit": "lm"}
+      }
+    },
+    "rectangle": {
+      "extends": "_area",
+      "match": {"type": 0},
+      "set": {"type": 0},
+      "oriented": true,
+      "requires": ["width", "height"],
+      "fields": {"width": "sizeLength", "height": "sizeWidth"}
+    },
+    "disk": {
+      "extends": "_area",
+      "match": {"type": 4},
+      "set": {"type": 4},
+      "oriented": true,
+      "requires": ["radius"],
+      "fields": {"radius": "size0"}
+    },
+    "sphere": {
+      "extends": "_area",
+      "match": {"type": 2},
+      "set": {"type": 2},
+      "requires": ["radius"],
+      "fields": {"radius": "size0"}
+    },
+    "hdri": {
+      "objects": {
+        "light": {"class": [1012233633, 1607860959], "super": "light"},
+        "image": {"class": [1734939723, 46203261], "super": "texmap"}
+      },
+      "match": {"type": 1},
+      "set": {
+        "type": 1,
+        "targeted": false,
+        "normalizeColor": 0,
+        "color_mode": 0,
+        "color": [1.0, 1.0, 1.0],
+        "texmap": "@image",
+        "texmap_on": true,
+        "dome_spherical": true,
+        "dome_finite": false,
+        "image.mapType": 2,
+        "image.color_space": 0,
+        "image.gamma": 1.0
+      },
+      "aim": "none",
+      "requires": ["path"],
+      "fields": {
+        "enabled": "on",
+        "cast_shadows": "castShadows",
+        "path": {"param": "image.HDRIMapName", "extensions": [".exr", ".hdr"]},
+        "rotation": "image.horizontalRotation"
+      },
+      "intensity": {
+        "units": {"renderer": {"param": "multiplier"}},
+        "default": {"value": 1, "unit": "renderer"}
+      }
+    }
+  },
+  "enums": [
+    {
+      "super": 48,
+      "class": [1012233633, 1607860959],
+      "block": 0,
+      "id": 1,
+      "param": "type",
+      "values": {"rectangle": 0, "dome": 1, "sphere": 2, "mesh": 3, "disk": 4},
+      "evidence": "Chaos VRay-VRayLightLister.mcr"
+    },
+    {
+      "super": 48,
+      "class": [1012233633, 1607860959],
+      "block": 0,
+      "id": 12,
+      "param": "normalizeColor",
+      "values": {"renderer": 0, "lm": 1, "cd/m2": 2, "W": 3, "W/m2/sr": 4},
+      "evidence": "Chaos VRay-VRayLightLister.mcr"
+    },
+    {
+      "super": 48,
+      "class": [1012233633, 1607860959],
+      "block": 0,
+      "id": 39,
+      "param": "color_mode",
+      "values": {"rendering_rgb": 0, "kelvin": 1},
+      "evidence": "Chaos VRay-VRayLightLister.mcr"
+    },
+    {
+      "super": 3088,
+      "class": [1734939723, 46203261],
+      "block": 0,
+      "id": 2,
+      "param": "mapType",
+      "values": {"angular": 0, "cubic": 1, "spherical": 2, "mirrored_ball": 3, "max_standard": 4},
+      "evidence": "V-Ray 7 update 3 VRayBitmap Qt combo item data (mapping, transfer function and RGB primaries)"
+    },
+    {
+      "super": 3088,
+      "class": [1734939723, 46203261],
+      "block": 0,
+      "id": 25,
+      "param": "color_space",
+      "values": {"none": 0, "inverse_gamma": 1, "srgb": 2, "from_max": 3, "auto": 4},
+      "evidence": "V-Ray 7 update 3 VRayBitmap Qt combo item data (mapping, transfer function and RGB primaries)"
+    },
+    {
+      "super": 3088,
+      "class": [1734939723, 46203261],
+      "block": 3,
+      "id": 41,
+      "param": "rgbColorSpace",
+      "values": {"default": 0, "srgb": 1, "acescg": 2, "raw": 3},
+      "evidence": "V-Ray 7 update 3 VRayBitmap Qt combo item data (mapping, transfer function and RGB primaries)"
+    }
+  ]
+}

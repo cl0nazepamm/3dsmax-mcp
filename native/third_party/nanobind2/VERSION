@@ -1,0 +1,2 @@
+nanobind 2.15.0 (from the PyPI release package; cmake/, include/, src/, ext/robin_map, stubgen.py)
+The last nanobind line that supports Python 3.9, which 3ds Max 2023 embeds; every other 3ds Max builds against ../nanobind.

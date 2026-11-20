@@ -167,7 +167,9 @@ def clean_toml(text: str) -> str:
 
 def config_paths(home: Path) -> list[Path]:
     paths = [home / ".claude.json", home / ".claude/settings.json", home / ".claude/settings.local.json",
-             home / ".cursor/mcp.json", home / ".gemini/settings.json",
+             home / ".cursor/mcp.json", home / ".gemini/config/mcp_config.json",
+             home / ".gemini/settings.json",  # Gemini CLI, which earlier installs registered with
+
              Path(os.environ.get("CODEX_HOME", home / ".codex")) / "config.toml",
              *install.claude_desktop_config_paths(),
              ROOT / ".mcp.json", ROOT / ".claude/settings.json", ROOT / ".claude/settings.local.json",
@@ -230,8 +232,10 @@ def removal_paths(home: Path) -> list[Path]:
     paths.append(home / ".claude" / f"{SKILL}.skill")
     codex_home = Path(os.environ.get("CODEX_HOME", home / ".codex"))
     paths.append(codex_home / "plugins/cache/3dsmax-codex/3dsmax-mcp")
+    # Installs before the ApplicationPlugins bundle copied these into the Max folder.
     for max_dir in find_max_installations():
-        paths.extend(install.legacy_install_paths(max_dir))
+        paths.extend(max_dir / old for old in ("plugins/mcp_bridge.gup", "scripts/mcp/mcp_server.ms",
+                                               "scripts/startup/mcp_autostart.ms"))
     profiles = local / "Autodesk/3dsMax"
     for pattern in ("*/*/scripts/startup/mcp_autostart.ms", "*/*/scripts/mcp/mcp_server.ms",
                     "*/*/usermacros/MCP-MCP_*.mcr"):

@@ -2,7 +2,93 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [2.0.1] — 2026-11-20
+
+### Changed
+
+- **`core` and `progressive` are gone**, with progressive's `find_tools`, `list_toolsets`, `describe_toolset` and `call_tool`. A config or `MCP_TOOL_PROFILE` that names one gets `code`. `install.py` and the Windows setup offer `code` and `full`.
+- **Safe mode is gone.** It refused MAXScript that named one of six functions (`DOSCommand`, `ShellLaunch`, `deleteFile`, ...), which a script got around by building the name as a string, through .NET or through `python.import`, and it kept `run_python` scripts out of 3ds Max. A `safe_mode` line left in `mcp_config.ini` is ignored, and the `SAFE_MODE` error code and the `safeMode` field of bridge replies are gone. tyFlow, Data Channel and MCG script operators still need `allow_executable=true`.
+- `sdk.classes` takes the pattern first, like every other collection: `sdk.classes("OpenPBR*", kind="material")` failed. An old `sdk.classes("modifier", "*Bend*")` is refused as an unknown kind instead of listing nothing.
+- `run_python`'s manual says when a script should reach for `mx.tools.<name>`, `sdk` or `rt`, and that `rt`'s `.rotation` turns a node about the scene origin.
+- The Windows setup and `install.py` connect Antigravity, editor and CLI (`~/.gemini/config/mcp_config.json`), in place of Gemini CLI. Uninstalling still removes an entry an earlier install left in Gemini CLI's `settings.json`.
+
+### Fixed
+
+- **The server keeps answering while a call waits on 3ds Max.** A call that arrives while Max is busy gets `MAX_BUSY` within about 10 seconds, with what Max is doing. The server read nothing else until the waiting call returned, so the client's cancel went unanswered and every later call timed out, which looked like a dropped connection.
+- A script that calls `sys.exit()`, `exit()` or `quitMax` gets `SystemExit` back as an error; it ended 3ds Max on the spot, without a shutdown. After `quitMax`, 3ds Max closes by itself once the script has returned.
+- A 3ds Max that ends through `exit()`, from a script or another plug-in, no longer aborts in the bridge's dialog monitor.
+- `boolean_operation` works while the Modify panel shows another object, as it does after `mesh_edit`; BooleanMod refused every operand there. The panel's sub-object level is kept.
+- `cosmos_import` leaves the selection out of the import: an empty selection was not cleared, so the material landed on whatever was selected. A material whose name differs from the asset's is found and reported as `imported`, without the 30 second wait.
+- Scene tools report an object's class as MAXScript does (`Forest_Pro`, `Editable_Poly`, `Plane`). Forest Pack and RailClone objects read `ReferenceTarget`, so `inspect_plugin_instance` did not recognize them and `mx.find(class_name="Forest_Pro")` found nothing. Class filters take that name or the UI label (`Editable Poly`).
+- `render_setup` refuses a quality level, a kind or a renderer its preset does not have before it switches the renderer, and a call that fails after the switch gets the renderer it replaced back, with its settings. A refused call used to leave the scene on the new renderer.
+- `create_material_from_textures`, `palette_laydown` and `smart_import` fail with `PLUGIN_MISSING` when the renderer's material class is not installed, and report a script that failed as an error. Both came back as a result. A folder without images or matching textures is an error too.
+- `plugin_patch` names the field an edit lacks, a stale MCG graph hash is `STALE_GRAPH` (it was `AMBIGUOUS`), `write_osl_shader` names the file it wrote, and `modify_tyflow_operator` says why a property was not set.
+- `query_scene(action="delta")` sees a change the call before it made. 3ds Max reports new, deleted and changed nodes only when it next idles, so a delta read right behind an edit said `unchanged`.
+- A sample MCG tool forks and compiles: 37 of the 43 bundled tools do on 3ds Max 2027, and the other six use operators the safety policy blocks. Their compounds ship only in the sample pack, so 3ds Max did not know them and validation failed with "Only sub-graphs used as function can have unconnected inputs". The fork now takes them along (`pack_compounds` in the reply) and each compile loads them into the session.
+- `render_setup` runs on one renderer after another without naming its sun or camera: where another renderer's object holds the default name, this renderer's own goes beside it as `Sun_<preset>` (`Sun_octane`) and the reply says so. It failed with `KIND_MISMATCH`, which a name the caller gives still does.
+- `add_tyflow_event`, and `add_event` in `tyflow_apply_patch`, put a new event right of the rightmost one when no position is given, and `add_tyflow_event` reports where. Every new event landed on top of the first.
+- `smart_import` and `palette_laydown` fail with `NOT_FOUND` when a folder is missing or holds nothing to import, and `palette_laydown` with `BAD_PARAM` for an unknown `slot_content`. They answered with a sentence that read as a result.
+- A material made with `sdk.materials.new` draws in the viewport once it is assigned through `node.material`, `set_sub_material` or `replace_with`. It drew black until it was next edited: the viewport builds a material's shader on its first change report, and assigning one sent none.
+- Every `handle` a tool reports is the one tools take. `pulze_inspect` gives each setup camera as `camera.node` {handle, name}; it showed Scene Manager's stored MAXScript node handle as `camera.handle`, a different number. `replace_material` without the native bridge reported skipped objects by that node handle too.
+- `mx.Node` compares and hashes on its handle, as `sdk.Node` does, so a renamed node stays in the sets and dicts that hold it and still equals another reference to the same node.
+- A renderer switch that 3ds Max refuses (`VERIFY_MISMATCH`) no longer keeps the replaced renderer and the new one alive.
+
+## [2.0] — 2026-11-14
+
+2.0 changes how an agent works with 3ds Max: it writes Python scripts against one API instead of picking from a list of 180 tools.
+
+### Scripts
+
+- **`run_python` and the `mx` API.** One script does a whole step. `mx.box`, `mx.boolean`, `mx.render_setup`, `mx.capture` and other helpers return nodes with live readback, and `mx.tools.<name>(**arguments)` reaches every tool through the same validation and guards. `mx.help()` lists the tools by group, `mx.find_tools("boolean subtract")` searches them and `mx.help("<name>")` prints one manual. A wrong argument name or type raises `mx.MaxToolError` before anything reaches 3ds Max. `print()` output, a `result` variable, images (`mx.show`) and the list of tool calls come back with the reply.
+- **Scripts run inside 3ds Max**, 2023 to 2027, when `safe_mode` is off. There `rt`/`pymxs` and `sdk` are in scope, and everything a script changes (tool calls, `sdk` and `rt` edits) is one undo step, rolled back if the script raises; the reply says when a rollback was incomplete. With safe mode on, a script runs sandboxed in the server and each tool call is its own undo step.
+- **`sdk`, the scene object model bound from the 3ds Max SDK**, with calls in microseconds. What the scene has many of is a collection that answers like `bpy.data`: `sdk.nodes["Ball"]`, `sdk.nodes("Wall*", cls="Box")`, `sdk.nodes.new("Sphere", "Ball", radius=10)`, and the same for `selection`, `materials`, `texmaps`, `layers`, `groups`, `selection_sets`, `classes`, `plugins` and more. Nodes have `pos`, `rot`, `scale`, `transform`, `params`, modifiers, tracks and keys; `with sdk.at(10):` and `with sdk.animate():` set the time and key. Every signature is typed. `mx.help("sdk")` is the index and `docs/mx-sdk-reference.md` the reference.
+- **One node type.** The `mx` helpers return sdk nodes inside 3ds Max and `mx.Node` outside it, with the same core under the same names: `handle`, `name`, `exists`, `class_name`, `pos`, `bbox`, `hidden`, `delete()`.
+
+### Tool profiles
+
+- **`code` is the default profile** ([#38](https://github.com/cl0nazepamm/3dsmax-mcp/issues/38)): the server lists `run_python` and the four tools that choose which 3ds Max it talks to. Their definitions take about 2k Claude tokens of every request, where the tool list of 1.7.8 took about 103k.
+- **`full`, `core` and `progressive` stay as a choice**, through `MCP_TOOL_PROFILE`, `[mcp] tool_profile` in `mcp_config.ini`, `install.py --tool-profile` or the Windows setup's profile page (`/TOOLPROFILE=`). An update keeps the profile that is installed. Both installers mark the three as deprecated.
+- **Listed tools take 63% less context**: full is about 28k tokens, core 19k. The 14 most used tools keep their full description and JSON Schema; every other tool is its first line plus a Python-style signature, and `tool_help(name)` returns the full manual. `[mcp] tool_docs = complete` lists everything in full, `signature` nothing in full.
+- **Progressive** lists the 14 common tools, `run_python` and the discovery tools, about 7k tokens. `find_tools(query)` returns the best matches with their schemas and `call_tool` runs one.
+
+### New tools
+
+- **`render_setup`**: lights, sun, environment, camera, render settings and renders in one command, the same on every renderer. A script names what it wants in neutral terms (`{"kind": "sphere", "radius": 4, "intensity": 800, "unit": "lm", "kelvin": 2700}`, `sun={"elevation": 40, "azimuth": 220}`) and the renderer's preset turns it into that renderer's classes and parameters. A name that exists is updated with only the fields given, in one undo step, and a render comes back as an image with the reply. Presets are JSON files for Octane, FStorm, V-Ray, Corona, Scanline and ART; one in `%LOCALAPPDATA%\3dsmax-mcp\renderers` adds or replaces a renderer.
+- **`parameters`** (`mx.params`): describes, reads and sets the parameters of any object, modifier, material, map or controller by name, or describes a class before an instance exists, with types, ranges and named choices. Maps and sub-materials are built in place from the same dictionary, which is also the `params` of `create_object`, `add_modifier` and `assign_material`.
+- `plugin_patch` plans can create cameras, move existing nodes and hand a created node to a node parameter, and reach plugins that keep their parameter blocks as unreported references (Octane's renderer).
+- `inspect_object` takes `handle` as well as `name`, for objects that share a name.
+
+### Changed
+
+- `lighting_capabilities`, `create_lights`, `inspect_lights`, `edit_lights` and `render_scene` are gone; `render_setup` replaces them.
+- Tools listed as a signature, and `call_tool`, refuse an argument name the tool does not take instead of dropping it.
+- `transform_object` and `scene_patch` rotate like MAXScript's `rotate node (eulerAngles x y z)`: `rotate=[0, 0, 90]` turns +X to +Y. They turned the other way.
+- With several 3ds Max instances the default is the one the user can see, not the one that registered last, and `list_max_instances` reports each window's title, `minimized` and `foreground`.
+- A fresh install has `safe_mode = false`, so scripts run inside 3ds Max out of the box. An update keeps the installed `mcp_config.ini`: a config from 1.x still says `safe_mode = true`, and scripts stay in the server's sandbox until that line is changed.
+- The server and the Windows setup run Python 3.13.
+- The source is reorganized: one folder per subject under `maxmcp/tools`, shared code in `maxmcp/core`, files that are not Python in `maxmcp/assets`. Code that imports `maxmcp` modules directly needs the new paths; tool names are unchanged.
+- The repository carries no built bridges. A release ships them with their `_mx`; a checkout builds its own with CMake before `install.py`.
+- `install.py` copies the agent skill folder itself; the `.skill` archive and `scripts/release/build_skill.py` are gone. It no longer removes the copies that installs before the ApplicationPlugins bundle left in the 3ds Max folder (`plugins\mcp_bridge.gup`); `uninstall.py` still does.
+- Tools that edit the scene through MAXScript alone (Data Channel stacks, `draw_spline`, `scatter_forest_pack`) run in an undo step. tyFlow graph tools stay outside undo.
+
+### Fixed
+
+- `query_scene` patterns match `*` and `?` anywhere, without regard to case; only leading and trailing `*` worked.
+- `create_object` finds deferred-load plug-in classes (RailClone_Pro) and MAXScript class spellings. Class names that several classes share resolve to the one with that MAXScript name (`Box` the object, `Bend` the modifier).
+- Controller tools share one track resolver: paths with spaces, with or without `[#Parameters]`, transform shorthands (`pos.x`, `rotation.z`) and base-object parameter names all work.
+- `wire_params` refuses an expression that does not evaluate instead of reporting "wired", and `unwire_params` keeps the value the driven track showed.
+- `keyframe_tracks(action="set")` refuses a `value` it cannot write at every time.
+- `get_material_slots` reported 0 map slots on a Physical Material with the defaults.
+- `contact_check` reports parts that overlap with coplanar faces as penetrating instead of touching.
+- `select_objects` applies `pattern` and `class_name` together.
+- `manage_selection_sets(action="create")` replaces a set of that name instead of adding a second one.
+- `manage_data_channel_stack(action="reorder")` works; it always failed.
+- `set_tyflow_physx` changes only the settings passed; it reset the others.
+- `capture_tyflow_editor` captures the tyFlow editor window alone, not the desktop.
+- `get_effects` and `delete_effect` report the effect's own name, not its class.
+- `execute_maxscript` returns Point3, color, array and other values as MAXScript prints them instead of `OK`, and `execute_python` has `rt` in scope.
+- `render_automations(action="status")` reports an unknown job as `NOT_FOUND`.
+- Octane's HDRI environment rendered black.
 
 ## [1.7.8] — 2026-11-07
 

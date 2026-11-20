@@ -260,11 +260,7 @@ c.DeleteVariable "A"
 
 ## Script Controllers
 
-For agent authoring, prefer `script_controller`: inspect the destination, validate
-the expression and typed inputs at relevant frames, then apply with the inspected
-token. It stages a detached controller and reports binding, compilation, runtime,
-and output-type errors separately. Omitted bindings preserve existing inputs;
-an empty binding map clears them.
+For agent authoring, prefer the `script_controller` tool.
 
 In raw MAXScript, configure a detached controller, add its inputs before setting
 the expression, and catch both expression assignment and evaluation errors.

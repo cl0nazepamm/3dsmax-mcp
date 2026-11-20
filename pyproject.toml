@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "3dsmax-mcp"
-version = "1.7.8"
+version = "2.0.1"
 description = "MCP server for AI agents to control Autodesk 3ds Max"
 # Bilingual landing page — this is the PyPI project page, and domestic Chinese PyPI
 # mirrors index it, so it carries the pitch in both languages. Not README.md: that one
@@ -12,7 +12,7 @@ description = "MCP server for AI agents to control Autodesk 3ds Max"
 readme = "docs/PYPI.md"
 license = { file = "LICENSE" }
 authors = [{ name = "clone - m3org", email = "cl0nazepam@proton.me" }]
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 keywords = [
     "3dsmax",
     "3ds-max",
@@ -32,7 +32,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Multimedia :: Graphics :: 3D Modeling",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
@@ -53,23 +53,23 @@ Changelog = "https://github.com/cl0nazepamm/3dsmax-mcp/blob/master/docs/CHANGELO
 
 [tool.hatch.build.targets.wheel]
 packages = ["maxmcp"]
+# The tool layer's packages for the Python of each 3ds Max before 2027: gitignored, so
+# named here. scripts/release/vendor_inmax.py installs them before a release build.
+artifacts = ["maxmcp/inmax/site/cp*/**"]
 
-# Ship the Max-side payload inside the package, keeping the SAME relative layout the
-# repo uses. install.py resolves everything from `ROOT = Path(__file__).parent`, so it
-# runs unmodified in both modes: ROOT is the repo root from a checkout, and the
-# installed `maxmcp/` directory from a wheel. Same for scripts/build_skill.py
-# (ROOT = parent.parent). Sources are native/bin (tracked) rather than the staged
-# bundle/Contents/bin copies (gitignored), so a release builds from a clean checkout.
+# Ship what the installer needs from outside the package inside it, keeping the SAME
+# relative layout the repo uses. install.py resolves these from
+# `ROOT = Path(__file__).parent`, so it runs unmodified in both modes: ROOT is the repo
+# root from a checkout, and the installed `maxmcp/` directory from a wheel. The bridges
+# and their _mx come from
+# native/bin, where a build stages them; they are not in the repository, so a release
+# builds all five first. The config template, bundle manifest and
+# MAXScript listener already live in the package, under maxmcp/assets.
 [tool.hatch.build.targets.wheel.force-include]
 "install.py" = "maxmcp/installer.py"
 "pyproject.toml" = "maxmcp/pyproject.toml"
-"mcp_config.ini" = "maxmcp/mcp_config.ini"
-"maxscript" = "maxmcp/maxscript"
 "native/bin" = "maxmcp/native/bin"
-"bundle/PackageContents.xml.in" = "maxmcp/bundle/PackageContents.xml.in"
 "skills/3dsmax-mcp-dev" = "maxmcp/skills/3dsmax-mcp-dev"
-"scripts/build_skill.py" = "maxmcp/scripts/build_skill.py"
-"scripts/render_signal_wait.ps1" = "maxmcp/scripts/render_signal_wait.ps1"
 
 [project.scripts]
 3dsmax-mcp = "maxmcp.server:main"

@@ -1,0 +1,131 @@
+{
+  "preset": 1,
+  "id": "fstorm",
+  "label": "FStormRender",
+  "renderers": [[33030992, 1363098752]],
+  "verified": "FStorm 2.0.0Z on 3ds Max 2027: lights, both suns and the render settings created, edited and read back; emitter bounds measured per shape; the sun's direction measured from a pole's shadow in test renders. Brightness was not compared with another renderer.",
+  "notes": [
+    "Intensity is FStorm's own power per area (unit 'renderer'); no photometric unit is bound, so lm, cd and nits are refused.",
+    "sun is FStorm's targeted sun: it shines at the world origin from where it stands, so it is placed by elevation and azimuth (or direction), like any other sun. FStorm adds a target object named after it; leave that at the origin.",
+    "solar_sun is the same light placed by hour, month, latitude and north instead of a direction.",
+    "Both are sun light only: no sky is added and the environment is left alone. The color follows the physical model unless rgb is given, which switches to the legacy colored sun. There is no Kelvin mode."
+  ],
+  "recipes": {
+    "_area": {
+      "objects": {"light": {"class": [605978406, 1370574548], "super": "light"}},
+      "set": {"targeted": false, "directional": false, "ies_enabled": false},
+      "aim": "-z",
+      "defaults": {"kelvin": 6500},
+      "fields": {
+        "enabled": "enabled",
+        "cast_shadows": "cast_shadows",
+        "visible": "visible",
+        "double_sided": "double_sided",
+        "kelvin": {
+          "param": "temperature",
+          "with": {"color_type": 1},
+          "min": 300,
+          "max": 24000
+        },
+        "rgb": {"param": "color", "with": {"color_type": 0}}
+      },
+      "intensity": {
+        "units": {"renderer": {"param": "power", "min": 1e-08}},
+        "default": {"value": 1, "unit": "renderer"}
+      }
+    },
+    "rectangle": {
+      "extends": "_area",
+      "match": {"shape": 0},
+      "set": {"shape": 0},
+      "oriented": true,
+      "requires": ["width", "height"],
+      "fields": {
+        "width": {"param": "size_x", "scale": 0.5},
+        "height": {"param": "size_y", "scale": 0.5}
+      }
+    },
+    "disk": {
+      "extends": "_area",
+      "match": {"shape": 1},
+      "set": {"shape": 1},
+      "oriented": true,
+      "requires": ["radius"],
+      "fields": {"radius": "size_x"}
+    },
+    "sphere": {
+      "extends": "_area",
+      "match": {"shape": 2},
+      "set": {"shape": 2},
+      "requires": ["radius"],
+      "fields": {"radius": "size_x"}
+    },
+    "_sun": {
+      "objects": {"light": {"class": [807800799, 784941243], "super": "light"}},
+      "fields": {
+        "enabled": "enabled",
+        "visible": "visible",
+        "cast_shadows": {"fixed": true, "why": "The FStorm sun has no shadow switch."},
+        "size": {"param": "size", "min": 0.001},
+        "rgb": {"param": "sun_color", "with": {"model": 0}}
+      },
+      "intensity": {
+        "units": {"renderer": {"param": "power", "min": 0.001, "max": 100000}},
+        "default": {"value": 1, "unit": "renderer"}
+      }
+    },
+    "sun": {
+      "extends": "_sun",
+      "match": {"targeted": true},
+      "set": {"targeted": true, "model": 1},
+      "aim": "from_position",
+      "distance_m": 10,
+      "oriented": true
+    },
+    "solar_sun": {
+      "extends": "_sun",
+      "match": {"targeted": false},
+      "set": {"targeted": false, "model": 1},
+      "aim": "none",
+      "fields": {
+        "hour": {"param": "hour", "min": 0, "max": 24},
+        "month": {"param": "month", "min": 1, "max": 12},
+        "latitude": {"param": "latitude", "min": -90, "max": 90},
+        "north": "north_direction"
+      }
+    }
+  },
+  "settings": {
+    "samples": {"param": "max_samples", "min": 1, "max": 1000000},
+    "noise": {"param": "noise_threshold", "min": 0, "max": 0.5},
+    "denoise": "denoiser_enabled"
+  },
+  "quality": {
+    "draft": {"samples": 100, "denoise": true},
+    "preview": {"samples": 400, "denoise": true},
+    "final": {"samples": 2000, "denoise": true}
+  },
+  "enums": [
+    {
+      "super": 48,
+      "class": [605978406, 1370574548],
+      "param": "shape",
+      "values": {"rectangle": 0, "disk": 1, "sphere": 2},
+      "evidence": "FStorm 2.0.0Z on 3ds Max 2027.2: emitter bounds measured for each value"
+    },
+    {
+      "super": 48,
+      "class": [605978406, 1370574548],
+      "param": "color_type",
+      "values": {"rendering_rgb": 0, "kelvin": 1},
+      "evidence": "FStorm 2.0.0Z on 3ds Max 2027.2: parameter descriptors and readback"
+    },
+    {
+      "super": 48,
+      "class": [807800799, 784941243],
+      "param": "model",
+      "values": {"legacy": 0, "physical": 1},
+      "evidence": "FStorm 2.0.0Z on 3ds Max 2027.2: the sun's model 0 is the legacy colored sun"
+    }
+  ]
+}

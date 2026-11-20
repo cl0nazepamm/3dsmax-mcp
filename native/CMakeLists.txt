@@ -52,8 +52,8 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 file(GLOB_RECURSE PY_TOOL_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../maxmcp/tools/*.py")
 add_custom_command(
     OUTPUT "${TOOL_REGISTRY_INC}"
-    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_registry.py"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_registry.py" ${PY_TOOL_SOURCES}
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/codegen/gen_tool_registry.py"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/codegen/gen_tool_registry.py" ${PY_TOOL_SOURCES}
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     COMMENT "Generating native_tool_registry.inc from maxmcp/tools/*.py"
     VERBATIM
@@ -61,9 +61,9 @@ add_custom_command(
 add_custom_target(gen_tool_registry DEPENDS "${TOOL_REGISTRY_INC}")
 add_custom_command(
     OUTPUT "${TOOL_SMOKE_INC}"
-    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_smoke.py"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_smoke.py"
-            "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_tool_registry.py" ${PY_TOOL_SOURCES}
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/codegen/gen_tool_smoke.py"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/codegen/gen_tool_smoke.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/codegen/gen_tool_registry.py" ${PY_TOOL_SOURCES}
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     COMMENT "Generating tool_smoke_cases.inc from maxmcp/tools/*.py"
     VERBATIM
@@ -71,6 +71,7 @@ add_custom_command(
 add_custom_target(gen_tool_smoke DEPENDS "${TOOL_SMOKE_INC}")
 
 # ── Shell / core partition ───────────────────────────────────────
+# The folders of src/ are the partition: src/shell, src/shared and src/core.
 # SHELL: what Max loads and keeps, and everything Max holds a pointer to:
 # plugin registration, named pipe, main-thread executor, dialog monitor and its
 # Qt reader, scene journal, GDI+ lifetime, the agent viewport, render_start's
@@ -78,68 +79,71 @@ add_custom_target(gen_tool_smoke DEPENDS "${TOOL_SMOKE_INC}")
 # native:max_dialogs and native:core itself and reaches the core only through
 # McpCoreApi, behind the drain gate (core_control.cpp, core_host.cpp).
 set(MCP_SHELL_SOURCES
-    src/dllmain.cpp
-    src/bridge_gup.cpp
-    src/pipe_server.cpp
-    src/main_thread_executor.cpp
-    src/dialog_watch.cpp
-    src/bridge_health.cpp
-    src/qt_dialogs.cpp
-    src/gdiplus_runtime.cpp
-    src/scene_journal.cpp
-    src/agent_viewport.cpp
-    src/render_host.cpp
-    src/undo_records.cpp
-    src/core_host.cpp
-    src/core_control.cpp
+    src/shell/dllmain.cpp
+    src/shell/bridge_gup.cpp
+    src/shell/pipe_server.cpp
+    src/shell/main_thread_executor.cpp
+    src/shell/dialog_watch.cpp
+    src/shell/bridge_health.cpp
+    src/shell/qt_dialogs.cpp
+    src/shell/gdiplus_runtime.cpp
+    src/shell/scene_journal.cpp
+    src/shell/agent_viewport.cpp
+    src/shell/render_host.cpp
+    src/shell/undo_records.cpp
+    src/shell/core_host.cpp
+    src/shell/core_control.cpp
+    src/shell/python_binding.cpp
 )
 
 # SHARED: stateless code both sides call (agent viewport and handlers). Linked
 # once into the .gup; with MCP_HOT_CORE, into the shell and the core DLL alike.
 set(MCP_SHARED_SOURCES
-    src/spatial_snapshot.cpp
+    src/shared/spatial_snapshot.cpp
 )
 
 # CORE: command dispatch and the handlers, exported as mcp_core_api. It
 # reaches the shell only through McpHostApi (host_api.h, core_bridge.cpp).
 set(MCP_CORE_SOURCES
-    src/core_api.cpp
-    src/core_bridge.cpp
-    src/command_dispatcher.cpp
-    src/handlers/scene_handlers.cpp
-    src/handlers/scene_patch_handlers.cpp
-    src/handlers/scene_qa_handlers.cpp
-    src/handlers/object_handlers.cpp
-    src/handlers/orientation_handlers.cpp
-    src/handlers/modifier_handlers.cpp
-    src/handlers/mesh_handlers.cpp
-    src/handlers/mcg_handlers.cpp
-    src/handlers/inspect_handlers.cpp
-    src/handlers/scene_manage_handlers.cpp
-    src/handlers/file_handlers.cpp
-    src/handlers/viewport_handlers.cpp
-    src/handlers/job_handlers.cpp
-    src/handlers/identify_handlers.cpp
-    src/handlers/material_handlers.cpp
-    src/handlers/material_network_handlers.cpp
-    src/handlers/material_library_handlers.cpp
-    src/handlers/controller_handlers.cpp
-    src/handlers/keyframe_handlers.cpp
-    src/handlers/tyflow_handlers.cpp
-    src/handlers/plugin_introspect_handlers.cpp
-    src/plugin_access.cpp
-    src/handlers/plugin_access_handlers.cpp
-    src/handlers/organize_handlers.cpp
-    src/handlers/learning_handlers.cpp
-    src/handlers/effects_handlers.cpp
-    src/handlers/render_handlers.cpp
-    src/handlers/state_sets_handlers.cpp
-    src/handlers/mainthread_handlers.cpp
-    src/handlers/discovery_handlers.cpp
-    src/handlers/capabilities_handlers.cpp
-    src/handlers/tool_test_handlers.cpp
-    src/native_tool_registry.cpp
-    src/window_capture.cpp
+    src/core/core_api.cpp
+    src/core/core_bridge.cpp
+    src/core/command_dispatcher.cpp
+    src/core/script_hold.cpp
+    src/core/handlers/scene_handlers.cpp
+    src/core/handlers/scene_patch_handlers.cpp
+    src/core/handlers/scene_qa_handlers.cpp
+    src/core/handlers/object_handlers.cpp
+    src/core/handlers/orientation_handlers.cpp
+    src/core/handlers/modifier_handlers.cpp
+    src/core/handlers/mesh_handlers.cpp
+    src/core/handlers/mcg_handlers.cpp
+    src/core/handlers/inspect_handlers.cpp
+    src/core/handlers/scene_manage_handlers.cpp
+    src/core/handlers/file_handlers.cpp
+    src/core/handlers/viewport_handlers.cpp
+    src/core/handlers/job_handlers.cpp
+    src/core/handlers/identify_handlers.cpp
+    src/core/handlers/material_handlers.cpp
+    src/core/handlers/material_network_handlers.cpp
+    src/core/handlers/material_library_handlers.cpp
+    src/core/handlers/controller_handlers.cpp
+    src/core/handlers/keyframe_handlers.cpp
+    src/core/handlers/tyflow_handlers.cpp
+    src/core/handlers/plugin_introspect_handlers.cpp
+    src/core/plugin_access.cpp
+    src/core/handlers/plugin_access_handlers.cpp
+    src/core/handlers/param_handlers.cpp
+    src/core/handlers/organize_handlers.cpp
+    src/core/handlers/learning_handlers.cpp
+    src/core/handlers/effects_handlers.cpp
+    src/core/handlers/render_handlers.cpp
+    src/core/handlers/state_sets_handlers.cpp
+    src/core/handlers/mainthread_handlers.cpp
+    src/core/handlers/discovery_handlers.cpp
+    src/core/handlers/capabilities_handlers.cpp
+    src/core/handlers/tool_test_handlers.cpp
+    src/core/native_tool_registry.cpp
+    src/core/window_capture.cpp
 )
 
 # OFF (default): the core objects are linked into mcp_bridge.gup and the shell
@@ -197,7 +201,7 @@ endfunction()
 # qt_dialogs.cpp (shell) reads Qt dialogs through the Qt DLLs Max already loads;
 # no Qt binary is shipped. It compiles against vendored headers of the oldest Qt
 # of Max's major version and links import libraries generated from the vendored
-# symbol lists. Regenerate both with scripts/vendor_qt.py.
+# symbol lists. Regenerate both with scripts/codegen/vendor_qt.py.
 if(MAX_VERSION GREATER_EQUAL 2025)
     set(MCP_QT_VERSION "6.5.3")
 else()
@@ -206,7 +210,7 @@ endif()
 set(MCP_QT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/qt/${MCP_QT_VERSION}")
 file(GLOB MCP_QT_DEFS CONFIGURE_DEPENDS "${MCP_QT_DIR}/*.def")
 if(NOT MCP_QT_DEFS)
-    message(FATAL_ERROR "Missing Qt symbol lists in ${MCP_QT_DIR}; run scripts/vendor_qt.py")
+    message(FATAL_ERROR "Missing Qt symbol lists in ${MCP_QT_DIR}; run scripts/codegen/vendor_qt.py")
 endif()
 set(MCP_QT_IMPORT_LIBS)
 foreach(def ${MCP_QT_DEFS})
@@ -222,7 +226,7 @@ foreach(def ${MCP_QT_DEFS})
     list(APPEND MCP_QT_IMPORT_LIBS "${import_lib}")
 endforeach()
 add_custom_target(qt_import_libs DEPENDS ${MCP_QT_IMPORT_LIBS})
-set_source_files_properties(src/qt_dialogs.cpp PROPERTIES
+set_source_files_properties(src/shell/qt_dialogs.cpp PROPERTIES
     INCLUDE_DIRECTORIES "${MCP_QT_DIR}/include"
     # QT_NO_DEBUG compiles out Q_ASSERT in inline Qt code: NDEBUG does not,
     # and a failing assert would call qFatal and abort 3ds Max.
@@ -242,7 +246,7 @@ target_include_directories(mcp_core_objs PRIVATE
 add_dependencies(mcp_core_objs gen_tool_registry gen_tool_smoke)
 
 # ── Plugin ───────────────────────────────────────────────────────
-add_library(mcp_bridge SHARED ${MCP_SHELL_SOURCES} src/mcp_bridge.def)
+add_library(mcp_bridge SHARED ${MCP_SHELL_SOURCES} src/shell/mcp_bridge.def)
 mcp_bridge_apply_settings(mcp_bridge)
 target_sources(mcp_bridge PRIVATE $<TARGET_OBJECTS:mcp_shared_objs>)
 target_link_libraries(mcp_bridge PRIVATE ${MCP_QT_IMPORT_LIBS})
@@ -255,10 +259,10 @@ set_target_properties(mcp_bridge PROPERTIES
 )
 
 if(MCP_HOT_CORE)
-    # Development layout: no install rule; the shell loads core/mcp_core.dll
+    # Development layout: the shell loads core/mcp_core.dll
     # beside it (or MCP_CORE_DLL, or the path in mcp_core.path).
     message(STATUS "MCP_HOT_CORE: building core/mcp_core.dll and a shell that reloads it (dev only)")
-    target_sources(mcp_bridge PRIVATE src/core_loader.cpp)
+    target_sources(mcp_bridge PRIVATE src/shell/core_loader.cpp)
     target_compile_definitions(mcp_core_objs PRIVATE MCP_CORE_DLL)
     add_library(mcp_core SHARED $<TARGET_OBJECTS:mcp_core_objs> $<TARGET_OBJECTS:mcp_shared_objs>)
     mcp_bridge_apply_settings(mcp_core)
@@ -277,6 +281,109 @@ else()
     add_dependencies(mcp_bridge mcp_core_objs)
 endif()
 
+# ── Python module (_mx) ──────────────────────────────────────────
+# The agent-facing Python API, bound from the SDK with nanobind (vendored in
+# third_party/nanobind). It loads into 3ds Max's embedded Python, so it is built
+# against that Python's minor version. Python_ROOT_DIR picks the CPython whose
+# headers and import library are used; without it, the one uv manages for that
+# version (`uv python install 3.11`), else one installed for the machine. It is
+# built by default for each 3ds Max whose Python version is recorded here;
+# A release ships it beside the bridge (native/bin/mx_<version>/), where
+# run_python finds it as `sdk`.
+set(MCP_MX_PYTHON_2023 3.9)
+set(MCP_MX_PYTHON_2024 3.10)
+set(MCP_MX_PYTHON_2025 3.11)
+set(MCP_MX_PYTHON_2026 3.11)
+set(MCP_MX_PYTHON_2027 3.13)
+set(MCP_MX_PYTHON_VERSION "${MCP_MX_PYTHON_${MAX_VERSION}}")
+if(MCP_MX_PYTHON_VERSION)
+    set(MCP_MX_PYTHON_DEFAULT ON)
+else()
+    set(MCP_MX_PYTHON_DEFAULT OFF)
+endif()
+option(MCP_MX_PYTHON "Build the _mx Python module" ${MCP_MX_PYTHON_DEFAULT})
+option(MCP_MX_DEV_RELOAD "Tag _mx's binding types per build, so a rebuilt module loads beside the old one (dev only)" OFF)
+if(MCP_MX_PYTHON)
+    if(NOT MCP_MX_PYTHON_VERSION)
+        message(FATAL_ERROR "_mx: no Python version recorded for 3ds Max ${MAX_VERSION}")
+    endif()
+    # CMake finds a Python installed for the machine; the ones uv manages are not
+    # registered where it looks, so uv is asked for this 3ds Max's version first.
+    if(NOT Python_ROOT_DIR AND NOT DEFINED ENV{Python_ROOT_DIR})
+        find_program(MCP_UV_EXECUTABLE uv)
+        if(MCP_UV_EXECUTABLE)
+            execute_process(
+                COMMAND "${MCP_UV_EXECUTABLE}" python find --no-project --managed-python ${MCP_MX_PYTHON_VERSION}
+                OUTPUT_VARIABLE MCP_MX_UV_PYTHON OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET RESULT_VARIABLE MCP_MX_UV_RESULT)
+            if(MCP_MX_UV_RESULT EQUAL 0 AND EXISTS "${MCP_MX_UV_PYTHON}")
+                file(TO_CMAKE_PATH "${MCP_MX_UV_PYTHON}" MCP_MX_UV_PYTHON)
+                get_filename_component(Python_ROOT_DIR "${MCP_MX_UV_PYTHON}" DIRECTORY)
+                message(STATUS "_mx: Python ${MCP_MX_PYTHON_VERSION} from uv: ${Python_ROOT_DIR}")
+            endif()
+        endif()
+    endif()
+    find_package(Python ${MCP_MX_PYTHON_VERSION} EXACT COMPONENTS Interpreter Development.Module)
+    if(NOT Python_FOUND)
+        message(FATAL_ERROR
+            "_mx for 3ds Max ${MAX_VERSION} builds against Python ${MCP_MX_PYTHON_VERSION} (headers and import "
+            "library). Run `uv python install ${MCP_MX_PYTHON_VERSION}`, or pass -DPython_ROOT_DIR=<that Python's folder>.")
+    endif()
+    # nanobind 3 needs Python 3.10. 3ds Max 2023 embeds 3.9, which nanobind 2 is the last to support.
+    if(Python_VERSION VERSION_LESS 3.10)
+        set(MCP_NANOBIND_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanobind2")
+    else()
+        set(MCP_NANOBIND_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanobind")
+    endif()
+    find_package(nanobind CONFIG REQUIRED PATHS "${MCP_NANOBIND_DIR}/cmake" NO_DEFAULT_PATH)
+
+    nanobind_add_module(_mx NB_STATIC NB_DOMAIN mcp_mx
+        # core: shared rules, values, MAXScript and the bridge's handlers
+        mx/mx_module.cpp
+        mx/mx_core.cpp
+        mx/mx_values.cpp
+        mx/mx_maxscript.cpp
+        mx/mx_native.cpp
+        mx/mx_construction.cpp
+        # object model
+        mx/mx_params.cpp
+        mx/mx_nodes.cpp
+        mx/mx_modifiers.cpp
+        mx/mx_materials.cpp
+        mx/mx_tracks.cpp
+        mx/mx_controllers.cpp
+        # domains
+        mx/mx_scene.cpp
+        mx/mx_organize.cpp
+        mx/mx_viewport.cpp
+        mx/mx_files.cpp
+        mx/mx_mesh.cpp
+        mx/mx_solids.cpp
+        mx/mx_curves.cpp
+        mx/mx_render.cpp
+        mx/mx_plugins.cpp)
+    mcp_bridge_apply_settings(_mx)
+    target_link_libraries(_mx PRIVATE psapi.lib)
+
+    set(MCP_MX_TAG_DIR "${CMAKE_CURRENT_BINARY_DIR}/mx_generated")
+    set(MCP_MX_TAG_HEADER "${MCP_MX_TAG_DIR}/mx_build_tag.h")
+    if(MCP_MX_DEV_RELOAD)
+        add_custom_target(mx_build_tag
+            COMMAND "${CMAKE_COMMAND}" "-DOUT=${MCP_MX_TAG_HEADER}" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/mx_build_tag.cmake"
+            BYPRODUCTS "${MCP_MX_TAG_HEADER}"
+            COMMENT "Tagging _mx build")
+        add_dependencies(_mx mx_build_tag)
+    else()
+        string(MAKE_C_IDENTIFIER "v${MCP_BRIDGE_VERSION}" MCP_MX_RELEASE_TAG)
+        execute_process(COMMAND "${CMAKE_COMMAND}" "-DOUT=${MCP_MX_TAG_HEADER}" "-DTAG=${MCP_MX_RELEASE_TAG}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/mx_build_tag.cmake")
+    endif()
+    target_include_directories(_mx PRIVATE "${MCP_MX_TAG_DIR}")
+    set_target_properties(_mx PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/python"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/python")
+endif()
+
 # ── Deploy ───────────────────────────────────────────────────────
 option(MCP_BUILD_TRANSACTION_POLICY_TESTS "Build SDK-independent dispatcher transaction policy tests" OFF)
 if(MCP_BUILD_TRANSACTION_POLICY_TESTS)
@@ -290,19 +397,27 @@ if(MCP_BUILD_TRANSACTION_POLICY_TESTS)
     add_executable(color_value_tests tests/color_value_tests.cpp)
     target_include_directories(color_value_tests PRIVATE include)
     add_test(NAME color_value COMMAND color_value_tests)
-    add_executable(dialog_sweeper_tests tests/dialog_sweeper_tests.cpp src/dialog_watch.cpp)
+    add_executable(dialog_sweeper_tests tests/dialog_sweeper_tests.cpp src/shell/dialog_watch.cpp)
     target_include_directories(dialog_sweeper_tests PRIVATE include third_party)
     target_compile_definitions(dialog_sweeper_tests PRIVATE NOMINMAX _UNICODE UNICODE)
     add_test(NAME dialog_sweeper COMMAND dialog_sweeper_tests)
+    # A Max that ends without GUP::Stop (exit() from a script's Python) must not abort in
+    # the monitor's static destructor. The probe is a DLL, as the bridge is in Max.
+    add_library(dialog_exit_probe SHARED tests/dialog_exit_probe.cpp src/shell/dialog_watch.cpp)
+    target_include_directories(dialog_exit_probe PRIVATE include third_party)
+    target_compile_definitions(dialog_exit_probe PRIVATE NOMINMAX _UNICODE UNICODE)
+    add_executable(dialog_exit_tests tests/dialog_exit_tests.cpp)
+    add_dependencies(dialog_exit_tests dialog_exit_probe)
+    add_test(NAME dialog_exit COMMAND dialog_exit_tests)
     # Max's exit: idle pipe clients and queued requests must not hold GUP::Stop.
-    add_executable(shutdown_tests tests/shutdown_tests.cpp src/pipe_server.cpp
-        src/main_thread_executor.cpp src/dialog_watch.cpp src/bridge_health.cpp)
+    add_executable(shutdown_tests tests/shutdown_tests.cpp src/shell/pipe_server.cpp
+        src/shell/main_thread_executor.cpp src/shell/dialog_watch.cpp src/shell/bridge_health.cpp)
     target_include_directories(shutdown_tests PRIVATE include third_party)
     target_compile_definitions(shutdown_tests PRIVATE NOMINMAX _UNICODE UNICODE)
     add_test(NAME shutdown COMMAND shutdown_tests)
     # MAXScript from a direct handler still reaches the executor's thread.
-    add_executable(core_bridge_tests tests/core_bridge_tests.cpp src/core_bridge.cpp
-        src/main_thread_executor.cpp src/dialog_watch.cpp)
+    add_executable(core_bridge_tests tests/core_bridge_tests.cpp src/core/core_bridge.cpp
+        src/shell/main_thread_executor.cpp src/shell/dialog_watch.cpp)
     target_include_directories(core_bridge_tests PRIVATE include third_party)
     target_compile_definitions(core_bridge_tests PRIVATE NOMINMAX _UNICODE UNICODE)
     add_test(NAME core_bridge COMMAND core_bridge_tests)
@@ -338,7 +453,7 @@ if(MCP_BUILD_TRANSACTION_POLICY_TESTS)
     target_compile_definitions(fake_core_badimport PRIVATE FAKE_CORE_MISSING_IMPORT)
     target_link_libraries(fake_core_badimport PRIVATE "${MCP_MISSING_LIB}")
     add_dependencies(fake_core_badimport mcp_missing_dependency_lib)
-    add_executable(core_loader_tests tests/core_loader_tests.cpp src/core_loader.cpp)
+    add_executable(core_loader_tests tests/core_loader_tests.cpp src/shell/core_loader.cpp)
     target_include_directories(core_loader_tests PRIVATE include)
     target_compile_definitions(core_loader_tests PRIVATE NOMINMAX _UNICODE UNICODE MAX_SDK_VERSION=${MAX_VERSION}
         "FAKE_CORE=\"$<TARGET_FILE:fake_core>\""
@@ -351,22 +466,12 @@ endif()
 
 option(MCP_BUILD_AGENT_VIEWPORT_PROBE "Build optional live agent viewport SDK test harness" OFF)
 if(MCP_BUILD_AGENT_VIEWPORT_PROBE)
-    add_library(agent_viewport_probe SHARED tests/agent_viewport_probe.cpp src/agent_viewport.cpp src/spatial_snapshot.cpp src/scene_journal.cpp src/handlers/viewport_handlers.cpp src/handlers/job_handlers.cpp src/gdiplus_runtime.cpp src/main_thread_executor.cpp src/dialog_watch.cpp
-        src/core_bridge.cpp src/core_host.cpp src/render_host.cpp src/undo_records.cpp)
+    add_library(agent_viewport_probe SHARED tests/agent_viewport_probe.cpp src/shell/agent_viewport.cpp src/shared/spatial_snapshot.cpp src/shell/scene_journal.cpp src/core/handlers/viewport_handlers.cpp src/core/handlers/job_handlers.cpp src/shell/gdiplus_runtime.cpp src/shell/main_thread_executor.cpp src/shell/dialog_watch.cpp
+        src/core/core_bridge.cpp src/shell/core_host.cpp src/shell/render_host.cpp src/shell/undo_records.cpp)
     target_include_directories(agent_viewport_probe PRIVATE include third_party "${MAXSDK_PATH}/include")
     target_compile_definitions(agent_viewport_probe PRIVATE NOMINMAX _UNICODE UNICODE MAX_SDK_VERSION=${MAX_VERSION} MAX_SILENCE_DEPRECATED_MATRIX_BOOL_CTOR)
     target_link_directories(agent_viewport_probe PRIVATE "${MAXSDK_PATH}/lib/x64/Release")
     target_link_libraries(agent_viewport_probe PRIVATE core.lib maxutil.lib Maxscrpt.lib Geom.lib mesh.lib Paramblk2.lib ViewSystem.lib)
     target_compile_options(agent_viewport_probe PRIVATE /EHa)
-    target_sources(agent_viewport_probe PRIVATE src/window_capture.cpp)
-endif()
-
-set(MAX_PLUGINS_DIR "C:/Program Files/Autodesk/3ds Max ${MAX_VERSION}/plugins"
-    CACHE PATH "3ds Max plugins directory")
-
-if(NOT MCP_HOT_CORE)
-    install(TARGETS mcp_bridge
-        RUNTIME DESTINATION "${MAX_PLUGINS_DIR}"
-        LIBRARY DESTINATION "${MAX_PLUGINS_DIR}"
-    )
+    target_sources(agent_viewport_probe PRIVATE src/core/window_capture.cpp)
 endif()

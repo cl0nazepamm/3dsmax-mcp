@@ -14,7 +14,6 @@ try (opbr = OpenPBRMaterial name:"PBR_Mat") catch ()
 if opbr == undefined do try (opbr = OpenPBR_Material name:"PBR_Mat") catch ()
 if opbr == undefined do try (opbr = OpenPBR_Mtl name:"PBR_Mat") catch ()
 if opbr != undefined do (
-    -- Use introspect_class / get_material_slots for exact slot names.
     try (opbr.base_color = color 200 150 100) catch ()
     try (opbr.metalness = 0.0) catch ()
     try (opbr.roughness = 0.3) catch ()
@@ -109,14 +108,8 @@ m.mapAmounts[2] = 100.0
 ## OpenPBR Preference
 
 Prefer OpenPBR for new neutral PBR materials. Because property/class names can
-vary by 3ds Max version, discover before hardcoding:
-
-```maxscript
--- In MCP, prefer:
--- discover_plugin_classes pattern:"*OpenPBR*" superclass:"material"
--- introspect_class class_name:"OpenPBRMaterial"  -- or discovered name
--- get_material_slots name:"ObjectWithOpenPBR" slot_scope:"map"
-```
+vary by 3ds Max version, discover them with `discover_plugin_classes` and
+`parameters` before hardcoding.
 
 Use PhysicalMaterial only when OpenPBR is unavailable, when converting legacy
 Max scenes that already use PhysicalMaterial, or when the user explicitly asks

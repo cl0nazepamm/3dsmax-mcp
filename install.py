@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """One-step installer for 3dsmax-mcp.
 
-Removes legacy Max install-dir copies, deploys the ApplicationPlugins bundle,
-installs user config, builds skills, and registers with AI agents.
+Deploys the ApplicationPlugins bundle, installs user config and the agent skill,
+and registers with AI agents.
 
 Run:  uv run python install.py
 Skip skill install: uv run python install.py --skip-skill
@@ -22,13 +22,16 @@ import tempfile
 from pathlib import Path
 
 from maxmcp.opencode_config import resolve_opencode_config, update_opencode
+from maxmcp.user_config import TOOL_PROFILES, with_ini_value
 
 ROOT = Path(__file__).resolve().parent
 # Installed from a wheel this file is `maxmcp/installer.py`, so ROOT is the package
-# directory; from a checkout it is `install.py` and ROOT is the repo root. The Max-side
-# payload is shipped at the same relative paths either way (see force-include in
-# pyproject.toml), so only MCP client registration has to know the difference.
+# directory; from a checkout it is `install.py` and ROOT is the repo root. What a checkout
+# keeps beside the package (native/bin, skills) a wheel
+# carries inside it at the same relative paths (see force-include in pyproject.toml).
 IS_PACKAGED = Path(__file__).name == "installer.py"
+# The config template, bundle manifest and MAXScript listener ship in the package itself.
+ASSETS = (ROOT if IS_PACKAGED else ROOT / "maxmcp") / "assets"
 
 GUP_SRCS = {
     2023: ROOT / "native" / "bin" / "mcp_bridge_2023.gup",
@@ -38,17 +41,15 @@ GUP_SRCS = {
     2027: ROOT / "native" / "bin" / "mcp_bridge_2027.gup",
 }
 
-BUNDLE_SRC = ROOT / "bundle"
 BUNDLE_PACKAGE_NAME = "3dsmax-mcp"
 APPLICATION_PACKAGE_DST = (
     Path(os.environ.get("ProgramData", "")) / "Autodesk" / "ApplicationPlugins" / BUNDLE_PACKAGE_NAME
 )
 
-MS_SERVER = ROOT / "maxscript" / "mcp_server.ms"
-CONFIG_SRC = ROOT / "mcp_config.ini"
+MS_SERVER = ASSETS / "mcp_server.ms"
+CONFIG_SRC = ASSETS / "mcp_config.ini"
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "3dsmax-mcp"
 CONFIG_DST = CONFIG_DIR / "mcp_config.ini"
-TOOL_PROFILES = ("full", "progressive", "core")
 
 
 def pkg_version() -> str:
@@ -91,61 +92,35 @@ def installer_banner() -> str:
 
 
 def choose_tool_profile(requested: str | None = None) -> str:
-    """Select the external MCP tool exposure profile."""
+    """Select which tools MCP clients list (maxmcp/profiles.py)."""
     if requested:
         normalized = requested.strip().lower()
         if normalized not in TOOL_PROFILES:
             raise ValueError(f"Unsupported tool profile: {requested}")
         return normalized
 
-    print("\nMCP tool profile:")
-    print("  1) Full (default and RECOMMENDED!) - advertise every tool for maximum client compatibility")
-    print("  2) Progressive (New!) - 3 discovery tools; potentially saves context for local/smaller models")
-    print("  3) Core - advertise the smaller everyday tool subset")
+    print("\nMCP tool profile (how the model reaches the 3ds Max tools):")
+    print("  1) Code (default) - the model works in Python inside 3ds Max, through an API built for")
+    print("     agents: the 3ds Max SDK as Python objects, and every tool as a function. One script")
+    print("     does a whole task, checks its own result and is a single undo step")
+    print("  2) Full (deprecated) - every tool listed for the model to call one at a time")
+    print("  Listed tools are sent with every request, so a longer list takes room from each one.")
     try:
         choice = input("  Choice [1]: ").strip()
     except EOFError:
         choice = ""
-    return {"2": "progressive", "3": "core"}.get(choice, "full")
+    return "full" if choice == "2" else "code"
 
 
 def set_ini_value(path: Path, section: str, key: str, value: str) -> None:
     """Update one INI value while preserving unrelated comments and formatting."""
     text = path.read_text("utf-8") if path.exists() else ""
-    lines = text.splitlines()
-    section_start: int | None = None
-    section_end = len(lines)
-    section_pattern = re.compile(r"^\s*\[([^]]+)]\s*(?:[#;].*)?$", re.IGNORECASE)
-    key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=", re.IGNORECASE)
+    path.write_text(with_ini_value(text, section, key, value), "utf-8")
 
-    for index, line in enumerate(lines):
-        match = section_pattern.match(line)
-        if not match:
-            continue
-        if section_start is not None:
-            section_end = index
-            break
-        if match.group(1).strip().lower() == section.lower():
-            section_start = index
-
-    replacement = f"{key} = {value}"
-    if section_start is None:
-        if lines and lines[-1].strip():
-            lines.append("")
-        lines.extend((f"[{section}]", replacement))
-    else:
-        for index in range(section_start + 1, section_end):
-            if key_pattern.match(lines[index]):
-                lines[index] = replacement
-                break
-        else:
-            lines.insert(section_end, replacement)
-
-    path.write_text("\n".join(lines) + "\n", "utf-8")
 
 # Extract list of supported years from GUP_SRCS
 MAX_YEARS = sorted(GUP_SRCS.keys(), reverse=True)
-PACKAGE_CONTENTS_TEMPLATE = BUNDLE_SRC / "PackageContents.xml.in"
+PACKAGE_CONTENTS_TEMPLATE = ASSETS / "PackageContents.xml.in"
 APP_VERSION_PLACEHOLDER = "__APP_VERSION__"
 
 
@@ -185,114 +160,6 @@ def find_max() -> Path | None:
     return found[0] if found else None
 
 
-def legacy_install_paths(max_dir: Path) -> list[Path]:
-    return [
-        max_dir / "plugins" / "mcp_bridge.gup",
-        max_dir / "scripts" / "mcp" / "mcp_server.ms",
-        max_dir / "scripts" / "startup" / "mcp_autostart.ms",
-    ]
-
-
-def legacy_mcp_script_dir(max_dir: Path) -> Path:
-    return max_dir / "scripts" / "mcp"
-
-
-def delete_elevated(path: Path) -> bool:
-    if not path.exists():
-        return True
-    try:
-        path.unlink()
-        return True
-    except PermissionError:
-        print(f"  Need admin rights for {path}")
-        cmd = f'del /F "{path}"'
-        subprocess.run(
-            ["powershell", "-Command",
-             f'Start-Process -FilePath cmd.exe -ArgumentList \'/c {cmd}\' -Verb RunAs -Wait'],
-            capture_output=True, timeout=30,
-        )
-        return not path.exists()
-
-
-def _legacy_max_dirs(extra_dirs: list[Path] | None = None) -> list[Path]:
-    seen: set[str] = set()
-    dirs: list[Path] = []
-    for candidate in [*find_max_installations(), *(extra_dirs or [])]:
-        key = str(candidate)
-        if key in seen:
-            continue
-        seen.add(key)
-        dirs.append(candidate)
-    return dirs
-
-
-def remove_legacy_installations(extra_dirs: list[Path] | None = None) -> bool:
-    """Remove old-format installs from every known Max dir. Returns False if any remain."""
-    print("\nPre-flight: removing legacy installation files")
-    max_dirs = _legacy_max_dirs(extra_dirs)
-    if not max_dirs:
-        print("  No 3ds Max installations scanned (legacy paths only checked when Max is found)")
-
-    for max_dir in max_dirs:
-        print(f"  Scanning: {max_dir}")
-        for path in legacy_install_paths(max_dir):
-            if not path.exists():
-                continue
-            if delete_elevated(path):
-                print(f"    Removed: {path}")
-            else:
-                print(f"    FAILED: {path}")
-
-        mcp_dir = legacy_mcp_script_dir(max_dir)
-        if mcp_dir.exists() and mcp_dir.is_dir() and not any(mcp_dir.iterdir()):
-            try:
-                mcp_dir.rmdir()
-                print(f"    Removed empty: {mcp_dir}")
-            except OSError:
-                pass
-
-    remaining = [
-        path
-        for max_dir in max_dirs
-        for path in legacy_install_paths(max_dir)
-        if path.exists()
-    ]
-    if remaining:
-        print("\n  ERROR: legacy files still present:")
-        for path in remaining:
-            print(f"    {path}")
-        print("  Close 3ds Max and re-run the installer.")
-        return False
-
-    print("  OK: no legacy installation files remain")
-    return True
-
-
-def remove_retired_chat_macros() -> None:
-    """Remove only the old bridge-owned chat action from local Max profiles."""
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    if not local_app_data:
-        return
-    profiles = (Path(local_app_data) / "Autodesk" / "3dsMax").resolve()
-    for path in profiles.glob("*/*/usermacros/MCP-MCP_Chat.mcr"):
-        # A custom profile can contain junctions. Do not follow one outside
-        # the Max profile directory or remove a user replacement of this macro.
-        if not path.resolve().is_relative_to(profiles):
-            continue
-        try:
-            source = path.read_text(encoding="utf-8-sig")
-            if not (
-                re.match(r'\s*macroScript\s+MCP_Chat\s+category:\s*"MCP"', source)
-                and "MCPBridgeExecutor-" in source
-                and "0x5144 1 0" in source
-            ):
-                continue
-            path.unlink()
-            print(f"  Removed retired MCP Chat macro: {path}")
-        except (OSError, UnicodeError) as error:
-            print(f"  Could not remove retired MCP Chat macro {path}: {error}")
-
-
 def package_contents_xml(app_version: str) -> str:
     if PACKAGE_CONTENTS_TEMPLATE.exists():
         text = PACKAGE_CONTENTS_TEMPLATE.read_text(encoding="utf-8")
@@ -327,8 +194,15 @@ def stage_bundle(dest: Path, allow_hot_shell: bool = False) -> tuple[list[int], 
         if src.exists():
             if not allow_hot_shell and is_hot_shell(src):
                 raise RuntimeError(f"{src} is a development bridge that loads its core from the build tree; "
-                                   f"build the release bridge with native\\build.bat {year}")
+                                   f"build the release bridge for {year} (docs/ADVANCED.md, Building the native bridge)")
             shutil.copy2(src, bin_dir / src.name)
+            # run_python's sdk (_mx), built with this bridge when its build made one.
+            mx_dir = src.parent / f"mx_{year}"
+            modules = sorted(mx_dir.glob("_mx.*.pyd")) if mx_dir.is_dir() else []
+            if modules:
+                (bin_dir / mx_dir.name).mkdir(exist_ok=True)
+                for module in modules:
+                    shutil.copy2(module, bin_dir / mx_dir.name / module.name)
             included.append(year)
         else:
             missing.append(year)
@@ -384,6 +258,12 @@ def deploy_application_package(allow_hot_shell: bool = False) -> bool:
             print(f"  FAILED: {error}")
             print(f"  {APPLICATION_PACKAGE_DST} was left unchanged.")
             return False
+        if not included:
+            # A checkout carries no bridges; a release (Windows setup, PyPI package) does.
+            print("  FAILED: no bridge is built. Build one (docs/ADVANCED.md, Building the native bridge;")
+            print("  it needs that 3ds Max SDK), or install a release, which carries them for 2023 to 2027.")
+            print(f"  {APPLICATION_PACKAGE_DST} was left unchanged.")
+            return False
         try:
             if APPLICATION_PACKAGE_DST.exists():
                 shutil.rmtree(APPLICATION_PACKAGE_DST)
@@ -412,11 +292,34 @@ def deploy_application_package(allow_hot_shell: bool = False) -> bool:
         print(f"  SKIP: Contents/bin/mcp_bridge_{year}.gup (not built)")
     print("  OK: Contents/scripts/mcp_server.ms")
     print(f"  OK: {APPLICATION_PACKAGE_DST}")
-    remove_retired_chat_macros()
     return True
 
 
-def deploy_config(tool_profile: str = "full") -> bool:
+# The Python tag of each 3ds Max that does not embed the server's Python (3.13, as 2027 does).
+MAX_PYTHON_TAGS = {2023: "cp39", 2024: "cp310", 2025: "cp311", 2026: "cp311"}
+
+
+def fetch_max_packages(years: list[int]) -> bool:
+    """The tool layer's packages for the Python of each installed 3ds Max before 2027.
+
+    A wheel carries them all; a checkout fetches the ones it needs here. Without them
+    run_python still works on those releases, in the MCP server instead of inside 3ds Max.
+    """
+    script = ROOT / "scripts" / "release" / "vendor_inmax.py"
+    tags = sorted({MAX_PYTHON_TAGS[year] for year in years if year in MAX_PYTHON_TAGS})
+    if IS_PACKAGED or not tags or not script.is_file():
+        return True
+    print("\n  Packages for scripts that run inside 3ds Max 2023-2026")
+    try:
+        subprocess.run([sys.executable, str(script), "--only", *tags], check=True, cwd=str(ROOT))
+        return True
+    except (subprocess.CalledProcessError, OSError):
+        print("  SKIP: could not fetch them, so on those releases run_python runs in the MCP server")
+        print("        instead of inside 3ds Max. Retry: uv run python scripts/release/vendor_inmax.py")
+        return False
+
+
+def deploy_config(tool_profile: str = TOOL_PROFILES[0]) -> bool:
     print(f"\n[1/4] User config -> {CONFIG_DIR}")
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -426,8 +329,8 @@ def deploy_config(tool_profile: str = "full") -> bool:
         shutil.copy2(CONFIG_SRC, CONFIG_DST)
         print("  mcp_config.ini: installed template")
     else:
-        CONFIG_DST.write_text("[mcp]\nsafe_mode = true\n", "utf-8")
-        print("  mcp_config.ini: created default (safe_mode=true)")
+        CONFIG_DST.write_text("[mcp]\n", "utf-8")
+        print("  mcp_config.ini: created default")
 
     set_ini_value(CONFIG_DST, "mcp", "tool_profile", tool_profile)
     print(f"  MCP tools:       {tool_profile}")
@@ -435,12 +338,28 @@ def deploy_config(tool_profile: str = "full") -> bool:
     return True
 
 
-def build_skills(skip_skill: bool = False) -> bool:
-    print("\n[3/4] Building skill files")
+SKILL_NAME = "3dsmax-mcp-dev"
+SKILL_SRC = ROOT / "skills" / SKILL_NAME
+
+
+def skill_destinations(target: str) -> list[Path]:
+    """Where the agent skill goes: this project, the user's home, or both."""
+    local = [ROOT / ".agents" / "skills" / SKILL_NAME]
+    home = [Path.home() / ".claude" / "skills" / SKILL_NAME, Path.home() / ".agents" / "skills" / SKILL_NAME]
+    return {"local": local, "both": local + home}.get(target, home)
+
+
+def install_skill(skip_skill: bool = False) -> bool:
+    """Copy the skill and its references (the .md files of skills/3dsmax-mcp-dev) to where agents read them."""
+    print("\n[3/4] Agent skill")
     if skip_skill:
         print("  SKIP (--skip-skill)")
         return True
-    print("  Where should skills be installed?")
+    files = sorted(SKILL_SRC.glob("*.md"))
+    if not (SKILL_SRC / "SKILL.md").exists():
+        print(f"  FAILED: missing {SKILL_SRC / 'SKILL.md'}")
+        return False
+    print("  Where should the skill be installed?")
     print("    1) Project only")
     print("    2) Global only (default)")
     print("    3) Both project and global (might cause conflict in some agents)")
@@ -448,18 +367,20 @@ def build_skills(skip_skill: bool = False) -> bool:
         choice = input("  Choice [2]: ").strip()
     except EOFError:
         choice = ""
-    target = {"1": "local", "3": "both"}.get(choice, "global")
-    try:
-        subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / "build_skill.py"), "--target", target],
-            check=True,
-            cwd=str(ROOT),
-        )
-        print("  OK")
-        return True
-    except subprocess.CalledProcessError:
-        print("  FAILED")
-        return False
+    ok = True
+    for dest in skill_destinations({"1": "local", "3": "both"}.get(choice, "global")):
+        try:
+            # An install before 0.5 left a link here; files copied into it would land in its target.
+            if dest.is_symlink() or dest.is_junction():
+                dest.unlink()
+            dest.mkdir(parents=True, exist_ok=True)
+            for file in files:
+                shutil.copy2(file, dest / file.name)
+            print(f"  OK: {dest} ({len(files)} files)")
+        except OSError as error:
+            print(f"  FAILED: {dest} ({error})")
+            ok = False
+    return ok
 
 
 def console_script_path() -> Path | None:
@@ -502,8 +423,6 @@ def agent_registration_command(agent: str, server_command: list[str],
         return [agent, "mcp", "add", "--scope", "user", "3dsmax-mcp", *env_args, "--", *server_command]
     if agent == "codex":
         return [agent, "mcp", "add", "3dsmax-mcp", "--", *server_command]
-    if agent == "gemini":
-        return [agent, "mcp", "add", "--scope", "user", "3dsmax-mcp", *server_command]
     return None
 
 
@@ -545,7 +464,7 @@ def app_mcp_config_paths() -> list[tuple[str, Path]]:
     targets = [(_claude_desktop_label(path), path) for path in claude_desktop_config_paths()]
     targets.extend(
         [
-            ("Gemini", Path.home() / ".gemini" / "settings.json"),
+            ("Antigravity", Path.home() / ".gemini" / "config" / "mcp_config.json"),
             ("Cursor", Path.home() / ".cursor" / "mcp.json"),
         ]
     )
@@ -673,12 +592,12 @@ def register_agents() -> bool:
     server_command = mcp_server_command(dir_str)
 
     agents = []
-    for name in ["claude", "codex", "gemini"]:
+    for name in ["claude", "codex"]:
         if shutil.which(name):
             agents.append(name)
 
     if not agents:
-        print("  No agents found on PATH (claude, codex, gemini)")
+        print("  No agents found on PATH (claude, codex)")
         print("  Manual registration:")
         manual = agent_registration_command("claude", server_command)
         print(f"    {subprocess.list2cmdline(manual or [])}")
@@ -721,12 +640,12 @@ def parse_args() -> argparse.Namespace:
         "--skip-skill",
         "--skip-skills",
         action="store_true",
-        help="Skip building and installing agent skills.",
+        help="Skip installing the agent skill.",
     )
     parser.add_argument(
         "--tool-profile",
         choices=TOOL_PROFILES,
-        help="MCP tool exposure profile; omit to choose interactively.",
+        help="Which tools MCP clients list; omit to choose interactively.",
     )
     return parser.parse_args()
 
@@ -749,12 +668,10 @@ def main() -> int:
 
     tool_profile = choose_tool_profile(args.tool_profile)
 
-    if not remove_legacy_installations():
-        return 1
-
     deploy_config(tool_profile=tool_profile)
     package_ok = deploy_application_package()
-    build_skills(skip_skill=args.skip_skill)
+    fetch_max_packages([year for year in map(max_year_for, found) if year])
+    install_skill(skip_skill=args.skip_skill)
     register_agents()
 
     print("\n" + "=" * 60)

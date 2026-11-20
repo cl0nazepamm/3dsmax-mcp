@@ -1,0 +1,183 @@
+{
+  "preset": 1,
+  "id": "corona",
+  "label": "Corona",
+  "renderers": [[1655201228, 1379677700]],
+  "verified": "Carried over from the bindings checked on Corona 15 with 3ds Max 2027 (enum meanings from Chaos's coronaConverter.ms, shape extents from live bounding boxes, sun direction by render). Corona was not installed when this preset was written, so it has not been run in this form.",
+  "notes": [
+    "Corona lights always cast shadows; cast_shadows false is refused.",
+    "hdri binds a CoronaBitmap into the 3ds Max environment slot at intensity 1 (the slot has no multiplier) and needs Corona's environment set to '3ds Max settings'; single-map and LightMix overrides are left alone.",
+    "sun is a CoronaSun shining down its node's -Z; it keeps Corona's realistic color unless kelvin or rgb is given. moon takes an rgb filter only. Sky linking and moon phase keep the plugin defaults.",
+    "No camera settings or render settings are bound yet; use the parameters' own names in native and settings."
+  ],
+  "recipes": {
+    "_area": {
+      "objects": {"light": {"class": [1110459877, 692869241], "super": "light"}},
+      "set": {"targeted": false},
+      "aim": "-z",
+      "defaults": {"kelvin": 6500, "double_sided": false},
+      "fields": {
+        "enabled": "on",
+        "cast_shadows": {
+          "fixed": true,
+          "why": "Corona lights always cast shadows; there is no per-light switch."
+        },
+        "double_sided": "twosidedEmission",
+        "visible": "visibleDirectly",
+        "kelvin": {"param": "blackbodyTemp", "with": {"colorMode": 1}},
+        "rgb": {"param": "color", "with": {"colorMode": 0}}
+      },
+      "intensity": {
+        "units": {
+          "renderer": {"param": "intensity", "with": {"intensityUnits": 0}},
+          "lm": {"param": "intensity", "with": {"intensityUnits": 1}},
+          "cd": {"param": "intensity", "with": {"intensityUnits": 2}}
+        },
+        "default": {"value": 1500, "unit": "lm"}
+      }
+    },
+    "rectangle": {
+      "extends": "_area",
+      "match": {"shape": 1},
+      "set": {"shape": 1},
+      "oriented": true,
+      "requires": ["width", "height"],
+      "fields": {"width": "width", "height": "height"}
+    },
+    "disk": {
+      "extends": "_area",
+      "match": {"shape": 2},
+      "set": {"shape": 2},
+      "oriented": true,
+      "requires": ["radius"],
+      "fields": {"radius": "width"}
+    },
+    "sphere": {
+      "extends": "_area",
+      "match": {"shape": 0},
+      "set": {"shape": 0},
+      "requires": ["radius"],
+      "fields": {"radius": "width"}
+    },
+    "cylinder": {
+      "extends": "_area",
+      "match": {"shape": 3},
+      "set": {"shape": 3},
+      "oriented": true,
+      "requires": ["radius", "length"],
+      "fields": {"radius": "width", "length": "height"}
+    },
+    "sun": {
+      "objects": {"light": {"class": [2084191360, 164583279], "super": "light"}},
+      "set": {"targeted": false},
+      "aim": "-z",
+      "oriented": true,
+      "fields": {
+        "enabled": "on",
+        "cast_shadows": {
+          "fixed": true,
+          "why": "Corona lights always cast shadows; there is no per-light switch."
+        },
+        "size": "sizeMultiplier",
+        "kelvin": {"param": "blackbodyTemperature", "with": {"colorMode": 1}},
+        "rgb": {"param": "colorDirect", "with": {"colorMode": 0}}
+      },
+      "intensity": {
+        "units": {"renderer": {"param": "intensity"}},
+        "default": {"value": 1, "unit": "renderer"}
+      }
+    },
+    "moon": {
+      "objects": {"light": {"class": [1510691909, 443094578], "super": "light"}},
+      "set": {"targeted": false},
+      "aim": "-z",
+      "oriented": true,
+      "fields": {
+        "enabled": "on",
+        "cast_shadows": {
+          "fixed": true,
+          "why": "Corona lights always cast shadows; there is no per-light switch."
+        },
+        "size": "sizeMultiplier",
+        "rgb": "colorFilter"
+      },
+      "intensity": {
+        "units": {"renderer": {"param": "intensity"}},
+        "default": {"value": 1, "unit": "renderer"}
+      }
+    },
+    "hdri": {
+      "objects": {"image": {"class": [2881116036, 1699234372], "super": "texmap"}},
+      "set": {"enviroMapping": 0, "gamma": 1.0},
+      "environment": "@image",
+      "requires": ["path"],
+      "guards": [
+        {
+          "param": "bg.source",
+          "block": 0,
+          "id": 1057,
+          "equals": 0,
+          "message": "Select Corona's '3ds Max settings' environment route before binding a scene environment; single-map and LightMix overrides are preserved."
+        }
+      ],
+      "fields": {"path": {"param": "filename", "extensions": [".exr", ".hdr"]}},
+      "intensity": {
+        "units": {
+          "renderer": {
+            "fixed": 1,
+            "why": "The Corona scene environment has no multiplier; bind at 1 and edit the map's own intensity."
+          }
+        },
+        "default": {"value": 1, "unit": "renderer"}
+      }
+    }
+  },
+  "enums": [
+    {
+      "super": 48,
+      "class": [1110459877, 692869241],
+      "block": 0,
+      "id": 121,
+      "param": "shape",
+      "values": {"sphere": 0, "rectangle": 1, "disk": 2, "cylinder": 3},
+      "evidence": "Chaos coronaConverter.ms shipped with Corona 15 (units L3354, colorMode L3379, shape L3410-3546)"
+    },
+    {
+      "super": 48,
+      "class": [1110459877, 692869241],
+      "block": 0,
+      "id": 132,
+      "param": "colorMode",
+      "values": {"rendering_rgb": 0, "kelvin": 1, "texmap": 2},
+      "evidence": "Chaos coronaConverter.ms shipped with Corona 15 (units L3354, colorMode L3379, shape L3410-3546)"
+    },
+    {
+      "super": 48,
+      "class": [1110459877, 692869241],
+      "block": 0,
+      "id": 136,
+      "param": "intensityUnits",
+      "values": {"renderer": 0, "lm": 1, "cd": 2, "lx": 3},
+      "evidence": "Chaos coronaConverter.ms shipped with Corona 15 (units L3354, colorMode L3379, shape L3410-3546)"
+    },
+    {
+      "super": 48,
+      "class": [2084191360, 164583279],
+      "block": 0,
+      "id": 107,
+      "param": "colorMode",
+      "values": {"rendering_rgb": 0, "kelvin": 1, "realistic": 2},
+      "evidence": "Chaos coronaConverter.ms shipped with Corona 15 (L3744-3746: colorMode 0 = direct colour; PB2 default 2 = realistic)"
+    },
+    {
+      "super": 3088,
+      "class": [2881116036, 1699234372],
+      "block": 0,
+      "id": 102,
+      "param": "enviroMapping",
+      "values": {"spherical": 0, "screen": 1},
+      "evidence": "Chaos coronaConverter.ms shipped with Corona 15 (L45-46: CORONA_BITMAP_MAPPING_SPHERICAL=0, SCREEN=1)",
+      "complete": false
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "preset": 1,
+  "id": "art",
+  "label": "ART Renderer",
+  "extends": "photometric",
+  "renderers": [[2980325325, 2688898415]],
+  "verified": "3ds Max 2027: render settings written and read back; the sun's direction measured from a pole's shadow in two test renders.",
+  "notes": [
+    "ART stops at a noise target in decibels (higher is cleaner), a time limit, or an iteration count, whichever is enabled and reached first.",
+    "sun is a Sun Positioner in manual mode with a Physical Sun & Sky environment bound to it, placed by elevation and azimuth. It replaces the scene environment, so an existing one needs replace=True.",
+    "The sun is physically bright: without an exposure control (Rendering > Exposure Control > Physical Camera Exposure Control) the frame renders white. Add one, or lower the sun's intensity."
+  ],
+  "recipes": {
+    "sun": {
+      "objects": {
+        "light": {"class": [670970524, 1903123237], "super": "light"},
+        "sky": {"class": [573786548, 1445625227], "super": "texmap"}
+      },
+      "match": {"mode": 0},
+      "set": {"mode": 0, "sky.sun_position_object": "@light:node"},
+      "environment": "@sky",
+      "aim": "none",
+      "requires": ["elevation"],
+      "defaults": {"azimuth": 180},
+      "fields": {
+        "enabled": "sky.sun_enabled",
+        "elevation": {"param": "altitude_deg", "min": -90, "max": 90},
+        "azimuth": {"param": "azimuth_deg", "min": 0, "max": 360},
+        "north": "north_direction_deg",
+        "sky_intensity": {"param": "sky.sky_intensity", "min": 0},
+        "haze": {"param": "sky.haze", "min": 0},
+        "size": {"param": "sky.sun_disc_scale", "min": 0}
+      },
+      "intensity": {
+        "units": {"renderer": {"param": "sky.global_intensity"}},
+        "default": {"value": 1, "unit": "renderer"}
+      }
+    }
+  },
+  "settings": {
+    "noise_db": {"param": "quality_db", "min": 0, "max": 10000},
+    "time_limit_s": {"param": "time_in_seconds", "with": {"enable_time": true}, "min": 1},
+    "samples": {"param": "iterations", "with": {"enable_iterations": true}, "min": 1},
+    "denoise": "enable_noise_filter"
+  },
+  "quality": {
+    "draft": {"noise_db": 16},
+    "preview": {"noise_db": 24},
+    "final": {"noise_db": 34}
+  }
+}
