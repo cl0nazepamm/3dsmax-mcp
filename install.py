@@ -423,8 +423,6 @@ def agent_registration_command(agent: str, server_command: list[str],
         return [agent, "mcp", "add", "--scope", "user", "3dsmax-mcp", *env_args, "--", *server_command]
     if agent == "codex":
         return [agent, "mcp", "add", "3dsmax-mcp", "--", *server_command]
-    if agent == "gemini":
-        return [agent, "mcp", "add", "--scope", "user", "3dsmax-mcp", *server_command]
     return None
 
 
@@ -466,7 +464,7 @@ def app_mcp_config_paths() -> list[tuple[str, Path]]:
     targets = [(_claude_desktop_label(path), path) for path in claude_desktop_config_paths()]
     targets.extend(
         [
-            ("Gemini", Path.home() / ".gemini" / "settings.json"),
+            ("Antigravity", Path.home() / ".gemini" / "config" / "mcp_config.json"),
             ("Cursor", Path.home() / ".cursor" / "mcp.json"),
         ]
     )
@@ -594,12 +592,12 @@ def register_agents() -> bool:
     server_command = mcp_server_command(dir_str)
 
     agents = []
-    for name in ["claude", "codex", "gemini"]:
+    for name in ["claude", "codex"]:
         if shutil.which(name):
             agents.append(name)
 
     if not agents:
-        print("  No agents found on PATH (claude, codex, gemini)")
+        print("  No agents found on PATH (claude, codex)")
         print("  Manual registration:")
         manual = agent_registration_command("claude", server_command)
         print(f"    {subprocess.list2cmdline(manual or [])}")

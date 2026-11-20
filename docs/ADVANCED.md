@@ -51,7 +51,7 @@ After install, restart 3ds Max. The installer:
 1. Writes user config under `%LOCALAPPDATA%\3dsmax-mcp\` (an existing `mcp_config.ini` is kept, apart from the selected `[mcp] tool_profile`).
 2. Deploys an **ApplicationPlugins bundle** to `%ProgramData%\Autodesk\ApplicationPlugins\3dsmax-mcp\` (native GUPs in `Contents\bin\`, MAXScript in `Contents\scripts\`). 3ds Max must be closed.
 3. Copies the agent skill to `~/.claude/skills` and `~/.agents/skills`.
-4. Registers MCP entries where it can (Claude Desktop, Cursor, Gemini, CLI agents).
+4. Registers MCP entries where it can (Claude Desktop, Cursor, Antigravity, OpenCode, CLI agents).
 
 A copy of the bridge that a very old install left in the 3ds Max folder (`plugins\mcp_bridge.gup`) loads beside the bundle; `uninstall.py` removes it.
 
@@ -97,7 +97,7 @@ Config file locations:
 | Claude Desktop (standalone) | `%APPDATA%\Claude\claude_desktop_config.json` |
 | Claude Desktop (Microsoft Store) | `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude\claude_desktop_config.json` |
 | Cursor | `%USERPROFILE%\.cursor\mcp.json` |
-| Gemini | `%USERPROFILE%\.gemini\settings.json` |
+| Antigravity (editor and CLI) | `%USERPROFILE%\.gemini\config\mcp_config.json` |
 
 `install.py` registers both Claude Desktop locations when the Store package folder is present.
 

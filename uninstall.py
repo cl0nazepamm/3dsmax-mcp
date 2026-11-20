@@ -167,7 +167,9 @@ def clean_toml(text: str) -> str:
 
 def config_paths(home: Path) -> list[Path]:
     paths = [home / ".claude.json", home / ".claude/settings.json", home / ".claude/settings.local.json",
-             home / ".cursor/mcp.json", home / ".gemini/settings.json",
+             home / ".cursor/mcp.json", home / ".gemini/config/mcp_config.json",
+             home / ".gemini/settings.json",  # Gemini CLI, which earlier installs registered with
+
              Path(os.environ.get("CODEX_HOME", home / ".codex")) / "config.toml",
              *install.claude_desktop_config_paths(),
              ROOT / ".mcp.json", ROOT / ".claude/settings.json", ROOT / ".claude/settings.local.json",
