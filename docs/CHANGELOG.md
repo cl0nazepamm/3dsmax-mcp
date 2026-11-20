@@ -10,6 +10,7 @@ All notable changes to this project are documented here.
 - **Safe mode is gone.** It refused MAXScript that named one of six functions (`DOSCommand`, `ShellLaunch`, `deleteFile`, ...), which a script got around by building the name as a string, through .NET or through `python.import`, and it kept `run_python` scripts out of 3ds Max. A `safe_mode` line left in `mcp_config.ini` is ignored, and the `SAFE_MODE` error code and the `safeMode` field of bridge replies are gone. tyFlow, Data Channel and MCG script operators still need `allow_executable=true`.
 - `sdk.classes` takes the pattern first, like every other collection: `sdk.classes("OpenPBR*", kind="material")` failed. An old `sdk.classes("modifier", "*Bend*")` is refused as an unknown kind instead of listing nothing.
 - `run_python`'s manual says when a script should reach for `mx.tools.<name>`, `sdk` or `rt`, and that `rt`'s `.rotation` turns a node about the scene origin.
+- The Windows setup and `install.py` connect Antigravity, editor and CLI (`~/.gemini/config/mcp_config.json`), in place of Gemini CLI. Uninstalling still removes an entry an earlier install left in Gemini CLI's `settings.json`.
 
 ### Fixed
 
