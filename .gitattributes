@@ -1,0 +1,2 @@
+# Vendored libraries: GitHub collapses them in diffs and leaves them out of language stats.
+native/third_party/** linguist-generated=true
