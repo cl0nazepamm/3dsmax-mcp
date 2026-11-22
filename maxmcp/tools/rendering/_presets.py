@@ -12,6 +12,8 @@ Preset file:
      "extends": "photometric",                     another preset to start from (optional);
                                                    every preset also starts from "common"
      "renderers": [[2717442453, 1319335807]],      production renderer class IDs it serves
+     "fallback": true,                             also serves every renderer no preset names
+                                                   (one preset at most; optional)
      "verified": "how and where the bindings were checked",
      "notes": ["what an agent must know and cannot read from the fields"],
      "recipes": {"sphere": {...}, "sun": {...}, "hdri": {...}, "camera": {...}},
@@ -275,6 +277,14 @@ def _loaded(stamp: tuple[tuple[str, int], ...]) -> tuple[dict[str, dict[str, Any
             presets[preset_id] = _build(raw, preset_id)
         except PresetError as exc:
             found_problems.append(str(exc))
+    # The fallback flag is the file's own; a preset extending the fallback does not become one.
+    fallbacks = sorted(pid for pid in presets if raw[pid].get("fallback") is True)
+    for pid in presets:
+        presets[pid]["fallback"] = pid in fallbacks
+    if len(fallbacks) > 1:
+        found_problems.append(f"Presets {', '.join(fallbacks)} are all marked fallback; none serves unnamed renderers.")
+        for pid in fallbacks:
+            presets[pid]["fallback"] = False
     return presets, tuple(found_problems)
 
 
@@ -303,12 +313,16 @@ def problems() -> list[str]:
     return list(_loaded(_stamp())[1])
 
 
-def for_renderer(class_id: Any) -> dict[str, Any] | None:
-    """The preset that serves a production renderer class, or None."""
+def for_renderer(class_id: Any, fallback: bool = True) -> dict[str, Any] | None:
+    """The preset that serves a production renderer class: the one naming it, else the fallback
+    preset (unless fallback=False), else None."""
     wanted = tuple(class_id) if class_id is not None else ()
-    for preset in all_presets().values():
+    loaded = all_presets().values()
+    for preset in loaded:
         if wanted in preset["renderers"]:
             return preset
+    if fallback and wanted:
+        return next((preset for preset in loaded if preset["fallback"]), None)
     return None
 
 

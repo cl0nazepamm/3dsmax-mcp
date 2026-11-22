@@ -7,12 +7,6 @@
 #include <IViewPanel.h>
 #include <IViewPanelManager.h>
 #include <Graphics/IViewportViewSetting.h>
-#include <Graphics/ViewSystem/IActiveshadeFragment.h>
-#if MAX_SDK_VERSION >= 2024
-#include <Graphics/ViewSystem/IViewportFragmentManager.h>
-#endif
-#include <Rendering/IActiveShadeFragmentManager.h>
-#include <Rendering/IInteractiveRenderer.h>
 #include <hold.h>
 #include <GraphicsWindow.h>
 #include <IPerViewportFilter.h>
@@ -45,6 +39,9 @@ unsigned long long draws = 0;
 bool registered = false;
 bool ownsVFB = false;
 bool ownsCoronaVFB = false;
+// Arnold's GPU viewport (MAXtoA) has no per-view query: the agent knows it
+// switched it on in the owned view until it switches it off or the scene changes.
+bool ownsArnold = false;
 // V-Ray and Corona post their launches: a stopped renderer means the owned
 // session ended only after the session was seen rendering.
 bool previewStarted = false;
@@ -200,7 +197,7 @@ void SceneChanged(void*, NotifyInfo*) {
     // Handles and render-view IDs belong to the old scene. Never apply saved
     // settings through potentially reused handles after a load/reset.
     StopLeaseWatch();
-    ownsVFB=false; ownsCoronaVFB=false; previewStarted=false; previewRenderer=0; addedDenoiser=0;
+    ownsVFB=false; ownsCoronaVFB=false; ownsArnold=false; previewStarted=false; previewRenderer=0; addedDenoiser=0;
     previewProperties.clear(); previousElementsActive.clear(); previousDenoiserLayerActive.clear();
 }
 void RequireMainThread() {
@@ -280,27 +277,27 @@ public:
     }
 };
 
-MaxSDK::Graphics::IActiveShadeFragment* ShadeFragment() {
-    auto* view=View();
-    if(!view) return nullptr;
-#if MAX_SDK_VERSION >= 2024
-    auto* manager=MaxSDK::Graphics::GetIViewportFragmentManager();
-    return manager ? manager->GetActiveShadeFragment(*view) : nullptr;
-#else
+// MAXtoA's viewport renderer acts on the active view: on()/off() run only while
+// the owned view is active, so the user's views never switch.
+bool ArnoldInstalled() {
+    return RunMAXScript("(globalVars.isGlobal #MAXtoAViewportOps and MAXtoAViewportOps != undefined) as string")=="true";
+}
+void SetArnold(bool on) {
     ActivateOwnedView activation;
-    return MaxSDK::Graphics::GetActiveShadeFragmentFromActiveViewport();
-#endif
+    if(RunMAXScript(std::string("(MAXtoAViewportOps.")+(on ? "on" : "off")+"()) as string")!="true")
+        throw std::runtime_error(std::string("Arnold did not switch its viewport renderer ")+(on ? "on" : "off"));
+    ownsArnold=on;
 }
 
 struct RenderState {
-    bool activeShade=false, vrayAvailable=false;
+    bool arnold=false, arnoldAvailable=false, vrayAvailable=false;
     bool vfb=false;
     bool coronaAvailable=false, coronaVfb=false;
     int coronaType=0;
     std::string rendererClass;
     int vrayGlobal=0, cpu=0, gpu=0, cpuEnabled=0, gpuEnabled=0;
-    bool Rendered() const { return activeShade || cpu || gpu || vfb || coronaVfb; }
-    std::string Mode() const { return coronaVfb ? "corona_vfb" : vfb ? "vray_vfb" : cpu || gpu ? "vray_ipr" : activeShade ? "activeshade" : "shaded"; }
+    bool Rendered() const { return arnold || cpu || gpu || vfb || coronaVfb; }
+    std::string Mode() const { return coronaVfb ? "corona_vfb" : vfb ? "vray_vfb" : cpu || gpu ? "vray_ipr" : arnold ? "arnold" : "shaded"; }
 };
 
 RenderState QueryRenderState() {
@@ -318,7 +315,8 @@ RenderState QueryRenderState() {
             if(state.coronaVfb && state.coronaType==3) previewStarted=true;
         }
     }
-    if(auto* fragment=ShadeFragment()) state.activeShade=fragment->IsEnabled();
+    state.arnoldAvailable=ArnoldInstalled();
+    state.arnold=ownsArnold && state.arnoldAvailable;
     // Inspect installation before activating any viewport; no missing-function
     // dialogs and no script-defined global callbacks are installed.
     if(RunMAXScript("(globalVars.isGlobal #vrayViewportIPRControl and vrayViewportIPRControl != undefined) as string")!="true")
@@ -365,7 +363,7 @@ RenderState ReadRenderState() {
 }
 
 json RenderInfo(const RenderState& state) {
-    return {{"mode",state.Mode()},{"activeshade_enabled",state.activeShade},
+    return {{"mode",state.Mode()},{"arnold_available",state.arnoldAvailable},
         {"vray_viewport_api",state.vrayAvailable},{"vray_ipr_location",state.vrayGlobal},
         // Both CPU and GPU menu checks can be true for one CPU IPR session.
         {"production_renderer",state.rendererClass},
@@ -426,18 +424,16 @@ void StopOwnedRender() {
     }
     if(state.cpu) ToggleVRay(0,false);
     if(state.gpu) ToggleVRay(1,false);
-    if(auto* fragment=ShadeFragment(); fragment && fragment->IsEnabled()) fragment->Enable(false);
+    if(state.arnold) SetArnold(false);
+    ownsArnold=false;
     RestorePreviewSettings();
     ++generation;
 }
 
 void SetRenderMode(const json& p) {
     const std::string mode=p.value("mode","");
-    const std::string rendererSource=p.value("renderer_source","activeshade");
-    if(mode!="shaded" && mode!="activeshade" && mode!="vray_ipr" && mode!="vray_vfb" && mode!="corona_vfb")
-        throw std::runtime_error("mode must be shaded, activeshade, vray_ipr, vray_vfb, or corona_vfb");
-    if(rendererSource!="activeshade" && rendererSource!="production")
-        throw std::runtime_error("renderer_source must be activeshade or production");
+    if(mode!="shaded" && mode!="arnold" && mode!="vray_ipr" && mode!="vray_vfb" && mode!="corona_vfb")
+        throw std::runtime_error("mode must be shaded, arnold, vray_ipr, vray_vfb, or corona_vfb");
     if(theHold.Holding()) throw std::runtime_error(StructuredErrorPayload("USER_BUSY",
         "Finish the current user operation before switching interactive rendering",{{"retryable",true}}));
     LeaseBusy busy;
@@ -449,12 +445,6 @@ void SetRenderMode(const json& p) {
             throw std::runtime_error("RENDER_BUSY: Corona is already rendering outside this owned preview");
         if(state.vrayGlobal!=0 && !state.cpu && !state.gpu && !state.vfb)
             throw std::runtime_error("RENDER_BUSY: V-Ray IPR is running outside AGENT VIEWPORT; stop it there first");
-        auto* manager=static_cast<MaxSDK::IActiveShadeFragmentManager*>(GetCOREInterface(IACTIVE_SHADE_VIEWPORT_MANAGER_INTERFACE));
-        if(manager && manager->IsRunningInAtLeastOneViewport() && !state.activeShade)
-            throw std::runtime_error("RENDER_BUSY: ActiveShade is running in another viewport");
-        // The floating ActiveShade manager is separate from viewport fragments.
-        if(!state.activeShade && RunMAXScript("(local b=GetActiveShadeBitmap wait:false; local present=b!=undefined; if b!=undefined do close b; present as string)")=="true")
-            throw std::runtime_error("RENDER_BUSY: another ActiveShade session is running");
     }
     int engine=0;
     if(mode=="corona_vfb" && !state.coronaAvailable)
@@ -464,12 +454,8 @@ void SetRenderMode(const json& p) {
             throw std::runtime_error("UNSUPPORTED: select V-Ray or V-Ray GPU as the production renderer first");
         engine=state.rendererClass.find("GPU")!=std::string::npos || state.rendererClass=="VRayRT" ? 1 : 0;
     }
-    if(mode=="activeshade") {
-        auto* renderer=GetCOREInterface()->GetRenderer(rendererSource=="production" ? RS_Production : RS_IReshade);
-        if(!ShadeFragment() || !renderer || !renderer->GetIInteractiveRender() ||
-           MaxScriptVisibleClassName(renderer)=="Default_Scanline_Renderer")
-            throw std::runtime_error("UNSUPPORTED: the assigned renderer does not support viewport ActiveShade");
-    }
+    if(mode=="arnold" && !state.arnoldAvailable)
+        throw std::runtime_error("UNSUPPORTED: Arnold (MAXtoA) with its viewport renderer is not installed");
     StopOwnedRender();
     try {
         if(mode=="corona_vfb") {
@@ -505,13 +491,8 @@ void SetRenderMode(const json& p) {
                 RunMAXScript("vfbControl #show true; vrayStartIPR()");
             }
         }
-        else if(mode=="activeshade") {
-            auto* fragment=ShadeFragment();
-            if(!fragment) throw std::runtime_error("ActiveShade fragment is unavailable");
-            auto* renderer=GetCOREInterface()->GetRenderer(rendererSource=="production" ? RS_Production : RS_IReshade);
-            fragment->SetActiveShadeRenderer(renderer);
-            fragment->Enable(true);
-        } else {
+        else if(mode=="arnold") SetArnold(true);
+        else {
             if(auto* settings=static_cast<MaxSDK::Graphics::IViewportViewSetting*>(Get().GetInterface(IVIEWPORT_SETTINGS_INTERFACE_ID)))
                 settings->SetViewportVisualStyle(MaxSDK::Graphics::VisualStyleShaded);
         }
@@ -732,7 +713,7 @@ std::string Token(ViewExp& view, const RenderState* renderState=nullptr) {
     auto* settings=static_cast<MaxSDK::Graphics::IViewportViewSetting*>(view.GetInterface(IVIEWPORT_SETTINGS_INTERFACE_ID));
     if(settings) s << ':' << settings->GetViewportVisualStyle() << ':' << settings->GetShowEdgedFaces();
     const auto state=renderState ? *renderState : ReadRenderState();
-    s << ':' << state.activeShade << ':' << state.cpu << ':' << state.gpu;
+    s << ':' << state.arnold << ':' << state.cpu << ':' << state.gpu;
     // Stable deterministic token; navigation by either the user or agent invalidates it.
     uint64_t hash = 14695981039346656037ull;
     for (unsigned char ch : s.str()) { hash ^= ch; hash *= 1099511628211ull; }

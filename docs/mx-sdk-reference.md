@@ -2,7 +2,7 @@
 
 3ds Max for agents, bound from the SDK: the scene's nodes, parameters, modifiers, materials and animation, and modeling, viewport, file and plugin work on them. Lights, cameras and renders are mx.render_setup, the same on every renderer.
 
-Build `b20261111233756`, 3ds Max SDK 2027.
+Build `v2_0_1`, 3ds Max SDK 2027.
 
 ## Collections
 
@@ -381,8 +381,8 @@ The agent's floating AGENT VIEWPORT: navigate, pick and capture without touching
 - `.project(points: collections.abc.Sequence[_mx.Point3], capture: _mx.Capture | None = None) -> list[tuple[float, float, float] | None]`: Image positions (x, y, depth) of world points, x and y 0-1 from the top-left as pick takes them; None behind the eye; no occlusion test: project([(0, 0, 50)]...
 - `.ray(x: float, y: float, capture: _mx.Capture | None = None) -> tuple[_mx.Point3, _mx.Point3]`: World ray (origin, direction) through image point x, y (0-1 from the top-left).
 - `.release() -> None`: Stop any preview, hide the window and give the panel back; agent_viewport() opens it again.
-- `.render(mode: str, renderer: str = 'activeshade') -> None`: Interactive preview here: activeshade, vray_ipr, vray_vfb, corona_vfb, or shaded to stop; previews are progressive and block pick/ray/project until shaded: r...
-- `.render_mode` (str): The preview: shaded, activeshade, vray_ipr, vray_vfb or corona_vfb.
+- `.render(mode: str) -> None`: Interactive preview here: arnold (Arnold's GPU viewport renderer), vray_ipr, vray_vfb, corona_vfb, or shaded to stop; previews are progressive and block pick...
+- `.render_mode` (str): The preview: shaded, arnold, vray_ipr, vray_vfb or corona_vfb.
 - `.restore() -> None`: Show the minimized window again and redraw it.
 - `.window_state` (str): visible, minimized, hidden, offscreen, unavailable, or closed once released.
 - `.zoom(factor: float) -> None`: Move toward the target (factor < 1) or away (> 1); orthographic views scale.
@@ -930,5 +930,5 @@ A viewport, resolved on every call: the user's active view, or the AGENT VIEWPOR
 
 ## Values
 
-- `BUILD` = 'b20261111233756'
+- `BUILD` = 'v2_0_1'
 - `MAX_VERSION` = 2027

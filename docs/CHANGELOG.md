@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Added
+
+- **`render_setup` builds for Arnold**: rectangle, disk, sphere and cylinder Arnold Lights, a skydome HDRI with an Arnold image map, a sun (Sun Positioner with Physical Sun & Sky), the Physical camera and Camera (AA) samples with draft, preview and final levels.
+- **`agent_viewport(action="render", mode="arnold")`** switches on Arnold's GPU viewport renderer in the agent view only; captures read its image. `shaded` switches it off.
+
+### Changed
+
+- **The Scanline preset is the generic preset.** It serves Scanline and every renderer without a preset of its own with 3ds Max photometric lights and the Physical camera, so `render_setup` builds lights and cameras on any renderer. Such a renderer used to be refused.
+- **ActiveShade is gone from the agent viewport**: `mode="activeshade"` and `renderer_source` are refused, and `sdk`'s `agent_viewport().render()` takes the mode only. Previews are the renderers' own: Arnold's viewport renderer and the V-Ray and Corona frame buffers.
+
+### Fixed
+
+- `render_setup` and `plugin_patch` edit an existing Arnold Light, and a sun's sky while Arnold's viewport renderer runs. MAXtoA's renderer keeps a reference to every Arnold Light and the viewport renderer one to the environment map, and both counted as a second use, so every such edit failed with `SHARED_RESOURCE`. References a renderer holds, and ones nothing in the scene reaches, no longer count.
+- `mx.show` returns `agent_viewport` captures and `render_setup` renders with the reply. Both keep their image one level down (`capture`, `render`), so it returned `False` and attached nothing.
+
 ## [2.0.1] — 2026-11-20
 
 ### Changed

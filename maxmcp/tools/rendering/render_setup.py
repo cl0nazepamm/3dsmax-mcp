@@ -24,7 +24,9 @@ def render_setup(
     """Light, frame and render the scene: the same call on every renderer.
 
     The script names what it wants in neutral terms; the active renderer's preset turns
-    that into its own classes and parameters (Octane, FStorm, V-Ray, Corona, Scanline, ART).
+    that into its own classes and parameters (Octane, FStorm, V-Ray, Corona, ART). Any other
+    renderer, Scanline included, gets the generic preset: 3ds Max photometric lights and the
+    Physical camera, without sun, hdri or settings.
     Never write renderer-specific light classes by hand. Every argument is optional and
     only what is given changes, in one undo step, verified by readback:
 
@@ -77,9 +79,8 @@ def render_setup(
 
     A render that outlives its wait returns {"status": "running", "job": ...}: call
     render_setup(job=...) to wait again and never start it twice. Render only when the
-    user asked for one. A renderer without a preset is refused with the list of presets;
-    presets are JSON files, and one dropped into %LOCALAPPDATA%/3dsmax-mcp/renderers adds
-    a renderer without code.
+    user asked for one. Presets are JSON files, and one dropped into
+    %LOCALAPPDATA%/3dsmax-mcp/renderers adds or replaces a renderer without code.
     """
     asked = any(value is not None for value in (settings, lights, sun, environment, camera))
     if job:

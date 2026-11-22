@@ -522,6 +522,34 @@ json ExpectedValue(const json& value,const Created& created) {
     if(value.is_array()) { json out=json::array(); for(const auto& x:value) out.push_back(ExpectedValue(x,created)); return out; }
     return value;
 }
+// A dependent that is not a use of `target`: what keeps targets alive for
+// scripting/undo (pins, MAXScript wrappers, restore objects; all report
+// IsRealDependency=true in the live SDK), the scene inventory, Material Editor
+// slots, and a renderer's own references (MAXtoA keeps every Arnold Light in its
+// parameter blocks), which are bookkeeping like the scene inventory.
+bool Bookkeeping(ReferenceMaker* dep, ReferenceTarget* target) {
+    if(McpHost::UndoRecords::IsPin(dep)||dynamic_cast<MAXWrapper*>(dep)||
+        dynamic_cast<RestoreObj*>(dep)||!dep->IsRealDependency(target)||
+        !dynamic_cast<ReferenceTarget*>(dep)||
+        dep==GetCOREInterface()->GetSceneMtls()||
+        (dep->SuperClassID()==REF_MAKER_CLASS_ID&&dep->ClassID()==Class_ID(MEDIT_CLASS_ID,0))) return true;
+    if(dep->SuperClassID()==RENDERER_CLASS_ID) return true;
+    if(dep->SuperClassID()!=PARAMETER_BLOCK2_CLASS_ID) return false;
+    auto* owner=static_cast<IParamBlock2*>(static_cast<ReferenceTarget*>(dep))->GetOwner();
+    return owner&&owner->SuperClassID()==RENDERER_CLASS_ID;
+}
+// Whether a dependent leads to a node or the scene. One nothing in the scene
+// reaches (the environment wrapper Arnold's viewport renderer keeps) changes
+// nothing the scene shows, so it is not another use.
+bool ReachesScene(ReferenceMaker* dep, std::set<ReferenceMaker*>& seen) {
+    if(dep==GetCOREInterface()->GetScenePointer()||dep->SuperClassID()==BASENODE_CLASS_ID) return true;
+    if(!seen.insert(dep).second) return false;
+    auto* target=dynamic_cast<ReferenceTarget*>(dep); if(!target) return false;
+    DependentIterator it(target);
+    while(auto* next=it.Next())
+        if(!Bookkeeping(next,target)&&ReachesScene(next,seen)) return true;
+    return false;
+}
 bool Shared(Animatable* owner, json* evidence=nullptr, std::set<Animatable*>* visited=nullptr) {
     // A scene root is a terminal consumer, like a node. References to the
     // whole scene do not imply additional uses of each map inside that scene.
@@ -534,15 +562,8 @@ bool Shared(Animatable* owner, json* evidence=nullptr, std::set<Animatable*>* vi
     DependentIterator it(rt); int count=0;
     json consumers=json::array();
     while(auto* dep=it.Next()) {
-        // These keep targets alive for scripting/undo; they are not scene
-        // consumers. Both report IsRealDependency=true in the live SDK.
-        if(McpHost::UndoRecords::IsPin(dep)||dynamic_cast<MAXWrapper*>(dep)||
-            dynamic_cast<RestoreObj*>(dep)||!dep->IsRealDependency(rt)||
-            !dynamic_cast<ReferenceTarget*>(dep)||
-            dep==GetCOREInterface()->GetSceneMtls()||
-            (dep->SuperClassID()==REF_MAKER_CLASS_ID&&dep->ClassID()==Class_ID(MEDIT_CLASS_ID,0))) continue;
-        // Scene inventory and Material Editor slots expose existing maps;
-        // neither creates another shading/environment use.
+        std::set<ReferenceMaker*> seen;
+        if(Bookkeeping(dep,rt)||!ReachesScene(dep,seen)) continue;
         MSTR consumerName; dep->GetClassName(consumerName);
         consumers.push_back({{"owner_ref",OwnerRef(dep)},{"class_name",WideToUtf8(consumerName.data())}});
         if(++count>1) {

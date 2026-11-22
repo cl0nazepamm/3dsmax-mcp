@@ -85,7 +85,6 @@ def agent_viewport(
     start_minimized: bool = False,
     points: list[FloatList] | None = None,
     mode: str = "",
-    renderer_source: str = "activeshade",
     crop: IntList | None = None,
     capture_method: str = "auto",
 ) -> dict[str, Any]:
@@ -94,14 +93,14 @@ def agent_viewport(
     action: open | status | release | minimize | restore | frame | orbit | pan |
     zoom | ray | pick | project | render | capture | stop_capture.
     open reserves an unused floating panel once.
-    render requires mode=shaded|activeshade|vray_ipr|vray_vfb|corona_vfb. ActiveShade uses the assigned
-    ActiveShade renderer; renderer_source=production uses the production renderer
-    if it supports ActiveShade. vray_ipr uses the current V-Ray CPU/GPU renderer.
-    vray_vfb and corona_vfb open their renderer's VFB IPR locked to the agent view.
-    Corona requires the current production renderer and preserves its denoising settings. V-Ray previews temporarily
-    enable progressive IPR and a denoiser, restoring settings on stop. Other renderers
-    expose different denoisers; ActiveShade does not promise automatic denoising.
-    Existing renders in other views or the VFB are refused. shaded stops the owned preview.
+    render requires mode=shaded|arnold|vray_ipr|vray_vfb|corona_vfb. arnold switches on
+    Arnold's GPU viewport renderer (MAXtoA) in the agent view only, with the user's
+    Arnold Viewport settings (device, resolution divisor). vray_ipr uses the current
+    V-Ray CPU/GPU renderer. vray_vfb and corona_vfb open their renderer's VFB IPR
+    locked to the agent view. Corona requires the current production renderer and
+    preserves its denoising settings. V-Ray previews temporarily enable progressive IPR
+    and a denoiser, restoring settings on stop. Existing V-Ray or Corona renders in
+    other views or the VFB are refused. shaded stops the owned preview.
     capture chooses the agent viewport or visible VFB automatically. Optional crop
     [x,y,width,height] is relative to the VFB client area in physical pixels.
     stop_capture saves the current image first, then stops the owned preview.
@@ -139,14 +138,10 @@ def agent_viewport(
     if capture_method != "auto" and action not in {"capture", "stop_capture"}:
         raise ValueError("capture_method applies only to capture or stop_capture")
     if action == "render":
-        if mode not in {"shaded", "activeshade", "vray_ipr", "vray_vfb", "corona_vfb"}:
-            raise ValueError("render requires mode=shaded, activeshade, vray_ipr, vray_vfb, or corona_vfb")
+        if mode not in {"shaded", "arnold", "vray_ipr", "vray_vfb", "corona_vfb"}:
+            raise ValueError("render requires mode=shaded, arnold, vray_ipr, vray_vfb, or corona_vfb")
     elif mode:
         raise ValueError("mode is only valid for action=render")
-    if renderer_source not in {"activeshade", "production"}:
-        raise ValueError("renderer_source must be activeshade or production")
-    if renderer_source != "activeshade" and (action != "render" or mode != "activeshade"):
-        raise ValueError("renderer_source=production is only valid for ActiveShade")
     if type(start_minimized) is not bool:
         raise ValueError("start_minimized must be a boolean")
     if start_minimized and action!="open":
@@ -180,7 +175,7 @@ def agent_viewport(
     if expected_view: p["expected_view"]=expected_view
     if action=="open": p["start_minimized"]=start_minimized
     if points is not None: p["points"]=points
-    if action=="render": p.update(mode=mode, renderer_source=renderer_source)
+    if action=="render": p["mode"]=mode
     if action in {"capture", "stop_capture"}:
         state = json.loads(client.send_command('{"action":"status","source":"agent"}',
                                               cmd_type="native:agent_viewport")["result"])

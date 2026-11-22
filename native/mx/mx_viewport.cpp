@@ -720,15 +720,11 @@ void BindViewport(nb::module_& m) {
         }, "points"_a, "capture"_a = nb::none(),
            "Image positions (x, y, depth) of world points, x and y 0-1 from the top-left as pick takes them; "
            "None behind the eye; no occlusion test: project([(0, 0, 50)], cap).")
-        .def("render", [](const AgentViewRef&, const std::string& mode, const std::string& renderer) {
-            if (renderer != "activeshade" && renderer != "production")
-                throw BadParam("renderer must be 'activeshade' or 'production'");
-            if (renderer == "production" && mode != "activeshade")
-                throw BadParam("renderer='production' applies to mode='activeshade' only");
-            Agent("render", {{"mode", mode}, {"renderer_source", renderer}});
-        }, "mode"_a, "renderer"_a = "activeshade",
-           "Interactive preview here: activeshade, vray_ipr, vray_vfb, corona_vfb, or shaded to stop; previews are "
-           "progressive and block pick/ray/project until shaded: render('activeshade').")
+        .def("render", [](const AgentViewRef&, const std::string& mode) {
+            Agent("render", {{"mode", mode}});
+        }, "mode"_a,
+           "Interactive preview here: arnold (Arnold's GPU viewport renderer), vray_ipr, vray_vfb, corona_vfb, or "
+           "shaded to stop; previews are progressive and block pick/ray/project until shaded: render('arnold').")
         .def("minimize", [](const AgentViewRef&) { Agent("minimize"); }, "Park the window; restore() it before navigating or capturing.")
         .def("restore", [](const AgentViewRef&) { Agent("restore"); }, "Show the minimized window again and redraw it.")
         .def("release", [](const AgentViewRef&) { Agent("release"); },
@@ -739,7 +735,7 @@ void BindViewport(nb::module_& m) {
         }, "visible, minimized, hidden, offscreen, unavailable, or closed once released.")
         .def_prop_ro("render_mode", [](const AgentViewRef&) {
             return AgentState().value("render", json::object()).value("mode", "shaded");
-        }, "The preview: shaded, activeshade, vray_ipr, vray_vfb or corona_vfb.");
+        }, "The preview: shaded, arnold, vray_ipr, vray_vfb or corona_vfb.");
 
     m.def("viewport", [](const std::string& source) -> EitherViewport {
         const std::string which = Lower(source);

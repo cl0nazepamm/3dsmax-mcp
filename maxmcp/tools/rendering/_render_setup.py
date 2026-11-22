@@ -1078,7 +1078,9 @@ def describe() -> dict[str, Any]:
 # ── Applying ─────────────────────────────────────────────────────
 
 def _preset_id(renderer: dict[str, Any]) -> str | None:
-    return (presets.for_renderer(renderer["class_id"]) or {}).get("id")
+    """The id of the preset naming this renderer. The fallback names none, so it neither lists
+    every installed renderer as a switch choice nor makes its own id match them all."""
+    return (presets.for_renderer(renderer["class_id"], fallback=False) or {}).get("id")
 
 
 def _plain(text: str) -> str:

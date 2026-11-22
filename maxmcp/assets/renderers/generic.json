@@ -1,0 +1,12 @@
+{
+  "preset": 1,
+  "id": "generic",
+  "label": "Generic: 3ds Max photometric lights",
+  "extends": "photometric",
+  "renderers": [[1, 0]],
+  "fallback": true,
+  "verified": "3ds Max 2027 with Scanline, with the photometric recipes.",
+  "notes": [
+    "Serves Scanline, and every renderer without a preset of its own: 3ds Max photometric lights and the Physical camera. It binds no sun, hdri or render settings; render size and camera come from the render call."
+  ]
+}
