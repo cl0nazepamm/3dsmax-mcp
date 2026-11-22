@@ -567,6 +567,10 @@ class MaxClient:
             return transport
         return {**note, **(transport or {}), "retargeted_from": note["retargeted_from"]}
 
+    def pause(self, seconds: float) -> None:
+        """Wait while 3ds Max keeps running: its timers fire and its views repaint."""
+        time.sleep(seconds)
+
     @property
     def native_available(self) -> bool:
         """Check whether the native C++ bridge is currently available."""

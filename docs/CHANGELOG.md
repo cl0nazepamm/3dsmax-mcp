@@ -8,6 +8,7 @@ All notable changes to this project are documented here.
 
 - **`render_setup` builds for Arnold**: rectangle, disk, sphere and cylinder Arnold Lights, a skydome HDRI with an Arnold image map, a sun (Sun Positioner with Physical Sun & Sky), the Physical camera and Camera (AA) samples with draft, preview and final levels.
 - **`agent_viewport(action="render", mode="arnold")`** switches on Arnold's GPU viewport renderer in the agent view only; captures read its image. `shaded` switches it off.
+- **`agent_viewport(action="render", mode="octane_vfb")`** opens Octane's viewer locked to the agent view as a quick preview (256 samples, denoised; both restored on stop). A capture after the agent view moved locks the viewer to the new view first, and `converged` turns true when the viewer reports done. `capture_screen` takes `target="octane_vfb"`.
 
 ### Changed
 

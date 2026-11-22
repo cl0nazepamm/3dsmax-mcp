@@ -1251,8 +1251,8 @@ std::string NativeHandlers::CaptureScreen(const std::string& params, MCPBridgeGU
     const json p=json::parse(params);
     if(!p.is_object()) throw std::runtime_error("Expected object payload");
     const std::string target=p.value("target","screen");
-    if(target!="screen" && target!="vray_vfb" && target!="corona_vfb" && target!="fstorm_vfb" && target!="tyflow_editor")
-        throw std::runtime_error("target must be screen, vray_vfb, corona_vfb, fstorm_vfb or tyflow_editor");
+    if(target!="screen" && target!="vray_vfb" && target!="corona_vfb" && target!="fstorm_vfb" && target!="octane_vfb" && target!="tyflow_editor")
+        throw std::runtime_error("target must be screen, vray_vfb, corona_vfb, fstorm_vfb, octane_vfb or tyflow_editor");
     const int maxWidth=p.value("max_width",1600), maxHeight=p.value("max_height",0);
     if(maxWidth<0 || maxHeight<0 || maxWidth>8192 || maxHeight>8192)
         throw std::runtime_error("Capture maximum dimensions must be between 0 and 8192");

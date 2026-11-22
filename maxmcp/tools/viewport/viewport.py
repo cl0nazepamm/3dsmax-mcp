@@ -93,9 +93,13 @@ def agent_viewport(
     action: open | status | release | minimize | restore | frame | orbit | pan |
     zoom | ray | pick | project | render | capture | stop_capture.
     open reserves an unused floating panel once.
-    render requires mode=shaded|arnold|vray_ipr|vray_vfb|corona_vfb. arnold switches on
-    Arnold's GPU viewport renderer (MAXtoA) in the agent view only, with the user's
-    Arnold Viewport settings (device, resolution divisor). vray_ipr uses the current
+    render requires mode=shaded|arnold|octane_vfb|vray_ipr|vray_vfb|corona_vfb. arnold
+    switches on Arnold's GPU viewport renderer (MAXtoA) in the agent view only, with the
+    user's Arnold Viewport settings (device, resolution divisor). octane_vfb opens
+    Octane's viewer locked to the agent view, as a quick preview (256 samples, denoised;
+    restored on stop); it needs Octane as the production renderer, and a capture after
+    the agent view moved locks it to the new view first (the agent panel is Max's active
+    view for about a second). converged is true once the viewer reports done. vray_ipr uses the current
     V-Ray CPU/GPU renderer. vray_vfb and corona_vfb open their renderer's VFB IPR
     locked to the agent view. Corona requires the current production renderer and
     preserves its denoising settings. V-Ray previews temporarily enable progressive IPR
@@ -138,8 +142,8 @@ def agent_viewport(
     if capture_method != "auto" and action not in {"capture", "stop_capture"}:
         raise ValueError("capture_method applies only to capture or stop_capture")
     if action == "render":
-        if mode not in {"shaded", "arnold", "vray_ipr", "vray_vfb", "corona_vfb"}:
-            raise ValueError("render requires mode=shaded, arnold, vray_ipr, vray_vfb, or corona_vfb")
+        if mode not in {"shaded", "arnold", "octane_vfb", "vray_ipr", "vray_vfb", "corona_vfb"}:
+            raise ValueError("render requires mode=shaded, arnold, octane_vfb, vray_ipr, vray_vfb, or corona_vfb")
     elif mode:
         raise ValueError("mode is only valid for action=render")
     if type(start_minimized) is not bool:
@@ -177,19 +181,31 @@ def agent_viewport(
     if points is not None: p["points"]=points
     if action=="render": p["mode"]=mode
     if action in {"capture", "stop_capture"}:
-        state = json.loads(client.send_command('{"action":"status","source":"agent"}',
-                                              cmd_type="native:agent_viewport")["result"])
+        def agent_state(action_name: str) -> dict[str, Any]:
+            return json.loads(client.send_command(json.dumps({"action": action_name, "source": "agent"}),
+                                                  cmd_type="native:agent_viewport")["result"])
+        state = agent_state("status")
         render = state.get("render", {})
+        if render.get("capture_target") == "octane_vfb":
+            # Octane's viewer keeps the camera it was locked with: a lock in progress is
+            # waited out, and a moved agent view is locked again before the capture.
+            if render.get("session_state") != "starting":
+                state = agent_state("render_sync")
+            wait = state.get("wait_ms") or (2500 if state.get("render", {}).get("session_state") == "starting" else 0)
+            if wait:
+                client.pause(wait / 1000)
+                state = agent_state("status")
+            render = state.get("render", {})
         if render.get("session_state") == "starting":
             return {"status":"starting", "capture":None, "stopped":False,
                     "hint":"Read status after VFB startup, then capture; old VFB pixels are not this preview."}
-        if render.get("capture_target") in {"vray_vfb", "corona_vfb"}:
+        if render.get("capture_target") in {"vray_vfb", "corona_vfb", "octane_vfb"}:
             capture = capture_screen(enabled=True, target=render["capture_target"], crop=crop)
         else:
             if crop is not None:
                 raise ValueError("crop requires a VFB preview")
             capture = capture_viewport(source="agent", **({"capture_method":capture_method} if capture_method!="auto" else {}))
-        result = {"capture":capture, "render":render, "converged":None}
+        result = {"capture":capture, "render":render, "converged":render.get("converged")}
         if action == "stop_capture":
             stopped = agent_viewport(action="render", mode="shaded")
             result.update(captured_before_stop=True, stopped=stopped.get("render", {}).get("mode")=="shaded")
@@ -500,12 +516,12 @@ def capture_screen(
     target: str = "screen",
     crop: IntList | None = None,
 ) -> Any:
-    """Capture the desktop or an unobscured V-Ray, Corona or FStorm frame buffer.
+    """Capture the desktop or an unobscured V-Ray, Corona, FStorm or Octane frame buffer.
 
     Read the returned `file` path to view the capture. return_image is
     deprecated and ignored — the image is never inlined.
-    target=screen captures the primary monitor; vray_vfb, corona_vfb or fstorm_vfb
-    finds that renderer's open Frame Buffer (FStorm RT) in this Max process and captures its
+    target=screen captures the primary monitor; vray_vfb, corona_vfb, fstorm_vfb or octane_vfb
+    finds that renderer's open Frame Buffer (FStorm RT, Octane's viewer) in this Max process and captures its
     client area. crop=[x,y,width,height] is relative to that area in physical
     pixels BEFORE resizing, for example to exclude VFB toolbars. Window capture
     excludes overlapping windows without activating or uncovering the target.
@@ -515,8 +531,8 @@ def capture_screen(
     """
     if not enabled:
         raise ValueError("capture_screen is disabled by default; set enabled=True to allow fullscreen capture")
-    if target not in {"screen", "vray_vfb", "corona_vfb", "fstorm_vfb"}:
-        raise ValueError("target must be screen, vray_vfb, corona_vfb or fstorm_vfb")
+    if target not in {"screen", "vray_vfb", "corona_vfb", "fstorm_vfb", "octane_vfb"}:
+        raise ValueError("target must be screen, vray_vfb, corona_vfb, fstorm_vfb or octane_vfb")
     if crop is not None:
         _validate_screen_crop(crop)
 

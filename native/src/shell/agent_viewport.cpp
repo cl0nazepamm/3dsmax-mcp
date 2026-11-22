@@ -14,6 +14,7 @@
 #include <notify.h>
 #include <cmath>
 #include <iomanip>
+#include <memory>
 #include <sstream>
 
 using json = nlohmann::json;
@@ -42,6 +43,9 @@ bool ownsCoronaVFB = false;
 // Arnold's GPU viewport (MAXtoA) has no per-view query: the agent knows it
 // switched it on in the owned view until it switches it off or the scene changes.
 bool ownsArnold = false;
+bool ownsOctane = false;    // the agent opened Octane's viewer (see BeginOctaneLock)
+void CancelOctaneLock();
+HWND OctaneViewer();
 // V-Ray and Corona post their launches: a stopped renderer means the owned
 // session ended only after the session was seen rendering.
 bool previewStarted = false;
@@ -151,6 +155,7 @@ void RestoreRenderView() {
 // keeps the user's edits.
 void EndLease() {
     if(ownsVFB) RestoreRenderView();
+    if(ownsOctane) { CancelOctaneLock(); ownsOctane=false; }
     RestorePreviewSettings();
     ++generation;
 }
@@ -169,6 +174,11 @@ void CALLBACK WatchLease(HWND, UINT, UINT_PTR, DWORD) {
     if(leaseBusy || watchingLease || MainThreadExecutor::IsRunningWork()) return;
     watchingLease=true;
     try {
+        if(ownsOctane) {
+            if(!OctaneViewer() && CanEndLease()) { EndLease(); StopLeaseWatch(); }
+            watchingLease=false;
+            return;
+        }
         // A changed renderer or render view is reported by the next agent call.
         auto* renderer=GetCOREInterface()->GetRenderer(RS_Production);
         const bool ours=ownsVFB ? VFBViewIsOurs() : renderer && Animatable::GetHandleByAnim(renderer)==previewRenderer;
@@ -197,7 +207,8 @@ void SceneChanged(void*, NotifyInfo*) {
     // Handles and render-view IDs belong to the old scene. Never apply saved
     // settings through potentially reused handles after a load/reset.
     StopLeaseWatch();
-    ownsVFB=false; ownsCoronaVFB=false; ownsArnold=false; previewStarted=false; previewRenderer=0; addedDenoiser=0;
+    CancelOctaneLock();
+    ownsVFB=false; ownsCoronaVFB=false; ownsArnold=false; ownsOctane=false; previewStarted=false; previewRenderer=0; addedDenoiser=0;
     previewProperties.clear(); previousElementsActive.clear(); previousDenoiserLayerActive.clear();
 }
 void RequireMainThread() {
@@ -277,6 +288,85 @@ public:
     }
 };
 
+// OctaneRender's viewer (OctaneMaxFPI), as observed with Octane 2026.6; the plugin
+// documents none of these integers. Window state 1 opens the viewer and starts
+// rendering, 0 closes it (the state reads 1 afterwards, so the window is looked
+// up instead). Control 4 locks the viewer to the viewport active when it is set,
+// and freezes that camera; control 5 pauses. The viewer takes up a newly active
+// view only after a moment, so a lock is set by a timer one second after the
+// owned view became active, and the user's view is given back then.
+constexpr int kOctaneLock=4;
+std::string octaneCamera;   // the agent camera the viewer is locked to
+std::unique_ptr<ActivateOwnedView> octaneActivation;
+UINT_PTR octaneTimer=0;
+
+bool OctaneSelected() {
+    auto* renderer=GetCOREInterface()->GetRenderer(RS_Production);
+    return renderer && renderer->ClassID()==Class_ID(2717442453u,1319335807u) &&
+        RunMAXScript("(globalVars.isGlobal #OctaneMaxFPI and OctaneMaxFPI != undefined) as string")=="true";
+}
+BOOL CALLBACK FindOctaneViewer(HWND window, LPARAM found) {
+    DWORD process=0; GetWindowThreadProcessId(window,&process);
+    if(process!=GetCurrentProcessId() || !IsWindowVisible(window)) return TRUE;
+    wchar_t caption[256]{}, windowClass[64]{};
+    GetWindowTextW(window,caption,256); GetClassNameW(window,windowClass,64);
+    if(std::wstring(windowClass)!=L"#32770" || std::wstring(caption).rfind(L"OctaneRender Viewport",0)!=0) return TRUE;
+    *reinterpret_cast<HWND*>(found)=window;
+    return FALSE;
+}
+HWND OctaneViewer() { HWND found=nullptr; EnumWindows(FindOctaneViewer,reinterpret_cast<LPARAM>(&found)); return found; }
+std::wstring OctaneTitle() {
+    wchar_t caption[256]{}; if(HWND w=OctaneViewer()) GetWindowTextW(w,caption,256); return caption;
+}
+void OctaneCall(const std::string& call) {
+    if(RunMAXScript("(OctaneMaxFPI."+call+") as string")!="1")
+        throw std::runtime_error("Octane refused "+call);
+}
+std::string CameraKey(ViewExp& view) {
+    Matrix3 tm; view.GetAffineTM(tm);
+    std::ostringstream s; s << std::setprecision(9) << view.GetViewType() << ':' << view.GetFOV();
+    for(int r=0;r<4;++r) for(int c=0;c<3;++c) s << ':' << tm.GetRow(r)[c];
+    s << ':' << view.GetVPWorldWidth(orbitTarget) << ':' << view.getGW()->getWinSizeX() << ':' << view.getGW()->getWinSizeY();
+    return s.str();
+}
+void CancelOctaneLock() {
+    if(octaneTimer) KillTimer(nullptr,octaneTimer);
+    octaneTimer=0;
+    octaneActivation.reset(); // gives the user's panel, view and focus back
+}
+void CALLBACK FinishOctaneLock(HWND, UINT, UINT_PTR, DWORD) {
+    if(octaneTimer) KillTimer(nullptr,octaneTimer);
+    octaneTimer=0;
+    try {
+        if(ownsOctane && View() && OctaneViewer()) {
+            OctaneCall("ViewportSetControlState "+std::to_string(kOctaneLock)+" 1");
+            octaneCamera=CameraKey(*View());
+        }
+    } catch(...) { OutputDebugStringW(L"3dsmax-mcp: Octane viewer lock failed\n"); }
+    octaneActivation.reset();
+    ++generation;
+}
+// Activate the owned view and unlock (opening the viewer first when asked);
+// FinishOctaneLock locks it and restores the user's view a second later.
+void BeginOctaneLock(bool open) {
+    if(octaneTimer) return;
+    octaneActivation=std::make_unique<ActivateOwnedView>();
+    try {
+        if(open) OctaneCall("ViewportSetWindowState 1");
+        else OctaneCall("ViewportSetControlState "+std::to_string(kOctaneLock)+" 0");
+        if(!(octaneTimer=SetTimer(nullptr,0,1000,FinishOctaneLock)))
+            throw std::runtime_error("Could not schedule the Octane viewer lock");
+    } catch(...) { CancelOctaneLock(); throw; }
+}
+void StopOctane() {
+    CancelOctaneLock();
+    if(ownsOctane && OctaneViewer()) {
+        OctaneCall("ViewportSetControlState "+std::to_string(kOctaneLock)+" 0");
+        OctaneCall("ViewportSetWindowState 0");
+    }
+    ownsOctane=false; octaneCamera.clear();
+}
+
 // MAXtoA's viewport renderer acts on the active view: on()/off() run only while
 // the owned view is active, so the user's views never switch.
 bool ArnoldInstalled() {
@@ -291,13 +381,15 @@ void SetArnold(bool on) {
 
 struct RenderState {
     bool arnold=false, arnoldAvailable=false, vrayAvailable=false;
+    bool octane=false, octaneAvailable=false, octaneLocking=false;
+    std::wstring octaneTitle;
     bool vfb=false;
     bool coronaAvailable=false, coronaVfb=false;
     int coronaType=0;
     std::string rendererClass;
     int vrayGlobal=0, cpu=0, gpu=0, cpuEnabled=0, gpuEnabled=0;
-    bool Rendered() const { return arnold || cpu || gpu || vfb || coronaVfb; }
-    std::string Mode() const { return coronaVfb ? "corona_vfb" : vfb ? "vray_vfb" : cpu || gpu ? "vray_ipr" : arnold ? "arnold" : "shaded"; }
+    bool Rendered() const { return arnold || octane || cpu || gpu || vfb || coronaVfb; }
+    std::string Mode() const { return octane ? "octane_vfb" : coronaVfb ? "corona_vfb" : vfb ? "vray_vfb" : cpu || gpu ? "vray_ipr" : arnold ? "arnold" : "shaded"; }
 };
 
 RenderState QueryRenderState() {
@@ -317,6 +409,10 @@ RenderState QueryRenderState() {
     }
     state.arnoldAvailable=ArnoldInstalled();
     state.arnold=ownsArnold && state.arnoldAvailable;
+    state.octaneAvailable=OctaneSelected();
+    state.octane=ownsOctane && state.octaneAvailable;
+    state.octaneLocking=octaneTimer!=0;
+    if(state.octane) state.octaneTitle=OctaneTitle();
     // Inspect installation before activating any viewport; no missing-function
     // dialogs and no script-defined global callbacks are installed.
     if(RunMAXScript("(globalVars.isGlobal #vrayViewportIPRControl and vrayViewportIPRControl != undefined) as string")!="true")
@@ -344,6 +440,7 @@ RenderState QueryRenderState() {
 // seen rendering. The owned view's V-Ray menu check is synchronous: unchecked,
 // the viewport IPR has ended or never began.
 bool LeaseEnded(const RenderState& state) {
+    if(ownsOctane) return !state.octaneLocking && !OctaneViewer();
     if(ownsCoronaVFB) return state.coronaVfb && state.coronaType==0 && previewStarted;
     if(ownsVFB) return state.vfb && state.vrayGlobal==0 && previewStarted;
     return previewRenderer && state.vrayAvailable && !state.cpu && !state.gpu;
@@ -367,15 +464,17 @@ json RenderInfo(const RenderState& state) {
         {"vray_viewport_api",state.vrayAvailable},{"vray_ipr_location",state.vrayGlobal},
         // Both CPU and GPU menu checks can be true for one CPU IPR session.
         {"production_renderer",state.rendererClass},
-        {"capture_target",state.coronaVfb ? "corona_vfb" : state.vfb ? "vray_vfb" : "agent"},
+        {"capture_target",state.octane ? "octane_vfb" : state.coronaVfb ? "corona_vfb" : state.vfb ? "vray_vfb" : "agent"},
+        {"octane_available",state.octaneAvailable},
         // A stopped VFB session still shows here only while its lease waits for CanEndLease.
-        {"session_state",state.coronaVfb ? (state.coronaType==3 ? "running" : previewStarted ? "stopped" : "starting") : state.vfb ? (state.vrayGlobal==1 ? "running" : previewStarted ? "stopped" : "starting") : state.Rendered() ? "running" : "stopped"},
+        {"session_state",state.octane ? (state.octaneLocking ? "starting" : "running") : state.coronaVfb ? (state.coronaType==3 ? "running" : previewStarted ? "stopped" : "starting") : state.vfb ? (state.vrayGlobal==1 ? "running" : previewStarted ? "stopped" : "starting") : state.Rendered() ? "running" : "stopped"},
         {"corona_available",state.coronaAvailable},{"corona_render_type",state.coronaType},
         {"progressive_requested",previewRenderer!=0},{"denoiser_requested",previewRenderer!=0 && !ownsCoronaVFB},
         {"vray_cpu_available",state.cpuEnabled!=0},{"vray_gpu_available",state.gpuEnabled!=0},
         {"targeting_supported",!state.Rendered()},
         {"image_current",state.Rendered() ? json(nullptr) : json(true)},
-        {"converged",nullptr}};
+        // Octane's viewer title ends its run with "Rendering Done".
+        {"converged",state.octane && !state.octaneLocking ? json(state.octaneTitle.find(L"Rendering Done")!=std::wstring::npos) : json(nullptr)}};
 }
 
 void ToggleVRay(int engine, bool desired) {
@@ -426,14 +525,15 @@ void StopOwnedRender() {
     if(state.gpu) ToggleVRay(1,false);
     if(state.arnold) SetArnold(false);
     ownsArnold=false;
+    StopOctane();
     RestorePreviewSettings();
     ++generation;
 }
 
 void SetRenderMode(const json& p) {
     const std::string mode=p.value("mode","");
-    if(mode!="shaded" && mode!="arnold" && mode!="vray_ipr" && mode!="vray_vfb" && mode!="corona_vfb")
-        throw std::runtime_error("mode must be shaded, arnold, vray_ipr, vray_vfb, or corona_vfb");
+    if(mode!="shaded" && mode!="arnold" && mode!="octane_vfb" && mode!="vray_ipr" && mode!="vray_vfb" && mode!="corona_vfb")
+        throw std::runtime_error("mode must be shaded, arnold, octane_vfb, vray_ipr, vray_vfb, or corona_vfb");
     if(theHold.Holding()) throw std::runtime_error(StructuredErrorPayload("USER_BUSY",
         "Finish the current user operation before switching interactive rendering",{{"retryable",true}}));
     LeaseBusy busy;
@@ -454,6 +554,10 @@ void SetRenderMode(const json& p) {
             throw std::runtime_error("UNSUPPORTED: select V-Ray or V-Ray GPU as the production renderer first");
         engine=state.rendererClass.find("GPU")!=std::string::npos || state.rendererClass=="VRayRT" ? 1 : 0;
     }
+    if(mode=="octane_vfb" && !state.octaneAvailable)
+        throw std::runtime_error("UNSUPPORTED: select Octane as the production renderer first");
+    if(mode=="octane_vfb" && OctaneViewer() && !state.octane)
+        throw std::runtime_error("RENDER_BUSY: Octane's viewer is already open; close it first");
     if(mode=="arnold" && !state.arnoldAvailable)
         throw std::runtime_error("UNSUPPORTED: Arnold (MAXtoA) with its viewport renderer is not installed");
     StopOwnedRender();
@@ -492,6 +596,14 @@ void SetRenderMode(const json& p) {
             }
         }
         else if(mode=="arnold") SetArnold(true);
+        else if(mode=="octane_vfb") {
+            // A quick preview: few samples, denoised; both come back on stop.
+            previewRenderer=Animatable::GetHandleByAnim(GetCOREInterface()->GetRenderer(RS_Production));
+            LeaseProperty(previewRenderer,"kernel_maxSamples","256");
+            LeaseProperty(previewRenderer,"viewcam_denoiser_enab","true");
+            ownsOctane=true; octaneCamera.clear();
+            BeginOctaneLock(true);
+        }
         else {
             if(auto* settings=static_cast<MaxSDK::Graphics::IViewportViewSetting*>(Get().GetInterface(IVIEWPORT_SETTINGS_INTERFACE_ID)))
                 settings->SetViewportVisualStyle(MaxSDK::Graphics::VisualStyleShaded);
@@ -975,6 +1087,13 @@ json Execute(const json& p) {
     }
     Get();
     if(p.contains("expected_view") && p.at("expected_view")!=Token(Get())) throw std::runtime_error("STALE_VIEW: capture again before targeting");
+    if(action=="render_sync") {
+        // Octane's viewer keeps the camera it was locked with: lock it to the agent
+        // camera again when that moved. wait_ms covers the lock and a first pass.
+        if(ownsOctane && !octaneTimer && OctaneViewer() && CameraKey(Get())!=octaneCamera) BeginOctaneLock(false);
+        json out=Snapshot(); out["resyncing"]=octaneTimer!=0; out["wait_ms"]=octaneTimer ? 2500 : 0;
+        return out;
+    }
     if(action=="render") SetRenderMode(p);
     else if(action=="set") Configure(p);
     else if(action=="frame") {

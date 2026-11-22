@@ -16,6 +16,10 @@ inline bool MatchesVfb(const std::string& target, std::wstring title, std::wstri
         return windowClass==L"#32770" && title.rfind(L"fstorm rt: samples ",0)==0 &&
             title.find(L",  resolution ")!=std::wstring::npos && title.find(L",  zoom ")!=std::wstring::npos;
     }
+    if(target=="octane_vfb") {
+        // OctaneRender's viewer: "OctaneRender Viewport - Rendering Done - ", a native dialog.
+        return windowClass==L"#32770" && title.rfind(L"octanerender viewport",0)==0;
+    }
     if(target=="tyflow_editor") {
         // "<flow name> : [tyFlow PRO v1.234 Editor]", a native dialog.
         return windowClass==L"#32770" && title.find(L" : [tyflow ")!=std::wstring::npos &&

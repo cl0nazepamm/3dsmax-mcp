@@ -28,6 +28,16 @@ class InProcessClient(MaxClient):
     def native_available(self) -> bool:
         return True
 
+    def pause(self, seconds: float) -> None:
+        # The caller holds Max's main thread, so a sleep would stop Max's timers and
+        # repaints: process its posted messages while waiting.
+        import pymxs
+
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            pymxs.runtime.windows.processPostedMessages()
+            time.sleep(0.02)
+
     def send_command(
         self,
         command: str,
