@@ -88,11 +88,12 @@ IMAGE_LIMIT = 4
 def show(image: Any) -> bool:
     """Return an image file with this script's reply, so you see it without reading the file.
 
-    image: a path, or a result dict with a `file` (a capture or a render). At most four
-    images per script are returned; False when this one is not (no script is running, the
+    image: a path, or a tool result holding one: a capture or render with a `file`, or a result
+    that wraps one under `capture` (agent_viewport capture) or `render` (render_setup). At most
+    four images per script are returned; False when this one is not (no script is running, the
     limit is reached, or it is not a path). render_setup shows its renders by itself.
     """
-    path = image.get("file") if isinstance(image, dict) else image
+    path = _image_path(image)
     run = getattr(_local, "run", None)
     if run is None or not isinstance(path, (str, bytes)) and not hasattr(path, "__fspath__"):
         return False
@@ -103,6 +104,19 @@ def show(image: Any) -> bool:
         return False
     run.images.append(text)
     return True
+
+
+def _image_path(image: Any) -> Any:
+    """The image path in a path or a tool result; agent_viewport and render_setup nest theirs."""
+    if not isinstance(image, dict):
+        return image
+    if image.get("file"):
+        return image["file"]
+    for key in ("capture", "render"):
+        inner = image.get(key)
+        if isinstance(inner, dict) and inner.get("file"):
+            return inner["file"]
+    return None
 
 
 def call(tool: str, /, **arguments: Any) -> Any:
